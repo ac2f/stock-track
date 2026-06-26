@@ -33,6 +33,11 @@ export class CreatePurchaseDto {
   @IsUUID()
   vehicleId?: string;
 
+  // Malların gireceği depo; verilmezse varsayılan (Merkez) depo.
+  @IsOptional()
+  @IsUUID()
+  warehouseId?: string;
+
   // Belirtilmezse satın alma tarihi 'şimdi' kabul edilir.
   @IsOptional()
   @IsDateString()

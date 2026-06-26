@@ -1,6 +1,7 @@
 import { Column, Entity, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { MaterialCategory } from '../../../common/enums/material-category.enum';
+import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { MaterialPlate } from './material-plate.entity';
 
 /**
@@ -17,6 +18,18 @@ export class MaterialTemplate extends BaseEntity {
 
   @Column({ type: 'enum', enum: MaterialCategory })
   category: MaterialCategory;
+
+  /**
+   * Bu malzemenin nasıl ölçüldüğü/faturalandığı.
+   * AREA (tabaka, m²), LENGTH (rulo/şerit, metre), PIECE (adet), WEIGHT (kg).
+   */
+  @Column({
+    name: 'measurement_type',
+    type: 'enum',
+    enum: MeasurementType,
+    default: MeasurementType.AREA,
+  })
+  measurementType: MeasurementType;
 
   @Column({ name: 'default_brand', nullable: true })
   defaultBrand?: string;

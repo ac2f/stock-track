@@ -112,3 +112,74 @@ Havale:
 ```
 
 Yanıt: `{ payment, customer: { currentBalance } }` — kalan borç anında döner.
+
+---
+
+## v2 Uç Noktaları (çoklu depo/döviz · satış/konsinye · rapor · bildirim)
+
+### Warehouses (Depolar)
+| Metot | Yol | Yetki |
+|-------|-----|-------|
+| POST/PATCH/DELETE | `/warehouses(/:id)` | 👔 |
+| GET | `/warehouses` | 👥 |
+
+### Exchange Rates (Döviz)
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| POST | `/exchange-rates` | 👔 | `{ quoteCurrency, rate }` — 1 quote = rate × baz |
+| GET | `/exchange-rates` | 👥 | Tanımlı kurlar |
+| GET | `/exchange-rates/convert?amount=&from=&to=` | 👥 | Anlık çevirim |
+
+### Materials (güncellenen)
+- `POST /material-templates` artık `measurementType` (area/length/piece/weight) alır.
+- `POST /plates` rulo/şerit için `measurementType=length`, `unitOfMeasure`, `attributes` (yükseklik/malzeme) ile;
+  en/boy yalnızca `area` tipinde zorunlu. Açılış stoğu `warehouseId`'ye yazılır.
+- `GET /plates` filtreleri: `?warehouseId=&ownerCustomerId=&measurementType=` eklendi.
+- `GET /plates/:id/stock-levels` — depo/sahip bazlı stok (konsinye dahil).
+- Tedarikçi fiyatında `unit=per_meter` desteklenir.
+
+### Processing (güncellenen)
+`POST /processing` artık birim-farkında:
+```json
+{ "plateId": "…", "customerId": "…", "billingUnit": "length",
+  "lengthMeters": 12.5, "quantity": 1, "overrideRatePerUnit": 40, "currency": "TRY" }
+```
+`billingUnit` verilmezse malzemenin ölçüm tipinden alınır. `area`→en/boy, `length`→`lengthMeters`.
+
+### Sales (Satış & Konsinye)
+| Metot | Yol | Yetki |
+|-------|-----|-------|
+| POST | `/sales` | 🧑‍🔧 |
+| GET | `/sales`, `/sales/:id` | 👥 |
+
+`POST /sales` gövdesi (kendi stok + üçüncü kişi komisyon karışık):
+```json
+{
+  "buyerCustomerId": "…",
+  "ownerCustomerId": "…",
+  "warehouseId": "…",
+  "currency": "TRY",
+  "items": [
+    { "plateId": "…", "quantity": 2, "unitPrice": 500, "stockSource": "business" },
+    { "plateId": "…", "quantity": 1, "unitPrice": 1000, "stockSource": "third_party_untracked",
+      "ownerSettlement": "commission_percent", "commissionPercent": 15 }
+  ]
+}
+```
+Yanıt: `{ sale, buyerBalance, ownerBalance }` — alıcı borçlanır, sahip alacaklanır, kâr = satış − sahip payı.
+
+Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direction": "outgoing"` eklenir.
+
+### Reports (Mali Raporlar — 👔 OWNER)
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/reports/dashboard` | KPI özeti (alacak/borç, tahsilat, ciro, kritik stok) |
+| GET | `/reports/aging` | Cari yaşlandırma (0–30/31–60/61–90/90+) |
+| GET | `/reports/profit-loss?from=&to=` | Gelir-gider / kâr-zarar |
+| GET | `/reports/stock-value?warehouseId=` | Stok değeri (depo + konsinye sahip kırılımı) |
+| GET | `/reports/top-debtors`, `/reports/top-creditors` | En borçlu/alacaklı |
+
+### Notifications (Bildirim — 👔 OWNER)
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/notifications?limit=` | Gönderim defteri (Log + Telegram) |

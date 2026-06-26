@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsNumber,
   IsObject,
   IsOptional,
@@ -7,14 +8,27 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import {
+  MeasurementType,
+  UnitOfMeasure,
+} from '../../../common/enums/measurement-type.enum';
 
 /**
- * Plaka oluşturma. Yalnızca templateId zorunludur; en/boy/kalınlık/marka/renk
- * verilmezse şablonun varsayılanlarından miras alınır (servis katmanında).
+ * Stok kalemi oluşturma. Yalnızca templateId zorunludur; ölçüm tipi, birim,
+ * en/boy/kalınlık/marka/renk verilmezse şablonun varsayılanlarından miras alınır.
+ * Rulo/şerit (LENGTH) malzemede en/boy gerekmez; yükseklik/malzeme `attributes`'ta.
  */
 export class CreatePlateDto {
   @IsUUID()
   templateId: string;
+
+  @IsOptional()
+  @IsEnum(MeasurementType)
+  measurementType?: MeasurementType;
+
+  @IsOptional()
+  @IsEnum(UnitOfMeasure)
+  unitOfMeasure?: UnitOfMeasure;
 
   @IsOptional()
   @IsString()
@@ -56,10 +70,16 @@ export class CreatePlateDto {
   @IsObject()
   attributes?: Record<string, unknown>;
 
+  // Açılış stoğu (opsiyonel). Verilirse ilgili depoya işletme stoğu olarak yazılır.
   @IsOptional()
   @IsNumber()
   @Min(0)
   quantityInStock?: number;
+
+  // Açılış stoğunun gireceği depo; verilmezse varsayılan (Merkez) depo.
+  @IsOptional()
+  @IsUUID()
+  warehouseId?: string;
 
   @IsOptional()
   @IsNumber()

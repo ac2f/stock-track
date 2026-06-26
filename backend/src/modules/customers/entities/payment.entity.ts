@@ -1,15 +1,19 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
+import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 import { User } from '../../users/entities/user.entity';
 import { BankAccount } from '../../bank-accounts/entities/bank-account.entity';
 import { Customer } from './customer.entity';
 
 /**
- * Ödeme (tahsilat).
+ * Ödeme (tahsilat/ödeme).
  * İş kuralı (serviste zorunlu kılınır):
- *  - method = cash          → receivedBy (parayı teslim alan çalışan) ZORUNLU.
- *  - method = bank_transfer → bankAccount (hedef hesap) ZORUNLU.
+ *  - method = cash          → receivedBy (parayı teslim alan/veren çalışan) ZORUNLU.
+ *  - method = bank_transfer → bankAccount (hesap) ZORUNLU.
+ * Yön:
+ *  - INCOMING → müşteriden tahsilat (borç azalır).
+ *  - OUTGOING → malzeme sahibine ödeme (alacağı azalır).
  */
 @Entity('payments')
 export class Payment extends BaseEntity {
@@ -22,8 +26,25 @@ export class Payment extends BaseEntity {
   @Column({ name: 'customer_id' })
   customerId: string;
 
+  @Column({
+    type: 'enum',
+    enum: PaymentDirection,
+    default: PaymentDirection.INCOMING,
+  })
+  direction: PaymentDirection;
+
   @Column({ type: 'numeric', precision: 14, scale: 2 })
   amount: number;
+
+  // Para birimi (yabancı para ise baz tutara çevrilir).
+  @Column({ length: 3, default: 'TRY' })
+  currency: string;
+
+  @Column({ name: 'exchange_rate', type: 'numeric', precision: 18, scale: 6, default: 1 })
+  exchangeRate: number;
+
+  @Column({ name: 'base_amount', type: 'numeric', precision: 14, scale: 2 })
+  baseAmount: number;
 
   @Column({ name: 'payment_date', type: 'timestamptz' })
   paymentDate: Date;

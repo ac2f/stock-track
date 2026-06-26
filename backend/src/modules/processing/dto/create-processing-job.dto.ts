@@ -2,22 +2,26 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   Min,
 } from 'class-validator';
+import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 /**
  * İşleme kaydı oluşturma.
  *
- * m² birim fiyatı için öncelik sırası:
- *   1) overrideRatePerM2 (işlem anında DİNAMİK girilen değer) — verilirse bu kullanılır.
- *   2) ratePresetId (önceden tanımlı SABİT şablon).
- *   3) sistem varsayılanı (config: DEFAULT_RATE_PER_M2).
+ * Birim fiyat önceliği: overrideRatePerUnit (dinamik) > ratePresetId (şablon) >
+ * sistem varsayılanı (config).
  *
- * En/boy verilmezse plakanın ebadından alınır.
+ * Faturalama birimi (billingUnit) verilmezse malzemenin ölçüm tipinden alınır:
+ *  - AREA   → en/boy gerekir (verilmezse plakadan); m² = en×boy×adet
+ *  - LENGTH → lengthMeters gerekir; metre = lengthMeters×adet  (kutu harf)
+ *  - PIECE  → adet
  */
 export class CreateProcessingJobDto {
   @IsUUID()
@@ -26,6 +30,10 @@ export class CreateProcessingJobDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsEnum(MeasurementType)
+  billingUnit?: MeasurementType;
 
   @IsOptional()
   @IsNumber()
@@ -42,6 +50,12 @@ export class CreateProcessingJobDto {
   @Min(0)
   heightMm?: number;
 
+  // LENGTH birimi için işlenen uzunluk (metre).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  lengthMeters?: number;
+
   @IsOptional()
   @IsUUID()
   ratePresetId?: string;
@@ -49,12 +63,23 @@ export class CreateProcessingJobDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
-  overrideRatePerM2?: number;
+  overrideRatePerUnit?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0)
   extraCost?: number = 0;
+
+  // İşleme ücretinin para birimi (yabancı para ise baz tutara çevrilir).
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
+
+  // Stoğun düşeceği depo; verilmezse varsayılan (Merkez) depo.
+  @IsOptional()
+  @IsUUID()
+  warehouseId?: string;
 
   // Varsayılan: işleme cariye borç olarak yansır.
   @IsOptional()

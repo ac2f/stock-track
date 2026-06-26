@@ -2,6 +2,7 @@
 export enum LedgerSourceType {
   OPENING = 'opening', // Açılış bakiyesi
   PROCESSING = 'processing', // İşleme/üretim faturalandı (DEBIT)
-  PAYMENT = 'payment', // Müşteri ödemesi (CREDIT)
+  SALE = 'sale', // Satış: alıcı borçlanır (DEBIT) / sahip alacaklanır (CREDIT)
+  PAYMENT = 'payment', // Ödeme/tahsilat
   MANUAL_ADJUSTMENT = 'manual_adjustment', // Manuel düzeltme
 }

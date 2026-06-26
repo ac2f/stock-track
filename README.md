@@ -89,10 +89,15 @@ backend/src/
     ├── suppliers/              # Tedarikçiler
     ├── vehicles/               # Araç bilgileri (satın almada kullanılan)
     ├── bank-accounts/          # Banka hesapları (havale/EFT için)
-    ├── materials/              # Malzeme şablonları + plakalar + piyasa fiyatları
-    ├── purchases/              # Satın alma (personel + araç + tedarikçi)
-    ├── processing/             # İşleme kayıtları + m² maliyet hesabı
-    └── customers/              # Müşteri cari hesabı + ödeme takibi
+    ├── warehouses/             # Depo/lokasyon tanımları
+    ├── currency/               # Döviz kurları + çevrim (manuel + otomatik)
+    ├── materials/              # Genel malzeme (tabaka/rulo) + depo/konsinye stok + piyasa fiyatları
+    ├── purchases/              # Satın alma (personel + araç + tedarikçi + depo)
+    ├── processing/             # İşleme kayıtları + m²/metre/adet maliyet hesabı
+    ├── sales/                  # Satış & konsinye (kendi/üçüncü kişi malzemesi + sahip mahsubu)
+    ├── customers/              # Müşteri cari hesabı + ödeme/tahsilat takibi
+    ├── reports/                # Mali raporlar & dashboard (OWNER)
+    └── notifications/          # Bildirim & hatırlatma (Log + Telegram)
 ```
 
 ## Çekirdek İş Alanları (Domain)

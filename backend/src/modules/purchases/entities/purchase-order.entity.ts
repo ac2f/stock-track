@@ -3,6 +3,7 @@ import { BaseEntity } from '../../../common/entities/base.entity';
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { Vehicle } from '../../vehicles/entities/vehicle.entity';
 import { User } from '../../users/entities/user.entity';
+import { Warehouse } from '../../warehouses/entities/warehouse.entity';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
 
 /**
@@ -34,6 +35,14 @@ export class PurchaseOrder extends BaseEntity {
 
   @Column({ name: 'vehicle_id', nullable: true })
   vehicleId?: string;
+
+  // Malların gireceği depo.
+  @ManyToOne(() => Warehouse, { eager: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'warehouse_id' })
+  warehouse: Warehouse;
+
+  @Column({ name: 'warehouse_id' })
+  warehouseId: string;
 
   @Column({ name: 'purchase_date', type: 'timestamptz' })
   purchaseDate: Date;

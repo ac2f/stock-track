@@ -1,18 +1,22 @@
 import { config as loadEnv } from 'dotenv';
 import * as bcrypt from 'bcrypt';
+import { IsNull } from 'typeorm';
 import dataSource from '../config/typeorm.config';
 import { User } from '../modules/users/entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
+import { MeasurementType } from '../common/enums/measurement-type.enum';
 import { ProcessingRate } from '../modules/processing/entities/processing-rate.entity';
+import { Warehouse } from '../modules/warehouses/entities/warehouse.entity';
+import { MaterialPlate } from '../modules/materials/entities/material-plate.entity';
+import { StockLevel } from '../modules/materials/entities/stock-level.entity';
 
 /**
  * İlk kurulum tohumlaması (idempotent).
- *  - İlk İşletme Sahibi (OWNER) hesabını oluşturur — aksi halde kimse giriş
- *    yapamaz (kullanıcı oluşturmak OWNER yetkisi ister).
- *  - Varsayılan bir m² işleme tarifesi ekler.
+ *  - İlk İşletme Sahibi (OWNER) hesabı (aksi halde kimse giriş yapamaz).
+ *  - Varsayılan m² ve metre (kutu harf) işleme tarifeleri.
+ *  - Varsayılan "Merkez Depo" + mevcut stoğun StockLevel'a backfill'i.
  *
  * Çalıştırma:  npm run seed
- * Kimlik:      SEED_OWNER_EMAIL / SEED_OWNER_PASSWORD (.env) veya varsayılanlar.
  */
 async function seed(): Promise<void> {
   loadEnv();
@@ -20,10 +24,12 @@ async function seed(): Promise<void> {
 
   const email = process.env.SEED_OWNER_EMAIL ?? 'owner@stocktrack.local';
   const password = process.env.SEED_OWNER_PASSWORD ?? 'Owner123!';
+  const currency = process.env.DEFAULT_CURRENCY ?? 'TRY';
+  const warehouseCode = process.env.DEFAULT_WAREHOUSE_CODE ?? 'MERKEZ';
 
+  // ── OWNER ──
   const usersRepo = dataSource.getRepository(User);
-  const existing = await usersRepo.findOne({ where: { email } });
-  if (!existing) {
+  if (!(await usersRepo.findOne({ where: { email } }))) {
     await usersRepo.save(
       usersRepo.create({
         fullName: 'İşletme Sahibi',
@@ -38,19 +44,64 @@ async function seed(): Promise<void> {
     console.log(`• OWNER zaten mevcut: ${email}`);
   }
 
+  // ── İşleme tarifeleri (m² ve metre) ──
   const ratesRepo = dataSource.getRepository(ProcessingRate);
-  const hasDefault = await ratesRepo.findOne({ where: { isDefault: true } });
-  if (!hasDefault) {
-    await ratesRepo.save(
+  if (!(await ratesRepo.findOne({ where: { isDefault: true } }))) {
+    await ratesRepo.save([
       ratesRepo.create({
-        name: 'Standart İşleme',
-        ratePerM2: Number(process.env.DEFAULT_RATE_PER_M2 ?? 75),
-        currency: process.env.DEFAULT_CURRENCY ?? 'TRY',
+        name: 'Standart Kesim (m²)',
+        unit: MeasurementType.AREA,
+        ratePerUnit: Number(process.env.DEFAULT_RATE_PER_M2 ?? 75),
+        currency,
         isDefault: true,
         isActive: true,
       }),
+      ratesRepo.create({
+        name: 'Kutu Harf (metre)',
+        unit: MeasurementType.LENGTH,
+        ratePerUnit: 40,
+        currency,
+        isDefault: false,
+        isActive: true,
+      }),
+    ]);
+    console.log('✓ Varsayılan işleme tarifeleri (m² + metre) oluşturuldu.');
+  }
+
+  // ── Merkez Depo + stok backfill ──
+  const warehousesRepo = dataSource.getRepository(Warehouse);
+  let warehouse = await warehousesRepo.findOne({ where: { code: warehouseCode } });
+  if (!warehouse) {
+    warehouse = await warehousesRepo.save(
+      warehousesRepo.create({ name: 'Merkez Depo', code: warehouseCode, isActive: true }),
     );
-    console.log('✓ Varsayılan m² işleme tarifesi oluşturuldu.');
+    console.log(`✓ "${warehouse.name}" (${warehouseCode}) oluşturuldu.`);
+  }
+
+  const platesRepo = dataSource.getRepository(MaterialPlate);
+  const stockRepo = dataSource.getRepository(StockLevel);
+  const plates = await platesRepo.find();
+  let backfilled = 0;
+  for (const plate of plates) {
+    const qty = Number(plate.quantityInStock);
+    if (qty <= 0) continue;
+    const exists = await stockRepo.findOne({
+      where: { plateId: plate.id, warehouseId: warehouse.id, ownerCustomerId: IsNull() },
+    });
+    if (!exists) {
+      await stockRepo.save(
+        stockRepo.create({
+          plateId: plate.id,
+          warehouseId: warehouse.id,
+          ownerCustomerId: null,
+          quantity: qty,
+        }),
+      );
+      backfilled += 1;
+    }
+  }
+  if (backfilled > 0) {
+    console.log(`✓ ${backfilled} kalemin stoğu Merkez Depo'ya taşındı (backfill).`);
   }
 
   await dataSource.destroy();

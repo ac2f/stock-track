@@ -1,16 +1,21 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
+import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import { Customer } from '../../customers/entities/customer.entity';
 import { User } from '../../users/entities/user.entity';
+import { Warehouse } from '../../warehouses/entities/warehouse.entity';
 import { ProcessingRate } from './processing-rate.entity';
 
 /**
  * İşleme Kaydı.
- * Ürünün NE ZAMAN işlendiği (processed_at) zaman damgasıyla tutulur.
- * Maliyet METREKARE bazında hesaplanır: total = area_m2 × rate_per_m2 + extra.
- * rate_per_m2, kullanılan şablondan veya işlem anında girilen dinamik değerden
- * gelir (etkin değer burada saklanır → geçmişe dönük doğru kalır).
+ * Ne zaman işlendiği (processed_at) zaman damgasıyla tutulur. Maliyet birime
+ * göre hesaplanır: total = quantity_value × rate_per_unit + extra.
+ *  - AREA  → quantity_value = m² (en×boy×adet)
+ *  - LENGTH→ quantity_value = metre (uzunluk×adet)   [kutu harf makineleri]
+ *  - PIECE → quantity_value = adet
+ * rate_per_unit, şablondan ya da işlem anındaki dinamik değerden gelir (etkin
+ * değer saklanır → geçmişe dönük doğru). Yabancı para işlemde baz tutar tutulur.
  */
 @Entity('processing_jobs')
 @Index(['customerId', 'processedAt'])
@@ -36,6 +41,13 @@ export class ProcessingJob extends BaseEntity {
   @Column({ name: 'processed_by_id' })
   processedById: string;
 
+  @ManyToOne(() => Warehouse, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'warehouse_id' })
+  warehouse?: Warehouse;
+
+  @Column({ name: 'warehouse_id', nullable: true })
+  warehouseId?: string;
+
   @ManyToOne(() => ProcessingRate, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'rate_preset_id' })
   ratePreset?: ProcessingRate;
@@ -49,33 +61,47 @@ export class ProcessingJob extends BaseEntity {
   @Column({ type: 'numeric', precision: 12, scale: 2, default: 1 })
   quantity: number;
 
-  @Column({ name: 'width_mm', type: 'numeric', precision: 10, scale: 2 })
-  widthMm: number;
+  // Tabaka (AREA) için ölçüler; diğer birimlerde opsiyonel.
+  @Column({ name: 'width_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  widthMm?: number | null;
 
-  @Column({ name: 'height_mm', type: 'numeric', precision: 10, scale: 2 })
-  heightMm: number;
+  @Column({ name: 'height_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  heightMm?: number | null;
 
-  @Column({ name: 'area_m2', type: 'numeric', precision: 14, scale: 4 })
-  areaM2: number;
+  // LENGTH birimi için işlenen uzunluk (metre/adet bazında girilen).
+  @Column({ name: 'length_m', type: 'numeric', precision: 12, scale: 4, nullable: true })
+  lengthM?: number | null;
 
-  /** İşlemde kullanılan ETKİN m² fiyatı (şablon ya da dinamik override). */
-  @Column({ name: 'rate_per_m2', type: 'numeric', precision: 14, scale: 2 })
-  ratePerM2: number;
+  /** Faturalama birimi (m² / metre / adet). */
+  @Column({ name: 'billing_unit', type: 'enum', enum: MeasurementType })
+  billingUnit: MeasurementType;
+
+  /** Faturalanan ölçü miktarı (m² / metre / adet — billingUnit'e göre). */
+  @Column({ name: 'quantity_value', type: 'numeric', precision: 14, scale: 4 })
+  quantityValue: number;
+
+  /** Etkin birim fiyatı (şablon veya dinamik override). */
+  @Column({ name: 'rate_per_unit', type: 'numeric', precision: 14, scale: 2 })
+  ratePerUnit: number;
 
   @Column({ name: 'labor_cost', type: 'numeric', precision: 14, scale: 2 })
   laborCost: number;
 
-  @Column({
-    name: 'extra_cost',
-    type: 'numeric',
-    precision: 14,
-    scale: 2,
-    default: 0,
-  })
+  @Column({ name: 'extra_cost', type: 'numeric', precision: 14, scale: 2, default: 0 })
   extraCost: number;
 
   @Column({ name: 'total_cost', type: 'numeric', precision: 14, scale: 2 })
   totalCost: number;
+
+  // ── Para birimi (yabancı para işlemlerde baz tutar saklanır) ──
+  @Column({ length: 3, default: 'TRY' })
+  currency: string;
+
+  @Column({ name: 'exchange_rate', type: 'numeric', precision: 18, scale: 6, default: 1 })
+  exchangeRate: number;
+
+  @Column({ name: 'base_total_cost', type: 'numeric', precision: 14, scale: 2 })
+  baseTotalCost: number;
 
   /** Müşteri cari hesabına borç olarak yansıtıldı mı. */
   @Column({ name: 'is_billed', default: false })

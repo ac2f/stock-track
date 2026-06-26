@@ -5,14 +5,17 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   Min,
 } from 'class-validator';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
+import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 
 /**
- * Ödeme alma. method'a göre koşullu zorunluluklar servis katmanında doğrulanır:
+ * Ödeme alma/verme. method'a göre koşullu zorunluluklar servis katmanında doğrulanır:
  *  - cash          → receivedById zorunlu.
  *  - bank_transfer → bankAccountId zorunlu.
+ * direction verilmezse INCOMING (tahsilat) varsayılır.
  */
 export class CreatePaymentDto {
   @IsNumber()
@@ -21,6 +24,15 @@ export class CreatePaymentDto {
 
   @IsEnum(PaymentMethod)
   method: PaymentMethod;
+
+  @IsOptional()
+  @IsEnum(PaymentDirection)
+  direction?: PaymentDirection;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  currency?: string;
 
   @IsOptional()
   @IsDateString()

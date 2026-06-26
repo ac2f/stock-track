@@ -4,6 +4,7 @@ import { RoleGate } from './components/RoleGate';
 import { LoginPage } from './features/auth/LoginPage';
 import { PlatesListPage } from './features/materials/PlatesListPage';
 import { CustomersListPage } from './features/customers/CustomersListPage';
+import { DashboardPage } from './features/reports/DashboardPage';
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -41,7 +42,7 @@ export default function App() {
               roles={['owner']}
               fallback={<Placeholder title="Yetkisiz" />}
             >
-              <Placeholder title="Mali Raporlar" />
+              <DashboardPage />
             </RoleGate>
           }
         />

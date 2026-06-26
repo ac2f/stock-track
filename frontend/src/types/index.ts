@@ -68,3 +68,25 @@ export interface Customer {
   phone?: string;
   currentBalance: number;
 }
+
+export interface DashboardSummary {
+  baseCurrency: string;
+  totalReceivable: number;
+  totalPayable: number;
+  todayCollected: number;
+  monthCollected: number;
+  monthProcessingRevenue: number;
+  monthSalesTurnover: number;
+  monthSalesMargin: number;
+  criticalStockCount: number;
+}
+
+export interface CustomerAging {
+  customerId: string;
+  customerName: string;
+  current: number;
+  days31to60: number;
+  days61to90: number;
+  over90: number;
+  total: number;
+}

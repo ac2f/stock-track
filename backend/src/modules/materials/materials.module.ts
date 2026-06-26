@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SuppliersModule } from '../suppliers/suppliers.module';
+import { WarehousesModule } from '../warehouses/warehouses.module';
 import { MaterialTemplate } from './entities/material-template.entity';
 import { MaterialPlate } from './entities/material-plate.entity';
 import { SupplierMaterialPrice } from './entities/supplier-material-price.entity';
+import { StockLevel } from './entities/stock-level.entity';
 import { MaterialTemplatesController } from './controllers/material-templates.controller';
 import { PlatesController } from './controllers/plates.controller';
 import { MaterialTemplatesService } from './services/material-templates.service';
@@ -22,8 +24,10 @@ import { SupplierPricesService } from './services/supplier-prices.service';
       MaterialTemplate,
       MaterialPlate,
       SupplierMaterialPrice,
+      StockLevel,
     ]),
     SuppliersModule,
+    WarehousesModule,
   ],
   controllers: [MaterialTemplatesController, PlatesController],
   providers: [MaterialTemplatesService, PlatesService, SupplierPricesService],

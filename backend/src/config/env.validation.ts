@@ -27,4 +27,19 @@ export const envValidationSchema = Joi.object({
 
   DEFAULT_CURRENCY: Joi.string().length(3).default('TRY'),
   DEFAULT_RATE_PER_M2: Joi.number().positive().default(75),
+  DEFAULT_WAREHOUSE_CODE: Joi.string().default('MERKEZ'),
+
+  // Döviz
+  EXCHANGE_RATE_BASE: Joi.string().length(3).optional(),
+  EXCHANGE_RATE_API_URL: Joi.string().allow('').optional(),
+  EXCHANGE_RATE_SYNC_CRON: Joi.string().default('0 6 * * *'),
+
+  // Zamanlayıcı (cluster'da tek replikada açık tutulur)
+  SCHEDULER_ENABLED: Joi.boolean().default(true),
+
+  // Bildirim (Telegram opsiyonel; boşsa yalnızca Log kanalı)
+  TELEGRAM_BOT_TOKEN: Joi.string().allow('').optional(),
+  TELEGRAM_OWNER_CHAT_ID: Joi.string().allow('').optional(),
+  DEBT_REMINDER_CRON: Joi.string().default('0 9 * * *'),
+  DEBT_REMINDER_THRESHOLD: Joi.number().min(0).default(0),
 });

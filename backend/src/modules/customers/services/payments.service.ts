@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
+import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { BankAccountsService } from '../../bank-accounts/bank-accounts.service';
 import { UsersService } from '../../users/users.service';
+import { CurrencyService } from '../../currency/currency.service';
 import { Payment } from '../entities/payment.entity';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { CustomerAccountService } from './customer-account.service';
@@ -16,33 +20,55 @@ export interface PaymentResult {
 
 @Injectable()
 export class PaymentsService {
+  private readonly defaultCurrency: string;
+
   constructor(
     @InjectRepository(Payment)
     private readonly paymentsRepo: Repository<Payment>,
     private readonly accountService: CustomerAccountService,
     private readonly usersService: UsersService,
     private readonly bankAccountsService: BankAccountsService,
+    private readonly currencyService: CurrencyService,
+    private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.defaultCurrency =
+      configService.get<string>('business.defaultCurrency') ?? 'TRY';
+  }
 
   /**
-   * Müşteriden ödeme alır. Tek transaction içinde:
+   * Müşteriden tahsilat (INCOMING) veya malzeme sahibine ödeme (OUTGOING) kaydeder.
+   * Tek transaction içinde:
    *  1) yöntem kuralını doğrular (nakit→çalışan / havale→banka),
-   *  2) cariye CREDIT hareketi uygular → kalan borç hesaplanır,
-   *  3) ödemeyi balance_after ile kaydeder.
+   *  2) yabancı para ise baz tutara çevirir,
+   *  3) cariye CREDIT (tahsilat) / DEBIT (sahibe ödeme) uygular,
+   *  4) ödemeyi balance_after ile kaydeder.
    */
   async create(
     customerId: string,
     dto: CreatePaymentDto,
   ): Promise<PaymentResult> {
     await this.validateMethod(dto);
+    const direction = dto.direction ?? PaymentDirection.INCOMING;
     const occurredAt = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
+    const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
+    const { amount: baseAmount, rate: exchangeRate } =
+      await this.currencyService.convert(
+        dto.amount,
+        currency,
+        this.currencyService.baseCurrency,
+        occurredAt,
+      );
 
-    return this.dataSource.transaction(async (manager) => {
-      // 1) Ödemeyi kaydet (id almak için); balance_after sonra yazılır.
+    const result = await this.dataSource.transaction(async (manager) => {
       const payment = manager.create(Payment, {
         customerId,
+        direction,
         amount: dto.amount,
+        currency,
+        exchangeRate,
+        baseAmount,
         method: dto.method,
         paymentDate: occurredAt,
         receivedById:
@@ -57,22 +83,37 @@ export class PaymentsService {
       });
       const saved = await manager.save(payment);
 
-      // 2) Cariye CREDIT uygula; defter hareketi doğrudan bu ödemeye bağlanır.
-      const balanceAfter = await this.accountService.applyCredit(manager, {
+      // Tahsilat → CREDIT (borç azalır); sahibe ödeme → DEBIT (alacağı azalır).
+      const movement = {
         customerId,
-        amount: dto.amount,
+        amount: baseAmount,
         sourceType: LedgerSourceType.PAYMENT,
         sourceId: saved.id,
-        description: this.describe(dto),
+        description: this.describe(dto, direction),
         occurredAt,
-      });
+      };
+      const balanceAfter =
+        direction === PaymentDirection.INCOMING
+          ? await this.accountService.applyCredit(manager, movement)
+          : await this.accountService.applyDebit(manager, movement);
 
-      // 3) Ödeme sonrası kalan borcu ödemeye yaz.
       saved.balanceAfter = balanceAfter;
       await manager.save(saved);
 
       return { payment: saved, currentBalance: balanceAfter };
     });
+
+    // Commit sonrası bildirim olayı (rollback'te tetiklenmez).
+    this.eventEmitter.emit('payment.received', {
+      customerId,
+      paymentId: result.payment.id,
+      amount: result.payment.amount,
+      baseAmount: result.payment.baseAmount,
+      direction,
+      balanceAfter: result.currentBalance,
+    });
+
+    return result;
   }
 
   list(customerId: string): Promise<Payment[]> {
@@ -92,7 +133,7 @@ export class PaymentsService {
     if (dto.method === PaymentMethod.CASH) {
       if (!dto.receivedById) {
         throw new BadRequestException(
-          'Nakit ödemede parayı teslim alan çalışan (receivedById) zorunludur.',
+          'Nakit ödemede parayı teslim alan/veren çalışan (receivedById) zorunludur.',
         );
       }
       if (dto.bankAccountId) {
@@ -104,7 +145,7 @@ export class PaymentsService {
     } else if (dto.method === PaymentMethod.BANK_TRANSFER) {
       if (!dto.bankAccountId) {
         throw new BadRequestException(
-          'Havale/EFT ödemesinde hedef banka hesabı (bankAccountId) zorunludur.',
+          'Havale/EFT ödemesinde banka hesabı (bankAccountId) zorunludur.',
         );
       }
       if (dto.receivedById) {
@@ -116,9 +157,10 @@ export class PaymentsService {
     }
   }
 
-  private describe(dto: CreatePaymentDto): string {
-    return dto.method === PaymentMethod.CASH
-      ? 'Nakit tahsilat'
-      : `Havale/EFT tahsilatı${dto.referenceNo ? ` (${dto.referenceNo})` : ''}`;
+  private describe(dto: CreatePaymentDto, direction: PaymentDirection): string {
+    const kind =
+      direction === PaymentDirection.INCOMING ? 'tahsilat' : 'sahibe ödeme';
+    const channel = dto.method === PaymentMethod.CASH ? 'Nakit' : 'Havale/EFT';
+    return `${channel} ${kind}${dto.referenceNo ? ` (${dto.referenceNo})` : ''}`;
   }
 }

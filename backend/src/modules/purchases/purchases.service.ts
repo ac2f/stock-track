@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, FindOptionsWhere, Repository } from 'typeorm';
 import {
@@ -7,6 +8,7 @@ import {
 } from '../../common/dto/paginated-result';
 import { roundMoney } from '../../common/utils/area.util';
 import { PlatesService } from '../materials/services/plates.service';
+import { WarehousesService } from '../warehouses/warehouses.service';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
@@ -14,12 +16,19 @@ import { QueryPurchaseDto } from './dto/query-purchase.dto';
 
 @Injectable()
 export class PurchasesService {
+  private readonly defaultWarehouseCode: string;
+
   constructor(
     @InjectRepository(PurchaseOrder)
     private readonly ordersRepo: Repository<PurchaseOrder>,
     private readonly platesService: PlatesService,
+    private readonly warehousesService: WarehousesService,
     private readonly dataSource: DataSource,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.defaultWarehouseCode =
+      configService.get<string>('business.defaultWarehouseCode') ?? 'MERKEZ';
+  }
 
   /**
    * Satın alma kaydı oluşturur. TEK transaction içinde:
@@ -32,6 +41,13 @@ export class PurchasesService {
     purchasedById: string,
   ): Promise<PurchaseOrder> {
     return this.dataSource.transaction(async (manager) => {
+      const warehouse = dto.warehouseId
+        ? await this.warehousesService.findOne(dto.warehouseId)
+        : await this.warehousesService.resolveDefault(
+            this.defaultWarehouseCode,
+            manager,
+          );
+
       const items: PurchaseOrderItem[] = dto.items.map((it) =>
         manager.create(PurchaseOrderItem, {
           plateId: it.plateId,
@@ -48,6 +64,7 @@ export class PurchasesService {
       const order = manager.create(PurchaseOrder, {
         supplierId: dto.supplierId,
         vehicleId: dto.vehicleId,
+        warehouseId: warehouse.id,
         purchasedById,
         purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
         currency: dto.currency ?? 'TRY',
@@ -58,9 +75,15 @@ export class PurchasesService {
 
       const saved = await manager.save(order);
 
-      // Stoğa giriş — aynı transaction'da, atomik.
+      // Stoğa giriş — seçilen depoya, işletme stoğu olarak, aynı transaction'da.
       for (const it of dto.items) {
-        await this.platesService.adjustStock(it.plateId, it.quantity, manager);
+        await this.platesService.adjustStock(
+          it.plateId,
+          warehouse.id,
+          it.quantity,
+          null,
+          manager,
+        );
       }
 
       return saved;

@@ -35,4 +35,9 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsNumber()
   openingBalance?: number;
+
+  // Telegram bildirimleri için chat id (opsiyonel).
+  @IsOptional()
+  @IsString()
+  telegramChatId?: string;
 }

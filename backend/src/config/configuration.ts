@@ -30,6 +30,24 @@ export interface JwtConfig {
 export interface BusinessConfig {
   defaultCurrency: string;
   defaultRatePerM2: number;
+  defaultWarehouseCode: string;
+}
+
+export interface CurrencyConfig {
+  base: string;
+  apiUrl: string;
+  syncCron: string;
+}
+
+export interface SchedulerConfig {
+  enabled: boolean;
+}
+
+export interface NotificationsConfig {
+  telegramBotToken: string;
+  telegramOwnerChatId: string;
+  debtReminderCron: string;
+  debtReminderThreshold: number;
 }
 
 export interface RootConfig {
@@ -37,6 +55,9 @@ export interface RootConfig {
   database: DatabaseConfig;
   jwt: JwtConfig;
   business: BusinessConfig;
+  currency: CurrencyConfig;
+  scheduler: SchedulerConfig;
+  notifications: NotificationsConfig;
 }
 
 export default (): RootConfig => ({
@@ -64,5 +85,20 @@ export default (): RootConfig => ({
   business: {
     defaultCurrency: process.env.DEFAULT_CURRENCY ?? 'TRY',
     defaultRatePerM2: parseFloat(process.env.DEFAULT_RATE_PER_M2 ?? '75'),
+    defaultWarehouseCode: process.env.DEFAULT_WAREHOUSE_CODE ?? 'MERKEZ',
+  },
+  currency: {
+    base: process.env.EXCHANGE_RATE_BASE ?? process.env.DEFAULT_CURRENCY ?? 'TRY',
+    apiUrl: process.env.EXCHANGE_RATE_API_URL ?? '',
+    syncCron: process.env.EXCHANGE_RATE_SYNC_CRON ?? '0 6 * * *',
+  },
+  scheduler: {
+    enabled: (process.env.SCHEDULER_ENABLED ?? 'true') === 'true',
+  },
+  notifications: {
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
+    telegramOwnerChatId: process.env.TELEGRAM_OWNER_CHAT_ID ?? '',
+    debtReminderCron: process.env.DEBT_REMINDER_CRON ?? '0 9 * * *',
+    debtReminderThreshold: parseFloat(process.env.DEBT_REMINDER_THRESHOLD ?? '0'),
   },
 });

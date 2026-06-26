@@ -9,5 +9,7 @@ export enum MaterialCategory {
   DEKOTA = 'dekota', // Dekota (PVC köpük)
   MDF = 'mdf', // MDF
   FOREX = 'forex', // Forex / PVC levha
+  CHANNEL_LETTER_COIL = 'channel_letter_coil', // Kutu harf rulosu/şeridi (galvaniz/alüminyum)
+  COIL_STRIP = 'coil_strip', // Genel rulo/şerit
   OTHER = 'other',
 }

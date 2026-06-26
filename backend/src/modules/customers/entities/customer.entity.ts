@@ -51,6 +51,10 @@ export class Customer extends BaseEntity {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  // Bildirim (borç hatırlatma, ödeme onayı) için Telegram chat id'si.
+  @Column({ name: 'telegram_chat_id', nullable: true })
+  telegramChatId?: string;
+
   @OneToMany(() => CustomerLedgerEntry, (entry) => entry.customer)
   ledgerEntries?: CustomerLedgerEntry[];
 

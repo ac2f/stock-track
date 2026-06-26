@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MaterialsModule } from '../materials/materials.module';
+import { WarehousesModule } from '../warehouses/warehouses.module';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { PurchasesController } from './purchases.controller';
@@ -10,6 +11,7 @@ import { PurchasesService } from './purchases.service';
   imports: [
     TypeOrmModule.forFeature([PurchaseOrder, PurchaseOrderItem]),
     MaterialsModule, // PlatesService (stok artırımı) için
+    WarehousesModule, // hedef depo çözümü için
   ],
   controllers: [PurchasesController],
   providers: [PurchasesService],

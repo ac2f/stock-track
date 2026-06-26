@@ -250,11 +250,47 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 
 ```
 current_balance = opening_balance
-                + Σ(ProcessingJob.total_cost  for billed jobs)   // DEBIT
-                - Σ(Payment.amount)                              // CREDIT
+                + Σ(ProcessingJob.base_total_cost for billed jobs)   // DEBIT
+                + Σ(Sale.base_sale_total          for buyer)          // DEBIT
+                - Σ(Sale.base_owner_amount        for material owner) // CREDIT
+                - Σ(Payment.base_amount where direction=incoming)     // CREDIT
+                + Σ(Payment.base_amount where direction=outgoing)     // DEBIT
 ```
 
-- Her **işleme** (billed) → `customer_ledger_entries`'e bir **DEBIT** hareketi.
-- Her **ödeme** → bir **CREDIT** hareketi + `payments.balance_after` güncellenir.
+- Tüm hareketler **baz para biriminde** (`DEFAULT_CURRENCY`) tutulur; yabancı para
+  işlemler girişte çevrilir (`base_amount`/`base_total_cost`/`base_sale_total`).
+- Pozitif bakiye = müşteri **borçlu**; negatif bakiye = işletme **borçlu** (malzeme sahibi alacaklı).
 - `customers.current_balance` her harekette transaction içinde güncellenir;
   `CustomerLedgerEntry.balance_after` ile çapraz doğrulanabilir.
+
+---
+
+## v2 Genişletme (çoklu depo/döviz · genel malzeme · satış/konsinye · bildirim)
+
+### Değişen tablolar
+- **`material_templates`** → `measurement_type` (area/length/piece/weight) eklendi.
+- **`material_plates`** → `measurement_type`, `unit_of_measure`; `width/height/thickness` **nullable**
+  (rulo/şerit malzeme; yükseklik/malzeme `attributes` jsonb'da). `quantity_in_stock` artık işletme
+  stoğunun **toplam cache**'idir.
+- **`processing_rates`** → `unit` (area/length/piece) + `rate_per_unit` (eski `rate_per_m2`).
+- **`processing_jobs`** → `billing_unit`, `quantity_value`, `rate_per_unit`, `length_m`,
+  `currency/exchange_rate/base_total_cost`, `warehouse_id`.
+- **`purchase_orders`** → `warehouse_id` (hedef depo).
+- **`payments`** → `direction` (incoming/outgoing), `currency/exchange_rate/base_amount`.
+- **`customers`** → `telegram_chat_id`.
+
+### Yeni tablolar
+| Tablo | Amaç / Önemli alanlar |
+|-------|------------------------|
+| `warehouses` | Depo/lokasyon: `name`, `code` (unique), `is_active`. |
+| `stock_levels` | Depo + sahip bazlı stok: `plate_id`, `warehouse_id`, `owner_customer_id?` (NULL=işletme malı, dolu=konsinye), `quantity`. UNIQUE(plate, warehouse, owner). |
+| `exchange_rates` | Döviz kuru: `base_currency`, `quote_currency`, `rate` (1 quote = rate × base), `as_of`, `source`. |
+| `sales` | Satış: `buyer_customer_id`, `owner_customer_id?`, `sold_by_id`, `warehouse_id?`, `sale_total`, `owner_amount`, `business_margin`, `base_sale_total`, `base_owner_amount`, `currency`. |
+| `sale_items` | Satış kalemi: `plate_id`, `quantity`, `unit_price`, `line_total`, `stock_source` (business/consignment_tracked/third_party_untracked), `owner_settlement` (manual_amount/commission_percent), `commission_percent?`, `owner_amount`. |
+| `notifications` | Bildirim defteri: `type`, `channel` (log/telegram), `status`, `recipient?`, `subject?`, `body`, `error?`, `sent_at?`, `related_type/related_id`. |
+
+### Satış cari mantığı
+- Alıcı **DEBIT** `base_sale_total` (borçlanır).
+- Üçüncü kişi sahibi **CREDIT** `base_owner_amount` (işletme sahibe borçlanır).
+- İşletme kârı = `base_sale_total − base_owner_amount`.
+- Sahibe ödeme: `payments.direction = outgoing` → sahibin alacağı **DEBIT** ile kapanır.

@@ -47,6 +47,12 @@ export class PlatesController {
     return this.platesService.findOne(id);
   }
 
+  // Depo/sahip bazlı stok seviyeleri (konsinye dahil).
+  @Get(':id/stock-levels')
+  stockLevels(@Param('id', ParseUUIDPipe) id: string) {
+    return this.platesService.listStockLevels(id);
+  }
+
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Patch(':id')
   update(
