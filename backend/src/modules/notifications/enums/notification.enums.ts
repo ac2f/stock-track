@@ -2,6 +2,7 @@
 export enum NotificationChannel {
   LOG = 'log', // uygulama içi defter (her zaman çalışır)
   TELEGRAM = 'telegram', // Telegram bot
+  WHATSAPP = 'whatsapp', // WhatsApp (Meta Cloud API)
 }
 
 /** Bildirimin gönderim durumu. */

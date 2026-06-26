@@ -5,15 +5,24 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  In,
+  Repository,
+} from 'typeorm';
 import { BusinessConfig } from '../../../config/configuration';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
 import {
   buildPaginatedResult,
   PaginatedResult,
 } from '../../../common/dto/paginated-result';
-import { roundMoney, round, totalAreaM2 } from '../../../common/utils/area.util';
+import { roundMoney } from '../../../common/utils/area.util';
+import { computeQuantityValue } from '../processing-calc.util';
 import { PlatesService } from '../../materials/services/plates.service';
 import { WarehousesService } from '../../warehouses/warehouses.service';
 import { CurrencyService } from '../../currency/currency.service';
@@ -23,6 +32,12 @@ import { ProcessingJob } from '../entities/processing-job.entity';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
 import { ProcessingRatesService } from './processing-rates.service';
+
+export interface ProcessingQueueGroup {
+  machineId: string | null;
+  machineName: string;
+  jobs: ProcessingJob[];
+}
 
 @Injectable()
 export class ProcessingService {
@@ -46,13 +61,28 @@ export class ProcessingService {
   }
 
   /**
-   * İşleme kaydı oluşturur. TEK transaction içinde:
-   *  1) faturalama birimini ve etkin birim fiyatını çözer,
-   *  2) ölçü miktarını (m²/metre/adet) ve maliyeti hesaplar (+ baz para çevrimi),
-   *  3) (opsiyonel) depodan stok düşer,
-   *  4) (opsiyonel) müşteri carisine baz tutarda borç (DEBIT) yazar.
+   * İşleme kaydı oluşturur (kendi transaction'ında). Teklif dönüşümü gibi dış bir
+   * transaction içinden çağrılmak istenirse `persist()` doğrudan kullanılabilir.
    */
   async create(
+    dto: CreateProcessingJobDto,
+    processedById: string,
+  ): Promise<ProcessingJob> {
+    return this.dataSource.transaction((manager) =>
+      this.persist(manager, dto, processedById),
+    );
+  }
+
+  /**
+   * İşleme kaydının çekirdek mantığı — verilen EntityManager içinde çalışır:
+   *  1) faturalama birimini ve etkin birim fiyatını çözer,
+   *  2) ölçü miktarını (m²/metre/adet) ve maliyeti hesaplar (+ baz para çevrimi),
+   *  3) ANINDA faturalama ise stok düşer + cariye DEBIT yazar,
+   *  4) TAMAMLANINCA faturalama ise (billOnCompletion) iş PENDING kaydedilir;
+   *     stok/borç COMPLETED geçişinde uygulanır.
+   */
+  async persist(
+    manager: EntityManager,
     dto: CreateProcessingJobDto,
     processedById: string,
   ): Promise<ProcessingJob> {
@@ -83,71 +113,161 @@ export class ProcessingService {
         processedAt,
       );
 
-    const willBill = (dto.bill ?? true) && !!dto.customerId;
-    if ((dto.bill ?? true) && !dto.customerId && totalCost > 0) {
+    const billIntent = dto.bill ?? true;
+    const consumeIntent = dto.consumeStock ?? true;
+    const willBillIntent = billIntent && !!dto.customerId;
+    if (billIntent && !dto.customerId && totalCost > 0) {
       throw new BadRequestException(
         'İşleme faturalanacaksa bir müşteri (customerId) seçilmelidir.',
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      const warehouse =
-        dto.consumeStock ?? true
-          ? dto.warehouseId
-            ? await this.warehousesService.findOne(dto.warehouseId)
-            : await this.warehousesService.resolveDefault(
-                this.defaultWarehouseCode,
-                manager,
-              )
-          : null;
+    // Faturalama tamamlanmaya ertelendi mi? (sadece faturalanacak işlerde anlamlı)
+    const deferred = billIntent && (dto.billOnCompletion ?? false);
+    const status =
+      dto.status ??
+      (deferred ? ProcessingStatus.PENDING : ProcessingStatus.COMPLETED);
 
-      const job = manager.create(ProcessingJob, {
-        plateId: plate.id,
-        customerId: dto.customerId,
-        processedById,
-        warehouseId: warehouse?.id,
-        ratePresetId: dto.ratePresetId,
-        processedAt,
-        quantity,
-        widthMm,
-        heightMm,
-        lengthM,
-        billingUnit,
-        quantityValue,
-        ratePerUnit,
-        laborCost,
-        extraCost,
-        totalCost,
-        currency,
-        exchangeRate,
-        baseTotalCost,
-        isBilled: willBill,
-        note: dto.note,
+    const warehouse = consumeIntent
+      ? dto.warehouseId
+        ? await this.warehousesService.findOne(dto.warehouseId)
+        : await this.warehousesService.resolveDefault(
+            this.defaultWarehouseCode,
+            manager,
+          )
+      : null;
+
+    // Anında etkiler yalnızca erteleme YOKSA uygulanır.
+    const consumeNow = !deferred && consumeIntent && !!warehouse;
+    const billNow = !deferred && willBillIntent && baseTotalCost > 0;
+
+    const job = manager.create(ProcessingJob, {
+      plateId: plate.id,
+      customerId: dto.customerId,
+      processedById,
+      warehouseId: warehouse?.id,
+      machineId: dto.machineId ?? null,
+      ratePresetId: dto.ratePresetId,
+      status,
+      processedAt,
+      completedAt: status === ProcessingStatus.COMPLETED ? processedAt : null,
+      quantity,
+      widthMm,
+      heightMm,
+      lengthM,
+      billingUnit,
+      quantityValue,
+      ratePerUnit,
+      laborCost,
+      extraCost,
+      totalCost,
+      currency,
+      exchangeRate,
+      baseTotalCost,
+      isBilled: billNow,
+      billOnCompletion: deferred,
+      stockConsumed: consumeNow,
+      note: dto.note,
+    });
+    const saved = await manager.save(job);
+
+    if (consumeNow) {
+      await this.platesService.adjustStock(
+        plate.id,
+        warehouse!.id,
+        -quantity,
+        null,
+        manager,
+      );
+    }
+
+    if (billNow) {
+      await this.accountService.applyDebit(manager, {
+        customerId: dto.customerId!,
+        amount: baseTotalCost,
+        sourceType: LedgerSourceType.PROCESSING,
+        sourceId: saved.id,
+        description: `İşleme: ${plate.name} (${quantityValue} ${this.unitLabel(billingUnit)})`,
+        occurredAt: saved.processedAt,
       });
-      const saved = await manager.save(job);
+    }
 
-      if ((dto.consumeStock ?? true) && warehouse) {
-        await this.platesService.adjustStock(
-          plate.id,
-          warehouse.id,
-          -quantity,
-          null,
-          manager,
-        );
+    return saved;
+  }
+
+  /**
+   * Üretim kuyruğunda durum değiştirir.
+   *  - COMPLETED → (idempotent) henüz düşülmemiş stoğu düşer; ertelenmiş faturayı
+   *    (billOnCompletion) cariye DEBIT olarak yazar; completedAt damgalar.
+   *  - CANCELLED → tüketilen stoğu iade eder; yazılmış borcu CREDIT ile geri alır.
+   */
+  async setStatus(id: string, status: ProcessingStatus): Promise<ProcessingJob> {
+    return this.dataSource.transaction(async (manager) => {
+      const job = await manager.findOne(ProcessingJob, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+      if (!job) {
+        throw new NotFoundException('İşleme kaydı bulunamadı.');
       }
 
-      if (willBill && baseTotalCost > 0) {
-        await this.accountService.applyDebit(manager, {
-          customerId: dto.customerId!,
-          amount: baseTotalCost,
-          sourceType: LedgerSourceType.PROCESSING,
-          sourceId: saved.id,
-          description: `İşleme: ${plate.name} (${quantityValue} ${this.unitLabel(billingUnit)})`,
-          occurredAt: saved.processedAt,
-        });
+      if (status === ProcessingStatus.COMPLETED) {
+        if (!job.stockConsumed && job.warehouseId) {
+          await this.platesService.adjustStock(
+            job.plateId,
+            job.warehouseId,
+            -Number(job.quantity),
+            null,
+            manager,
+          );
+          job.stockConsumed = true;
+        }
+        if (
+          !job.isBilled &&
+          job.billOnCompletion &&
+          job.customerId &&
+          Number(job.baseTotalCost) > 0
+        ) {
+          await this.accountService.applyDebit(manager, {
+            customerId: job.customerId,
+            amount: Number(job.baseTotalCost),
+            sourceType: LedgerSourceType.PROCESSING,
+            sourceId: job.id,
+            description: `İşleme tamamlandı #${job.id.slice(0, 8)}`,
+            occurredAt: new Date(),
+          });
+          job.isBilled = true;
+        }
+        if (!job.completedAt) {
+          job.completedAt = new Date();
+        }
+      } else if (status === ProcessingStatus.CANCELLED) {
+        if (job.stockConsumed && job.warehouseId) {
+          await this.platesService.adjustStock(
+            job.plateId,
+            job.warehouseId,
+            Number(job.quantity),
+            null,
+            manager,
+          );
+          job.stockConsumed = false;
+        }
+        if (job.isBilled && job.customerId && Number(job.baseTotalCost) > 0) {
+          await this.accountService.applyCredit(manager, {
+            customerId: job.customerId,
+            amount: Number(job.baseTotalCost),
+            sourceType: LedgerSourceType.PROCESSING,
+            sourceId: job.id,
+            description: `İşleme iptali #${job.id.slice(0, 8)}`,
+            occurredAt: new Date(),
+          });
+          job.isBilled = false;
+        }
       }
 
-      return saved;
+      job.status = status;
+      return manager.save(job);
     });
   }
 
@@ -160,6 +280,12 @@ export class ProcessingService {
     }
     if (query.plateId) {
       where.plateId = query.plateId;
+    }
+    if (query.machineId) {
+      where.machineId = query.machineId;
+    }
+    if (query.status) {
+      where.status = query.status;
     }
     if (query.from && query.to) {
       where.processedAt = Between(new Date(query.from), new Date(query.to));
@@ -174,6 +300,42 @@ export class ProcessingService {
     return buildPaginatedResult(items, total, query.page, query.limit);
   }
 
+  /**
+   * Üretim kuyruğu: aktif (PENDING/IN_PROGRESS) işleri makineye göre gruplar.
+   * `status` verilirse o duruma filtreler; `machineId` ile tek makine.
+   */
+  async queue(query: QueryProcessingJobDto): Promise<ProcessingQueueGroup[]> {
+    const statuses = query.status
+      ? [query.status]
+      : [ProcessingStatus.PENDING, ProcessingStatus.IN_PROGRESS];
+
+    const qb = this.jobsRepo
+      .createQueryBuilder('j')
+      .leftJoinAndSelect('j.machine', 'machine')
+      .leftJoinAndSelect('j.plate', 'plate')
+      .leftJoinAndSelect('j.customer', 'customer')
+      .where('j.status IN (:...statuses)', { statuses })
+      .orderBy('j.processed_at', 'ASC');
+    if (query.machineId) {
+      qb.andWhere('j.machine_id = :machineId', { machineId: query.machineId });
+    }
+    const jobs = await qb.getMany();
+
+    const groups = new Map<string, ProcessingQueueGroup>();
+    for (const job of jobs) {
+      const key = job.machineId ?? 'unassigned';
+      if (!groups.has(key)) {
+        groups.set(key, {
+          machineId: job.machineId ?? null,
+          machineName: job.machine?.name ?? 'Atanmamış',
+          jobs: [],
+        });
+      }
+      groups.get(key)!.jobs.push(job);
+    }
+    return Array.from(groups.values());
+  }
+
   async findOne(id: string): Promise<ProcessingJob> {
     const job = await this.jobsRepo.findOne({ where: { id } });
     if (!job) {
@@ -183,8 +345,7 @@ export class ProcessingService {
   }
 
   /**
-   * Faturalanan ölçü miktarını birime göre hesaplar.
-   * AREA→m² (en×boy×adet), LENGTH→metre (uzunluk×adet), PIECE/WEIGHT→adet/miktar.
+   * Faturalanan ölçü miktarını birime göre hesaplar; saklanan en/boy/uzunluğu döner.
    */
   private computeQuantity(
     billingUnit: MeasurementType,
@@ -197,36 +358,28 @@ export class ProcessingService {
     heightMm?: number | null;
     lengthM?: number | null;
   } {
-    switch (billingUnit) {
-      case MeasurementType.AREA: {
-        const widthMm = dto.widthMm ?? plate.widthMm ?? null;
-        const heightMm = dto.heightMm ?? plate.heightMm ?? null;
-        if (widthMm == null || heightMm == null) {
-          throw new BadRequestException(
-            'm² hesabı için en ve boy (kalemde veya işlemde) tanımlı olmalıdır.',
-          );
-        }
-        return {
-          quantityValue: totalAreaM2(Number(widthMm), Number(heightMm), quantity),
-          widthMm,
-          heightMm,
-        };
-      }
-      case MeasurementType.LENGTH: {
-        if (dto.lengthMeters == null) {
-          throw new BadRequestException(
-            'Metre bazlı işleme için lengthMeters (metre) zorunludur.',
-          );
-        }
-        return {
-          quantityValue: round(dto.lengthMeters * quantity, 4),
-          lengthM: dto.lengthMeters,
-        };
-      }
-      default:
-        // PIECE / WEIGHT → doğrudan adet/miktar.
-        return { quantityValue: round(quantity, 4) };
-    }
+    const widthMm =
+      billingUnit === MeasurementType.AREA
+        ? dto.widthMm ?? plate.widthMm ?? null
+        : null;
+    const heightMm =
+      billingUnit === MeasurementType.AREA
+        ? dto.heightMm ?? plate.heightMm ?? null
+        : null;
+    const quantityValue = computeQuantityValue({
+      billingUnit,
+      quantity,
+      widthMm,
+      heightMm,
+      lengthMeters: dto.lengthMeters,
+    });
+    return {
+      quantityValue,
+      widthMm,
+      heightMm,
+      lengthM:
+        billingUnit === MeasurementType.LENGTH ? dto.lengthMeters ?? null : null,
+    };
   }
 
   /** Birim fiyatı öncelik sırasına göre belirler: override > şablon > varsayılan. */

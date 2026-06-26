@@ -182,4 +182,62 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 ### Notifications (Bildirim — 👔 OWNER)
 | Metot | Yol | Açıklama |
 |-------|-----|----------|
-| GET | `/notifications?limit=` | Gönderim defteri (Log + Telegram) |
+| GET | `/notifications?limit=` | Gönderim defteri (Log + Telegram + WhatsApp) |
+
+---
+
+## v3 Uç Noktaları (teklif/kuyruk · belge/excel · portal · WhatsApp)
+
+### Quotes (Teklif/Proforma)
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| POST | `/quotes` | 🧑‍🔧 | Karışık teklif (satış + işleme kalemleri); yalnızca hesap, cari/stok hareketi yok |
+| GET | `/quotes`, `/quotes/:id` | 👥 | `?status=&buyerCustomerId=` |
+| PATCH | `/quotes/:id` | 🧑‍🔧 | Teklifi yeniden yazar (DRAFT/SENT iken) |
+| PATCH | `/quotes/:id/status` | 🧑‍🔧 | `{ status: draft\|sent\|accepted\|rejected\|expired }` |
+| POST | `/quotes/:id/convert` | 🧑‍🔧 | ACCEPTED teklifi gerçeğe döker: SALE kalemleri → 1 Satış (anında borç), PROCESSING kalemleri → üretim kuyruğuna PENDING iş (tamamlanınca faturalanır) |
+
+`POST /quotes` gövdesi (karışık):
+```json
+{
+  "buyerCustomerId": "…", "currency": "TRY",
+  "items": [
+    { "lineKind": "sale", "plateId": "…", "quantity": 3, "unitPrice": 500, "stockSource": "business" },
+    { "lineKind": "processing", "plateId": "…", "quantity": 2, "unitPrice": 40, "billingUnit": "length", "lengthMeters": 12.5 }
+  ]
+}
+```
+
+### Processing — Üretim Kuyruğu & Makineler
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/processing/queue` | 👥 | Aktif (pending/in_progress) işler, makineye göre gruplu; `?status=&machineId=` |
+| PATCH | `/processing/:id/status` | 🧑‍🔧 | `{ status }` — COMPLETED: stok düşer + (ertelenmişse) cari DEBIT (idempotent); CANCELLED: iade |
+| POST/PATCH/DELETE | `/machines(/:id)` | 👔 | Makine tanımları |
+| GET | `/machines` | 👥 | |
+
+`POST /processing` artık `billOnCompletion` (tamamlanınca faturala), `machineId`, `status` alır.
+
+### Documents (PDF + Excel)
+| Metot | Yol | Yetki | Tür |
+|-------|-----|-------|-----|
+| GET | `/sales/:id/pdf` | 🧑‍🔧 | PDF satış faturası |
+| GET | `/processing/:id/pdf` | 🧑‍🔧 | PDF işleme fişi |
+| GET | `/quotes/:id/pdf` | 🧑‍🔧 | PDF teklif |
+| GET | `/customers/:id/statement.pdf` | 🧑‍🔧 | PDF cari ekstresi |
+| GET | `/reports/{aging,profit-loss,stock-value}.xlsx` | 👔 | Excel rapor |
+| GET | `/customers/:id/ledger.xlsx` | 👔 | Excel cari ekstre |
+
+### Portal (Müşteri self-servis — 🔓 Public, token'lı)
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| POST | `/customers/:id/portal-token` | 🧑‍🔧 | Token üret/yenile → `{ token, url }` |
+| DELETE | `/customers/:id/portal-token` | 🧑‍🔧 | Erişimi iptal et |
+| GET | `/portal/:token` | 🔓 | Ad + güncel bakiye (salt-okunur) |
+| GET | `/portal/:token/ledger` | 🔓 | Son cari hareketler |
+| GET | `/portal/:token/documents` | 🔓 | Son satış/işleme belgeleri |
+
+### Notifications — WhatsApp
+WhatsApp kanalı (Meta Cloud API) Telegram ile aynı port; `WHATSAPP_TOKEN` +
+`WHATSAPP_PHONE_NUMBER_ID` tanımlıysa etkin, değilse pasif (Log + Telegram çalışır).
+Alıcı: müşterinin `phone` alanı (E.164).

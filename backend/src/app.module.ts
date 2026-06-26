@@ -18,7 +18,10 @@ import { PurchasesModule } from './modules/purchases/purchases.module';
 import { ProcessingModule } from './modules/processing/processing.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { SalesModule } from './modules/sales/sales.module';
+import { QuotesModule } from './modules/quotes/quotes.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { PortalModule } from './modules/portal/portal.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { HealthController } from './health.controller';
 
@@ -52,7 +55,10 @@ import { HealthController } from './health.controller';
     ProcessingModule,
     CustomersModule,
     SalesModule,
+    QuotesModule,
     ReportsModule,
+    DocumentsModule,
+    PortalModule,
     NotificationsModule,
   ],
   controllers: [HealthController],

@@ -1,7 +1,9 @@
 import { NotificationChannel } from '../enums/notification.enums';
 
 export interface OutboundMessage {
-  recipient?: string; // hedef (telegram chat id vb.)
+  recipient?: string; // genel/yedek hedef (defterde gösterim için)
+  telegramChatId?: string; // Telegram'a özel hedef
+  whatsappPhone?: string; // WhatsApp'a özel hedef (telefon)
   subject?: string;
   body: string;
 }

@@ -10,6 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
@@ -21,7 +22,16 @@ import { CustomersService } from '../services/customers.service';
 @ApiBearerAuth()
 @Controller({ path: 'customers', version: '1' })
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  private readonly portalBaseUrl: string;
+
+  constructor(
+    private readonly customersService: CustomersService,
+    configService: ConfigService,
+  ) {
+    this.portalBaseUrl =
+      configService.get<string>('business.portalBaseUrl') ??
+      'http://localhost:5173/portal';
+  }
 
   // Çalışan yeni müşteri açabilir (ör. tahsilat öncesi cari oluşturma).
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
@@ -59,5 +69,20 @@ export class CustomersController {
   @Delete(':id')
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.customersService.remove(id);
+  }
+
+  // Müşteri portalı için salt-okunur paylaşılabilir bağlantı üretir/yeniler.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Post(':id/portal-token')
+  async issuePortalToken(@Param('id', ParseUUIDPipe) id: string) {
+    const token = await this.customersService.issuePortalToken(id);
+    return { token, url: `${this.portalBaseUrl}/${token}` };
+  }
+
+  // Portal erişimini iptal eder.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Delete(':id/portal-token')
+  revokePortalToken(@Param('id', ParseUUIDPipe) id: string) {
+    return this.customersService.revokePortalToken(id);
   }
 }

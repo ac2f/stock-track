@@ -90,3 +90,103 @@ export interface CustomerAging {
   over90: number;
   total: number;
 }
+
+// ── Teklif (Quote) ──
+export type QuoteStatus =
+  | 'draft'
+  | 'sent'
+  | 'accepted'
+  | 'rejected'
+  | 'expired'
+  | 'converted';
+export type QuoteLineKind = 'sale' | 'processing';
+export type MeasurementType = 'area' | 'length' | 'piece' | 'weight';
+
+export interface QuoteItemInput {
+  lineKind: QuoteLineKind;
+  plateId: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  billingUnit?: MeasurementType;
+  widthMm?: number;
+  heightMm?: number;
+  lengthMeters?: number;
+  stockSource?: 'business' | 'consignment_tracked' | 'third_party_untracked';
+}
+
+export interface QuoteItem extends QuoteItemInput {
+  id: string;
+  lineTotal: number;
+}
+
+export interface Quote {
+  id: string;
+  quoteNo: string;
+  buyerCustomerId: string;
+  buyerCustomer?: Customer;
+  status: QuoteStatus;
+  currency: string;
+  subtotal: number;
+  total: number;
+  validUntil?: string | null;
+  createdAt: string;
+  items: QuoteItem[];
+}
+
+// ── Üretim Kuyruğu ──
+export type ProcessingStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled';
+
+export interface ProcessingJob {
+  id: string;
+  plateId: string;
+  plate?: { name: string };
+  customerId?: string;
+  customer?: { name: string };
+  status: ProcessingStatus;
+  billingUnit: MeasurementType;
+  quantityValue: number;
+  totalCost: number;
+  currency: string;
+  processedAt: string;
+  machineId?: string | null;
+}
+
+export interface ProcessingQueueGroup {
+  machineId: string | null;
+  machineName: string;
+  jobs: ProcessingJob[];
+}
+
+// ── Müşteri Portalı (public) ──
+export interface PortalSummary {
+  name: string;
+  companyName?: string | null;
+  currentBalance: number;
+  currency: string;
+}
+
+export interface PortalLedgerEntry {
+  date: string;
+  type: 'debit' | 'credit';
+  sourceType: string;
+  amount: number;
+  balanceAfter: number;
+  description?: string | null;
+}
+
+export interface PortalDocuments {
+  sales: { id: string; date: string; total: number; currency: string }[];
+  processing: {
+    id: string;
+    date: string;
+    item: string | null;
+    total: number;
+    currency: string;
+    status: ProcessingStatus;
+  }[];
+}

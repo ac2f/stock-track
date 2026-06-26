@@ -31,7 +31,8 @@ export class TelegramChannel implements NotificationChannelPort {
   }
 
   async send(message: OutboundMessage): Promise<ChannelResult> {
-    const chatId = message.recipient || this.defaultChatId;
+    const chatId =
+      message.telegramChatId || message.recipient || this.defaultChatId;
     if (!this.botToken || !chatId) {
       return { success: false, error: 'Telegram token veya chat id tanımlı değil.' };
     }

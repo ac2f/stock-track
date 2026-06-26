@@ -1,10 +1,12 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import { Customer } from '../../customers/entities/customer.entity';
 import { User } from '../../users/entities/user.entity';
 import { Warehouse } from '../../warehouses/entities/warehouse.entity';
+import { Machine } from './machine.entity';
 import { ProcessingRate } from './processing-rate.entity';
 
 /**
@@ -55,8 +57,27 @@ export class ProcessingJob extends BaseEntity {
   @Column({ name: 'rate_preset_id', nullable: true })
   ratePresetId?: string;
 
+  // ── Üretim kuyruğu ──
+  @ManyToOne(() => Machine, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'machine_id' })
+  machine?: Machine;
+
+  @Column({ name: 'machine_id', type: 'uuid', nullable: true })
+  machineId?: string | null;
+
+  /** Üretim/atölye durumu (kuyruk). */
+  @Column({
+    type: 'enum',
+    enum: ProcessingStatus,
+    default: ProcessingStatus.PENDING,
+  })
+  status: ProcessingStatus;
+
   @Column({ name: 'processed_at', type: 'timestamptz' })
   processedAt: Date;
+
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt?: Date | null;
 
   @Column({ type: 'numeric', precision: 12, scale: 2, default: 1 })
   quantity: number;
@@ -106,6 +127,17 @@ export class ProcessingJob extends BaseEntity {
   /** Müşteri cari hesabına borç olarak yansıtıldı mı. */
   @Column({ name: 'is_billed', default: false })
   isBilled: boolean;
+
+  /**
+   * Faturalama tamamlanmaya ertelendi mi (PENDING iş). true ise iş COMPLETED'a
+   * geçtiğinde cariye borç (DEBIT) yazılır; false ise oluştururken yazıldı/yazılmaz.
+   */
+  @Column({ name: 'bill_on_completion', default: false })
+  billOnCompletion: boolean;
+
+  /** Stok bu iş için düşüldü mü (tamamlama/iptalde mükerrerliği önler). */
+  @Column({ name: 'stock_consumed', default: false })
+  stockConsumed: boolean;
 
   @Column({ type: 'text', nullable: true })
   note?: string;

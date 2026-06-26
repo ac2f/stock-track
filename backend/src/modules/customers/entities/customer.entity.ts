@@ -55,6 +55,11 @@ export class Customer extends BaseEntity {
   @Column({ name: 'telegram_chat_id', nullable: true })
   telegramChatId?: string;
 
+  // Müşteri self-servis portalı için tahmin edilemez, salt-okunur erişim token'ı.
+  @Index({ unique: true })
+  @Column({ name: 'portal_token', type: 'varchar', nullable: true })
+  portalToken?: string | null;
+
   @OneToMany(() => CustomerLedgerEntry, (entry) => entry.customer)
   ledgerEntries?: CustomerLedgerEntry[];
 

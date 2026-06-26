@@ -11,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
 
 /**
  * İşleme kaydı oluşturma.
@@ -81,11 +82,27 @@ export class CreateProcessingJobDto {
   @IsUUID()
   warehouseId?: string;
 
+  // Üretim kuyruğu makinesi (opsiyonel).
+  @IsOptional()
+  @IsUUID()
+  machineId?: string;
+
+  // Başlangıç durumu (verilmezse: ertelemeli→pending, anında→completed).
+  @IsOptional()
+  @IsEnum(ProcessingStatus)
+  status?: ProcessingStatus;
+
   // Varsayılan: işleme cariye borç olarak yansır.
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   bill?: boolean = true;
+
+  // true → iş PENDING kaydedilir; stok düşümü ve cari borç TAMAMLANINCA uygulanır.
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  billOnCompletion?: boolean = false;
 
   // Stoktan düşülsün mü (işlenen plaka adedi).
   @IsOptional()

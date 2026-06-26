@@ -2,7 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  Repository,
+} from 'typeorm';
 import { LedgerSourceType } from '../../common/enums/ledger-source-type.enum';
 import {
   OwnerSettlementType,
@@ -33,6 +39,15 @@ export interface SaleResult {
   sale: Sale;
   buyerBalance: number;
   ownerBalance?: number;
+}
+
+export interface SaleCreatedEvent {
+  saleId: string;
+  buyerCustomerId: string;
+  ownerCustomerId?: string;
+  baseSaleTotal: number;
+  baseOwnerAmount: number;
+  businessMargin: number;
 }
 
 @Injectable()
@@ -66,6 +81,23 @@ export class SalesService {
    *  4) baz para birimine çevirip cariye işler. İşletme kârı = satış − sahip payı.
    */
   async create(dto: CreateSaleDto, soldById: string): Promise<SaleResult> {
+    const { result, event } = await this.dataSource.transaction((manager) =>
+      this.persist(manager, dto, soldById),
+    );
+    this.eventEmitter.emit('sale.created', event);
+    return result;
+  }
+
+  /**
+   * Satışın çekirdek mantığı — verilen EntityManager içinde çalışır (teklif
+   * dönüşümü gibi dış bir transaction'dan da çağrılabilir). `sale.created` olayı
+   * BURADA yayınlanmaz; commit sonrası yayınlanmak üzere `event` döndürülür.
+   */
+  async persist(
+    manager: EntityManager,
+    dto: CreateSaleDto,
+    soldById: string,
+  ): Promise<{ result: SaleResult; event: SaleCreatedEvent }> {
     await this.customersService.findOne(dto.buyerCustomerId);
     const needsOwner = dto.items.some(
       (i) => i.stockSource !== SaleStockSource.BUSINESS,
@@ -115,101 +147,98 @@ export class SalesService {
         i.stockSource === SaleStockSource.CONSIGNMENT_TRACKED,
     );
 
-    const result = await this.dataSource.transaction(async (manager) => {
-      const warehouse = needsWarehouse
-        ? dto.warehouseId
-          ? await this.warehousesService.findOne(dto.warehouseId)
-          : await this.warehousesService.resolveDefault(
-              this.defaultWarehouseCode,
-              manager,
-            )
-        : null;
+    const warehouse = needsWarehouse
+      ? dto.warehouseId
+        ? await this.warehousesService.findOne(dto.warehouseId)
+        : await this.warehousesService.resolveDefault(
+            this.defaultWarehouseCode,
+            manager,
+          )
+      : null;
 
-      const items: SaleItem[] = dto.items.map((item, idx) =>
-        manager.create(SaleItem, {
-          plateId: item.plateId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          lineTotal: computedItems[idx].lineTotal,
-          stockSource: item.stockSource,
-          ownerSettlement: item.ownerSettlement ?? null,
-          commissionPercent: item.commissionPercent ?? null,
-          ownerAmount: computedItems[idx].ownerAmount,
-        }),
-      );
+    const items: SaleItem[] = dto.items.map((item, idx) =>
+      manager.create(SaleItem, {
+        plateId: item.plateId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        lineTotal: computedItems[idx].lineTotal,
+        stockSource: item.stockSource,
+        ownerSettlement: item.ownerSettlement ?? null,
+        commissionPercent: item.commissionPercent ?? null,
+        ownerAmount: computedItems[idx].ownerAmount,
+      }),
+    );
 
-      const sale = manager.create(Sale, {
-        buyerCustomerId: dto.buyerCustomerId,
-        ownerCustomerId: dto.ownerCustomerId,
-        soldById,
-        warehouseId: warehouse?.id,
-        saleDate,
-        currency,
-        exchangeRate,
-        saleTotal,
-        ownerAmount,
-        businessMargin,
-        baseSaleTotal,
-        baseOwnerAmount,
-        note: dto.note,
-        items,
-      });
-      const savedSale = await manager.save(sale);
-
-      // Stok hareketleri (kaynağa göre).
-      for (const item of dto.items) {
-        if (item.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) {
-          continue; // stok takip edilmiyor
-        }
-        const owner =
-          item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
-            ? dto.ownerCustomerId ?? null
-            : null;
-        await this.platesService.adjustStock(
-          item.plateId,
-          warehouse!.id,
-          -item.quantity,
-          owner,
-          manager,
-        );
-      }
-
-      // Alıcı borçlanır (DEBIT, baz tutarda).
-      const buyerBalance = await this.accountService.applyDebit(manager, {
-        customerId: dto.buyerCustomerId,
-        amount: baseSaleTotal,
-        sourceType: LedgerSourceType.SALE,
-        sourceId: savedSale.id,
-        description: `Satış #${savedSale.id.slice(0, 8)}`,
-        occurredAt: saleDate,
-      });
-
-      // Üçüncü kişi sahibi alacaklanır (CREDIT, baz tutarda).
-      let ownerBalance: number | undefined;
-      if (dto.ownerCustomerId && baseOwnerAmount > 0) {
-        ownerBalance = await this.accountService.applyCredit(manager, {
-          customerId: dto.ownerCustomerId,
-          amount: baseOwnerAmount,
-          sourceType: LedgerSourceType.SALE,
-          sourceId: savedSale.id,
-          description: `Malzeme satış payı (Satış #${savedSale.id.slice(0, 8)})`,
-          occurredAt: saleDate,
-        });
-      }
-
-      return { sale: savedSale, buyerBalance, ownerBalance };
-    });
-
-    this.eventEmitter.emit('sale.created', {
-      saleId: result.sale.id,
+    const sale = manager.create(Sale, {
       buyerCustomerId: dto.buyerCustomerId,
       ownerCustomerId: dto.ownerCustomerId,
+      soldById,
+      warehouseId: warehouse?.id,
+      saleDate,
+      currency,
+      exchangeRate,
+      saleTotal,
+      ownerAmount,
+      businessMargin,
       baseSaleTotal,
       baseOwnerAmount,
-      businessMargin: roundMoney(baseSaleTotal - baseOwnerAmount),
+      note: dto.note,
+      items,
+    });
+    const savedSale = await manager.save(sale);
+
+    // Stok hareketleri (kaynağa göre).
+    for (const item of dto.items) {
+      if (item.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) {
+        continue; // stok takip edilmiyor
+      }
+      const owner =
+        item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
+          ? dto.ownerCustomerId ?? null
+          : null;
+      await this.platesService.adjustStock(
+        item.plateId,
+        warehouse!.id,
+        -item.quantity,
+        owner,
+        manager,
+      );
+    }
+
+    // Alıcı borçlanır (DEBIT, baz tutarda).
+    const buyerBalance = await this.accountService.applyDebit(manager, {
+      customerId: dto.buyerCustomerId,
+      amount: baseSaleTotal,
+      sourceType: LedgerSourceType.SALE,
+      sourceId: savedSale.id,
+      description: `Satış #${savedSale.id.slice(0, 8)}`,
+      occurredAt: saleDate,
     });
 
-    return result;
+    // Üçüncü kişi sahibi alacaklanır (CREDIT, baz tutarda).
+    let ownerBalance: number | undefined;
+    if (dto.ownerCustomerId && baseOwnerAmount > 0) {
+      ownerBalance = await this.accountService.applyCredit(manager, {
+        customerId: dto.ownerCustomerId,
+        amount: baseOwnerAmount,
+        sourceType: LedgerSourceType.SALE,
+        sourceId: savedSale.id,
+        description: `Malzeme satış payı (Satış #${savedSale.id.slice(0, 8)})`,
+        occurredAt: saleDate,
+      });
+    }
+
+    return {
+      result: { sale: savedSale, buyerBalance, ownerBalance },
+      event: {
+        saleId: savedSale.id,
+        buyerCustomerId: dto.buyerCustomerId,
+        ownerCustomerId: dto.ownerCustomerId,
+        baseSaleTotal,
+        baseOwnerAmount,
+        businessMargin: roundMoney(baseSaleTotal - baseOwnerAmount),
+      },
+    };
   }
 
   async findAll(query: QuerySaleDto): Promise<PaginatedResult<Sale>> {

@@ -8,13 +8,16 @@ import {
 import { Notification } from './entities/notification.entity';
 import { LogChannel } from './channels/log.channel';
 import { TelegramChannel } from './channels/telegram.channel';
+import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationChannelPort } from './channels/notification-channel.interface';
 
 export interface NotifyParams {
   type: NotificationType;
   body: string;
   subject?: string;
-  recipient?: string; // telegram chat id (yoksa varsayılan owner chat'i)
+  recipient?: string; // genel/yedek hedef (defterde gösterim)
+  telegramChatId?: string; // Telegram'a özel hedef (yoksa varsayılan owner chat'i)
+  whatsappPhone?: string; // WhatsApp'a özel hedef (telefon)
   relatedType?: string;
   relatedId?: string;
 }
@@ -28,9 +31,10 @@ export class NotificationsService {
     private readonly notificationsRepo: Repository<Notification>,
     private readonly logChannel: LogChannel,
     private readonly telegramChannel: TelegramChannel,
+    private readonly whatsappChannel: WhatsappChannel,
   ) {
-    // Log her zaman; Telegram etkinse eklenir.
-    this.channels = [logChannel, telegramChannel];
+    // Log her zaman; Telegram ve WhatsApp etkinse eklenir.
+    this.channels = [logChannel, telegramChannel, whatsappChannel];
   }
 
   /**
@@ -47,7 +51,8 @@ export class NotificationsService {
           type: params.type,
           channel: channel.channel,
           status: NotificationStatus.PENDING,
-          recipient: params.recipient,
+          recipient:
+            params.recipient ?? params.telegramChatId ?? params.whatsappPhone,
           subject: params.subject,
           body: params.body,
           relatedType: params.relatedType,
@@ -57,6 +62,8 @@ export class NotificationsService {
 
       const result = await channel.send({
         recipient: params.recipient,
+        telegramChatId: params.telegramChatId,
+        whatsappPhone: params.whatsappPhone,
         subject: params.subject,
         body: params.body,
       });

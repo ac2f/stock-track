@@ -5,6 +5,9 @@ import { LoginPage } from './features/auth/LoginPage';
 import { PlatesListPage } from './features/materials/PlatesListPage';
 import { CustomersListPage } from './features/customers/CustomersListPage';
 import { DashboardPage } from './features/reports/DashboardPage';
+import { QuotesPage } from './features/quotes/QuotesPage';
+import { ProcessingQueuePage } from './features/processing/ProcessingQueuePage';
+import { PortalPage } from './features/portal/PortalPage';
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -22,6 +25,9 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
+      {/* Müşteri portalı — PUBLIC (Protected dışında, giriş gerektirmez). */}
+      <Route path="/portal/:token" element={<PortalPage />} />
+
       <Route
         element={
           <Protected>
@@ -33,6 +39,8 @@ export default function App() {
         <Route path="/plates" element={<PlatesListPage />} />
         <Route path="/purchases" element={<Placeholder title="Satın Alma" />} />
         <Route path="/processing" element={<Placeholder title="İşleme" />} />
+        <Route path="/queue" element={<ProcessingQueuePage />} />
+        <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/customers" element={<CustomersListPage />} />
         {/* Mali raporlar yalnızca İşletme Sahibi (RBAC). */}
         <Route

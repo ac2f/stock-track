@@ -6,6 +6,7 @@ import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { LogChannel } from './channels/log.channel';
 import { TelegramChannel } from './channels/telegram.channel';
+import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationListeners } from './listeners/notification.listeners';
 import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
 
@@ -21,6 +22,7 @@ import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
     NotificationsService,
     LogChannel,
     TelegramChannel,
+    WhatsappChannel,
     NotificationListeners,
     DebtReminderScheduler,
   ],

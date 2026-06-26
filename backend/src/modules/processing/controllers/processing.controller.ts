@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { UserRole } from '../../../common/enums/user-role.enum';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
+import { UpdateProcessingStatusDto } from '../dto/update-processing-status.dto';
 import { ProcessingService } from '../services/processing.service';
 
 @ApiTags('processing')
@@ -31,6 +33,12 @@ export class ProcessingController {
     return this.processingService.create(dto, userId);
   }
 
+  // Üretim kuyruğu: aktif işler makineye göre gruplanır.
+  @Get('queue')
+  queue(@Query() query: QueryProcessingJobDto) {
+    return this.processingService.queue(query);
+  }
+
   @Get()
   findAll(@Query() query: QueryProcessingJobDto) {
     return this.processingService.findAll(query);
@@ -39,5 +47,15 @@ export class ProcessingController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.processingService.findOne(id);
+  }
+
+  // Durum değişimi: tamamlama stok düşer + ertelenmiş faturayı keser; iptal iade eder.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Patch(':id/status')
+  setStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProcessingStatusDto,
+  ) {
+    return this.processingService.setStatus(id, dto.status);
   }
 }

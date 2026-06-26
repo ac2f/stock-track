@@ -93,11 +93,14 @@ backend/src/
     ├── currency/               # Döviz kurları + çevrim (manuel + otomatik)
     ├── materials/              # Genel malzeme (tabaka/rulo) + depo/konsinye stok + piyasa fiyatları
     ├── purchases/              # Satın alma (personel + araç + tedarikçi + depo)
-    ├── processing/             # İşleme kayıtları + m²/metre/adet maliyet hesabı
+    ├── processing/             # İşleme kayıtları + m²/metre/adet maliyet + üretim kuyruğu (makine/durum)
     ├── sales/                  # Satış & konsinye (kendi/üçüncü kişi malzemesi + sahip mahsubu)
-    ├── customers/              # Müşteri cari hesabı + ödeme/tahsilat takibi
+    ├── quotes/                 # Teklif (proforma); onayda satış/işlemeye dönüşür
+    ├── customers/              # Müşteri cari hesabı + ödeme/tahsilat + portal token
     ├── reports/                # Mali raporlar & dashboard (OWNER)
-    └── notifications/          # Bildirim & hatırlatma (Log + Telegram)
+    ├── documents/              # PDF (fatura/irsaliye/teklif/ekstre) + Excel/CSV dışa aktarım
+    ├── portal/                 # Müşteri self-servis portalı (public, token'lı, salt-okunur)
+    └── notifications/          # Bildirim & hatırlatma (Log + Telegram + WhatsApp)
 ```
 
 ## Çekirdek İş Alanları (Domain)

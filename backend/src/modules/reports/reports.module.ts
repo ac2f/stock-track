@@ -36,5 +36,11 @@ import { InventoryReportsService } from './services/inventory-reports.service';
     FinancialReportsService,
     InventoryReportsService,
   ],
+  // Documents modülü, Excel/CSV dışa aktarımda rapor servislerini kullanır.
+  exports: [
+    DashboardService,
+    FinancialReportsService,
+    InventoryReportsService,
+  ],
 })
 export class ReportsModule {}

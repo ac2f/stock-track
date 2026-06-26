@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchAging, fetchDashboard } from '../../api/reports.api';
+import { downloadFile } from '../../api/documents.api';
 
 const fmt = (currency: string) =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency });
@@ -33,7 +34,33 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-xl font-bold">Mali Dashboard</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-bold">Mali Dashboard</h1>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="btn bg-slate-100 text-sm"
+            onClick={() => downloadFile('/reports/aging.xlsx', 'yaslandirma.xlsx')}
+          >
+            ⬇ Yaşlandırma
+          </button>
+          <button
+            className="btn bg-slate-100 text-sm"
+            onClick={() =>
+              downloadFile('/reports/profit-loss.xlsx', 'kar-zarar.xlsx')
+            }
+          >
+            ⬇ Kâr-Zarar
+          </button>
+          <button
+            className="btn bg-slate-100 text-sm"
+            onClick={() =>
+              downloadFile('/reports/stock-value.xlsx', 'stok-degeri.xlsx')
+            }
+          >
+            ⬇ Stok Değeri
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map((c) => (

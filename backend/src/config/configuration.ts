@@ -31,6 +31,14 @@ export interface BusinessConfig {
   defaultCurrency: string;
   defaultRatePerM2: number;
   defaultWarehouseCode: string;
+  // Belge (PDF fatura/irsaliye/teklif) kimliği.
+  name: string;
+  address: string;
+  phone: string;
+  taxNo: string;
+  logoPath: string;
+  // Müşteri portalı linklerinin temel adresi (token sonuna eklenir).
+  portalBaseUrl: string;
 }
 
 export interface CurrencyConfig {
@@ -48,6 +56,10 @@ export interface NotificationsConfig {
   telegramOwnerChatId: string;
   debtReminderCron: string;
   debtReminderThreshold: number;
+  // WhatsApp (Meta Cloud API) — boşsa kanal pasif.
+  whatsappToken: string;
+  whatsappPhoneNumberId: string;
+  whatsappApiVersion: string;
 }
 
 export interface RootConfig {
@@ -86,6 +98,13 @@ export default (): RootConfig => ({
     defaultCurrency: process.env.DEFAULT_CURRENCY ?? 'TRY',
     defaultRatePerM2: parseFloat(process.env.DEFAULT_RATE_PER_M2 ?? '75'),
     defaultWarehouseCode: process.env.DEFAULT_WAREHOUSE_CODE ?? 'MERKEZ',
+    name: process.env.BUSINESS_NAME ?? 'StockTrack',
+    address: process.env.BUSINESS_ADDRESS ?? '',
+    phone: process.env.BUSINESS_PHONE ?? '',
+    taxNo: process.env.BUSINESS_TAX_NO ?? '',
+    logoPath: process.env.BUSINESS_LOGO_PATH ?? '',
+    portalBaseUrl:
+      process.env.PORTAL_BASE_URL ?? 'http://localhost:5173/portal',
   },
   currency: {
     base: process.env.EXCHANGE_RATE_BASE ?? process.env.DEFAULT_CURRENCY ?? 'TRY',
@@ -100,5 +119,8 @@ export default (): RootConfig => ({
     telegramOwnerChatId: process.env.TELEGRAM_OWNER_CHAT_ID ?? '',
     debtReminderCron: process.env.DEBT_REMINDER_CRON ?? '0 9 * * *',
     debtReminderThreshold: parseFloat(process.env.DEBT_REMINDER_THRESHOLD ?? '0'),
+    whatsappToken: process.env.WHATSAPP_TOKEN ?? '',
+    whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? '',
+    whatsappApiVersion: process.env.WHATSAPP_API_VERSION ?? 'v21.0',
   },
 });

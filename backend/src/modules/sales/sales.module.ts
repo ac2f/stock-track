@@ -19,5 +19,7 @@ import { SalesService } from './sales.service';
   ],
   controllers: [SalesController],
   providers: [SalesService],
+  // Teklif modülü, dönüşümde SalesService.persist kullanır.
+  exports: [SalesService],
 })
 export class SalesModule {}

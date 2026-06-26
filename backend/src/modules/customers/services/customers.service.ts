@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, Repository } from 'typeorm';
@@ -117,5 +118,25 @@ export class CustomersService {
   async getLedger(id: string) {
     await this.findOne(id);
     return this.accountService.listLedger(id);
+  }
+
+  /** Müşteri portalı için yeni bir salt-okunur erişim token'ı üretir (varsa yeniler). */
+  async issuePortalToken(id: string): Promise<string> {
+    const customer = await this.findOne(id);
+    customer.portalToken = randomBytes(24).toString('hex');
+    await this.customersRepo.save(customer);
+    return customer.portalToken;
+  }
+
+  /** Portal erişimini iptal eder. */
+  async revokePortalToken(id: string): Promise<void> {
+    const customer = await this.findOne(id);
+    customer.portalToken = null;
+    await this.customersRepo.save(customer);
+  }
+
+  /** Portal token'ı ile müşteriyi bulur (public portal uçları için). */
+  findByPortalToken(token: string): Promise<Customer | null> {
+    return this.customersRepo.findOne({ where: { portalToken: token } });
   }
 }

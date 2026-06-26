@@ -56,7 +56,8 @@ export class NotificationListeners {
       body:
         `${customer?.name ?? 'Müşteri'} — tutar: ${e.baseAmount}. ` +
         `Kalan bakiye: ${e.balanceAfter}.`,
-      recipient: customer?.telegramChatId,
+      telegramChatId: customer?.telegramChatId,
+      whatsappPhone: customer?.phone,
       relatedType: 'payment',
       relatedId: e.paymentId,
     });
@@ -73,7 +74,8 @@ export class NotificationListeners {
         type: NotificationType.SALE_CREATED,
         subject: 'Malzemeniz satıldı',
         body: `Satıştan payınız: ${e.baseOwnerAmount}.`,
-        recipient: owner?.telegramChatId,
+        telegramChatId: owner?.telegramChatId,
+        whatsappPhone: owner?.phone,
         relatedType: 'sale',
         relatedId: e.saleId,
       });

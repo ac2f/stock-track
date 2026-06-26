@@ -294,3 +294,24 @@ current_balance = opening_balance
 - Üçüncü kişi sahibi **CREDIT** `base_owner_amount` (işletme sahibe borçlanır).
 - İşletme kârı = `base_sale_total − base_owner_amount`.
 - Sahibe ödeme: `payments.direction = outgoing` → sahibin alacağı **DEBIT** ile kapanır.
+
+---
+
+## v3 Genişletme (teklif/kuyruk · belge · portal · WhatsApp)
+
+| Tablo / Kolon | Açıklama |
+| ------------- | -------- |
+| `quotes` | Teklif (proforma): `quote_no` (TKF-YYYY-NNNN, unique), `buyer_customer_id`, `owner_customer_id?`, `warehouse_id?`, `status` (draft/sent/accepted/rejected/expired/converted), `valid_until?`, `currency`+`exchange_rate`, `subtotal`/`total`/`base_total`, `converted_sale_id?`, `converted_at?`, `note?`. Cari/stok hareketi YOK. |
+| `quote_items` | Teklif kalemi: `quote_id` (CASCADE), `line_kind` (sale/processing), `plate_id`, `description?`, `quantity`, `unit_price`, `line_total`; işleme alanları (`billing_unit?`, `width_mm?`, `height_mm?`, `length_meters?`); satış alanları (`stock_source?`, `owner_settlement?`, `commission_percent?`, `owner_amount?`). |
+| `machines` | Üretim makinesi: `name`, `code` (unique), `default_measurement_type`, `is_active`. |
+| `processing_jobs` (+kolonlar) | `status` (pending/in_progress/completed/cancelled), `machine_id?`, `bill_on_completion`, `completed_at?`, `stock_consumed`. Ertelemeli işte stok+borç COMPLETED'da uygulanır (idempotent); CANCELLED iade eder. |
+| `customers` (+kolon) | `portal_token?` (unique, NULL=erişim yok) — müşteri self-servis portalı için tahmin edilemez salt-okunur token. |
+
+### Teklif → gerçek dönüşümü
+- ACCEPTED teklif tek transaction'da çözülür: SALE kalemleri **tek** Satış kaydına (mevcut `SalesService`), PROCESSING kalemleri üretim kuyruğuna **PENDING** iş olarak (mevcut `ProcessingService`, `bill_on_completion=true`).
+- Muhasebe/stok mantığı tekrar yazılmaz; teklif `converted` olarak kilitlenir.
+
+### Belge & portal & WhatsApp
+- **Belgeler** (PDF/Excel) yeni tablo gerektirmez; mevcut kayıtlardan üretilir (`documents` modülü, `pdfkit` + `exceljs`).
+- **Portal** uçları `customers.portal_token` ile eşleşir; `@Public()` salt-okunur.
+- **WhatsApp** kanalı (`notifications.channel = 'whatsapp'`) Meta Cloud API ile; alıcı = `customers.phone`. Config-gated.

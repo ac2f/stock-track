@@ -29,6 +29,14 @@ export const envValidationSchema = Joi.object({
   DEFAULT_RATE_PER_M2: Joi.number().positive().default(75),
   DEFAULT_WAREHOUSE_CODE: Joi.string().default('MERKEZ'),
 
+  // İşletme / belge kimliği (PDF fatura/irsaliye/teklif) + portal linki
+  BUSINESS_NAME: Joi.string().allow('').optional(),
+  BUSINESS_ADDRESS: Joi.string().allow('').optional(),
+  BUSINESS_PHONE: Joi.string().allow('').optional(),
+  BUSINESS_TAX_NO: Joi.string().allow('').optional(),
+  BUSINESS_LOGO_PATH: Joi.string().allow('').optional(),
+  PORTAL_BASE_URL: Joi.string().allow('').optional(),
+
   // Döviz
   EXCHANGE_RATE_BASE: Joi.string().length(3).optional(),
   EXCHANGE_RATE_API_URL: Joi.string().allow('').optional(),
@@ -42,4 +50,9 @@ export const envValidationSchema = Joi.object({
   TELEGRAM_OWNER_CHAT_ID: Joi.string().allow('').optional(),
   DEBT_REMINDER_CRON: Joi.string().default('0 9 * * *'),
   DEBT_REMINDER_THRESHOLD: Joi.number().min(0).default(0),
+
+  // WhatsApp (Meta Cloud API; boşsa kanal pasif — Log daima çalışır)
+  WHATSAPP_TOKEN: Joi.string().allow('').optional(),
+  WHATSAPP_PHONE_NUMBER_ID: Joi.string().allow('').optional(),
+  WHATSAPP_API_VERSION: Joi.string().default('v21.0'),
 });

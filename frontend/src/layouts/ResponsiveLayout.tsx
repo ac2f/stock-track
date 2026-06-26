@@ -12,8 +12,8 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/plates', label: 'Stok', icon: '📦' },
-  { to: '/purchases', label: 'Alış', icon: '🚚' },
-  { to: '/processing', label: 'İşleme', icon: '✂️' },
+  { to: '/quotes', label: 'Teklif', icon: '📝' },
+  { to: '/queue', label: 'Kuyruk', icon: '🛠️' },
   { to: '/customers', label: 'Cari', icon: '💳' },
   { to: '/reports', label: 'Rapor', icon: '📊', roles: ['owner'] },
 ];
