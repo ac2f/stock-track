@@ -1,7 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
-import { MaterialCategory } from '../../../common/enums/material-category.enum';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 /**
@@ -10,8 +9,8 @@ import { MeasurementType } from '../../../common/enums/measurement-type.enum';
  */
 export class QueryPlateDto extends PaginationDto {
   @IsOptional()
-  @IsEnum(MaterialCategory)
-  category?: MaterialCategory;
+  @IsUUID()
+  categoryId?: string;
 
   @IsOptional()
   @IsEnum(MeasurementType)

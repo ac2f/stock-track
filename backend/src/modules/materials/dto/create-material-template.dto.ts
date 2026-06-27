@@ -4,10 +4,10 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   MinLength,
   Min,
 } from 'class-validator';
-import { MaterialCategory } from '../../../common/enums/material-category.enum';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 export class CreateMaterialTemplateDto {
@@ -15,8 +15,8 @@ export class CreateMaterialTemplateDto {
   @MinLength(2)
   name: string;
 
-  @IsEnum(MaterialCategory)
-  category: MaterialCategory;
+  @IsUUID()
+  categoryId: string;
 
   // Belirtilmezse AREA (tabaka, m²) varsayılır.
   @IsOptional()

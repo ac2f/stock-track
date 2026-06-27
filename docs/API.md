@@ -30,18 +30,27 @@ Kimlik doğrulama: `Authorization: Bearer <accessToken>` (login hariç tüm uçl
 | PATCH | `/users/:id` | 👔 |
 | DELETE | `/users/:id` | 👔 |
 
+## Materials — Türler (Kategoriler)
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| POST | `/material-categories` | 👔 | Yeni tür (ad, kod, varsayılan ölçüm tipi) |
+| GET | `/material-categories` | 👥 | |
+| GET | `/material-categories/:id` | 👥 | |
+| PATCH | `/material-categories/:id` | 👔 | |
+| DELETE | `/material-categories/:id` | 👔 | Kullanan şablon varsa `409` |
+
 ## Materials — Şablonlar
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/material-templates` | 👔 | Yeni şablon (alüminyum, kompozit...) |
-| GET | `/material-templates` | 👥 | `?category=&search=` |
+| POST | `/material-templates` | 👔 | Yeni şablon — `{ categoryId, ... }` |
+| GET | `/material-templates` | 👥 | `?categoryId=&search=` |
 | PATCH | `/material-templates/:id` | 👔 | |
 
 ## Materials — Plakalar (Stok)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret (alanlar miras alınır) |
-| GET | `/plates` | 👥 | Gelişmiş filtre: `?category=&brand=&color=&search=&inStock=true&page=&limit=` |
+| GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&search=&inStock=true&page=&limit=` |
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
 | PATCH | `/plates/:id` | 🧑‍🔧 | |
 

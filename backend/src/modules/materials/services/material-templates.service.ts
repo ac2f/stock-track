@@ -1,19 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, Repository } from 'typeorm';
-import { MaterialCategory } from '../../../common/enums/material-category.enum';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { CreateMaterialTemplateDto } from '../dto/create-material-template.dto';
 import { UpdateMaterialTemplateDto } from '../dto/update-material-template.dto';
+import { MaterialCategoriesService } from './material-categories.service';
 
 @Injectable()
 export class MaterialTemplatesService {
   constructor(
     @InjectRepository(MaterialTemplate)
     private readonly templatesRepo: Repository<MaterialTemplate>,
+    private readonly categoriesService: MaterialCategoriesService,
   ) {}
 
-  create(dto: CreateMaterialTemplateDto): Promise<MaterialTemplate> {
+  async create(dto: CreateMaterialTemplateDto): Promise<MaterialTemplate> {
+    await this.categoriesService.findOne(dto.categoryId);
     return this.templatesRepo.save(
       this.templatesRepo.create({
         ...dto,
@@ -23,12 +25,12 @@ export class MaterialTemplatesService {
   }
 
   findAll(filters: {
-    category?: MaterialCategory;
+    categoryId?: string;
     search?: string;
   }): Promise<MaterialTemplate[]> {
     const where: FindOptionsWhere<MaterialTemplate> = {};
-    if (filters.category) {
-      where.category = filters.category;
+    if (filters.categoryId) {
+      where.categoryId = filters.categoryId;
     }
     if (filters.search) {
       where.name = ILike(`%${filters.search}%`);
@@ -49,6 +51,9 @@ export class MaterialTemplatesService {
     dto: UpdateMaterialTemplateDto,
   ): Promise<MaterialTemplate> {
     const template = await this.findOne(id);
+    if (dto.categoryId) {
+      await this.categoriesService.findOne(dto.categoryId);
+    }
     Object.assign(template, dto);
     return this.templatesRepo.save(template);
   }

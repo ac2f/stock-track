@@ -2,15 +2,6 @@
 
 export type UserRole = 'owner' | 'employee';
 
-export type MaterialCategory =
-  | 'aluminum'
-  | 'aluminum_composite'
-  | 'plexiglass'
-  | 'dekota'
-  | 'mdf'
-  | 'forex'
-  | 'other';
-
 export type PaymentMethod = 'cash' | 'bank_transfer';
 export type PriceUnit = 'per_plate' | 'per_m2' | 'per_kg';
 
@@ -30,6 +21,14 @@ export interface ApiEnvelope<T> {
 export interface Paginated<T> {
   items: T[];
   meta: { total: number; page: number; limit: number; pageCount: number };
+}
+
+export interface MaterialCategory {
+  id: string;
+  name: string;
+  code: string;
+  defaultMeasurementType: MeasurementType;
+  isActive: boolean;
 }
 
 export interface Plate {

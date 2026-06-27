@@ -12,7 +12,6 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/enums/user-role.enum';
-import { MaterialCategory } from '../../../common/enums/material-category.enum';
 import { CreateMaterialTemplateDto } from '../dto/create-material-template.dto';
 import { UpdateMaterialTemplateDto } from '../dto/update-material-template.dto';
 import { MaterialTemplatesService } from '../services/material-templates.service';
@@ -32,10 +31,10 @@ export class MaterialTemplatesController {
 
   @Get()
   findAll(
-    @Query('category') category?: MaterialCategory,
+    @Query('categoryId') categoryId?: string,
     @Query('search') search?: string,
   ) {
-    return this.templatesService.findAll({ category, search });
+    return this.templatesService.findAll({ categoryId, search });
   }
 
   @Get(':id')

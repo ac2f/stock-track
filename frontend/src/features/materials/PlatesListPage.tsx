@@ -1,16 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { fetchPlates, type PlateFilters } from '../../api/materials.api';
-import type { MaterialCategory } from '../../types';
-
-const CATEGORIES: { value: MaterialCategory; label: string }[] = [
-  { value: 'aluminum', label: 'Alüminyum' },
-  { value: 'aluminum_composite', label: 'Kompozit' },
-  { value: 'plexiglass', label: 'Pleksi' },
-  { value: 'dekota', label: 'Dekota' },
-  { value: 'mdf', label: 'MDF' },
-  { value: 'forex', label: 'Forex' },
-];
+import { Link } from 'react-router-dom';
+import {
+  fetchMaterialCategories,
+  fetchPlates,
+  type PlateFilters,
+} from '../../api/materials.api';
+import { RoleGate } from '../../components/RoleGate';
 
 /**
  * Plaka (stok) listesi + gelişmiş filtreleme.
@@ -23,13 +19,24 @@ export function PlatesListPage() {
     queryKey: ['plates', filters],
     queryFn: () => fetchPlates(filters),
   });
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: fetchMaterialCategories,
+  });
 
   const set = (patch: Partial<PlateFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Stok / Plakalar</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Stok / Plakalar</h1>
+        <RoleGate roles={['owner']}>
+          <Link to="/material-categories" className="text-sm text-slate-500 underline">
+            Türleri Yönet
+          </Link>
+        </RoleGate>
+      </div>
 
       {/* Filtre çubuğu — mobilde yatay kaydırılır */}
       <div className="card space-y-3">
@@ -41,14 +48,12 @@ export function PlatesListPage() {
         <div className="-mx-1 flex gap-2 overflow-x-auto pb-1">
           <select
             className="input w-auto"
-            onChange={(e) =>
-              set({ category: (e.target.value || undefined) as MaterialCategory })
-            }
+            onChange={(e) => set({ categoryId: e.target.value || undefined })}
           >
             <option value="">Tüm türler</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
+            {categories?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
               </option>
             ))}
           </select>

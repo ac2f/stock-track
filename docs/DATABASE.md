@@ -89,6 +89,19 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | currency | varchar(3) | TRY/USD/EUR |
 | is_active | boolean | |
 
+### 4b. `material_categories` — Malzeme Türleri
+> İşletme Sahibi'nin dilediği gibi ekleyip/düzenleyip/silebildiği dinamik tür
+> tanımları (eski sabit kodlanmış `MaterialCategory` enum'unun yerini alır).
+> Warehouse/Machine ile aynı basit desen.
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| name | varchar | "Alüminyum" |
+| code | varchar (unique) | "aluminum" — slug |
+| default_measurement_type | enum `MeasurementType` | area/length/piece/weight — yeni şablonlara varsayılan |
+| is_active | boolean | |
+
 ### 5. `material_templates` — Malzeme Şablonu / Profil
 > Aynı özellikleri tekrar tekrar yazmayı önler. Bir kez tanımlanır, plakalar
 > bu şablondan üretilir.
@@ -97,7 +110,7 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 |------|-----|----------|
 | id | uuid (PK) | |
 | name | varchar | "Alüminyum Kompozit 3mm" |
-| category | enum `MaterialCategory` | aluminum, aluminum_composite, plexiglass, dekota, mdf, forex, other |
+| category_id | uuid (FK → material_categories) | Malzeme türü |
 | default_brand | varchar (nullable) | |
 | default_thickness_mm | numeric (nullable) | |
 | default_color | varchar (nullable) | |

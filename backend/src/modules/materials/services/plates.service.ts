@@ -137,8 +137,10 @@ export class PlatesService {
         templateId: query.templateId,
       });
     }
-    if (query.category) {
-      qb.andWhere('template.category = :category', { category: query.category });
+    if (query.categoryId) {
+      qb.andWhere('template.category_id = :categoryId', {
+        categoryId: query.categoryId,
+      });
     }
     if (query.measurementType) {
       qb.andWhere('plate.measurement_type = :mt', { mt: query.measurementType });

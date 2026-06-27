@@ -3,6 +3,7 @@ import { Protected, ResponsiveLayout } from './layouts/ResponsiveLayout';
 import { RoleGate } from './components/RoleGate';
 import { LoginPage } from './features/auth/LoginPage';
 import { PlatesListPage } from './features/materials/PlatesListPage';
+import { MaterialCategoriesPage } from './features/materials/MaterialCategoriesPage';
 import { CustomersListPage } from './features/customers/CustomersListPage';
 import { DashboardPage } from './features/reports/DashboardPage';
 import { QuotesPage } from './features/quotes/QuotesPage';
@@ -37,6 +38,14 @@ export default function App() {
       >
         <Route index element={<Navigate to="/plates" replace />} />
         <Route path="/plates" element={<PlatesListPage />} />
+        <Route
+          path="/material-categories"
+          element={
+            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+              <MaterialCategoriesPage />
+            </RoleGate>
+          }
+        />
         <Route path="/purchases" element={<Placeholder title="Satın Alma" />} />
         <Route path="/processing" element={<Placeholder title="İşleme" />} />
         <Route path="/queue" element={<ProcessingQueuePage />} />

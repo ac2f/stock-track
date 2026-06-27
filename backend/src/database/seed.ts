@@ -8,7 +8,25 @@ import { MeasurementType } from '../common/enums/measurement-type.enum';
 import { ProcessingRate } from '../modules/processing/entities/processing-rate.entity';
 import { Warehouse } from '../modules/warehouses/entities/warehouse.entity';
 import { MaterialPlate } from '../modules/materials/entities/material-plate.entity';
+import { MaterialCategoryEntity } from '../modules/materials/entities/material-category.entity';
 import { StockLevel } from '../modules/materials/entities/stock-level.entity';
+
+/** Örnek malzeme türleri — İşletme Sahibi bunları dilediği gibi düzenleyebilir/silebilir. */
+const DEFAULT_MATERIAL_CATEGORIES: {
+  name: string;
+  code: string;
+  defaultMeasurementType: MeasurementType;
+}[] = [
+  { name: 'Alüminyum', code: 'aluminum', defaultMeasurementType: MeasurementType.AREA },
+  { name: 'Alüminyum Kompozit', code: 'aluminum_composite', defaultMeasurementType: MeasurementType.AREA },
+  { name: 'Pleksi', code: 'plexiglass', defaultMeasurementType: MeasurementType.AREA },
+  { name: 'Dekota', code: 'dekota', defaultMeasurementType: MeasurementType.AREA },
+  { name: 'MDF', code: 'mdf', defaultMeasurementType: MeasurementType.AREA },
+  { name: 'Forex', code: 'forex', defaultMeasurementType: MeasurementType.AREA },
+  { name: 'Kutu Harf Rulosu/Şeridi', code: 'channel_letter_coil', defaultMeasurementType: MeasurementType.LENGTH },
+  { name: 'Genel Rulo/Şerit', code: 'coil_strip', defaultMeasurementType: MeasurementType.LENGTH },
+  { name: 'Diğer', code: 'other', defaultMeasurementType: MeasurementType.PIECE },
+];
 
 /**
  * İlk kurulum tohumlaması (idempotent).
@@ -66,6 +84,19 @@ async function seed(): Promise<void> {
       }),
     ]);
     console.log('✓ Varsayılan işleme tarifeleri (m² + metre) oluşturuldu.');
+  }
+
+  // ── Malzeme türleri (örnek; OWNER düzenleyebilir/silebilir) ──
+  const categoriesRepo = dataSource.getRepository(MaterialCategoryEntity);
+  let createdCategories = 0;
+  for (const c of DEFAULT_MATERIAL_CATEGORIES) {
+    if (!(await categoriesRepo.findOne({ where: { code: c.code } }))) {
+      await categoriesRepo.save(categoriesRepo.create({ ...c, isActive: true }));
+      createdCategories += 1;
+    }
+  }
+  if (createdCategories > 0) {
+    console.log(`✓ ${createdCategories} malzeme türü (örnek) oluşturuldu.`);
   }
 
   // ── Merkez Depo + stok backfill ──

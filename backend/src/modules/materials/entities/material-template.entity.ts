@@ -1,7 +1,7 @@
-import { Column, Entity, OneToMany } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
-import { MaterialCategory } from '../../../common/enums/material-category.enum';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import { MaterialCategoryEntity } from './material-category.entity';
 import { MaterialPlate } from './material-plate.entity';
 
 /**
@@ -16,8 +16,12 @@ export class MaterialTemplate extends BaseEntity {
   @Column()
   name: string; // "Alüminyum Kompozit 3mm"
 
-  @Column({ type: 'enum', enum: MaterialCategory })
-  category: MaterialCategory;
+  @Column({ name: 'category_id', type: 'uuid' })
+  categoryId: string;
+
+  @ManyToOne(() => MaterialCategoryEntity, { eager: true })
+  @JoinColumn({ name: 'category_id' })
+  category: MaterialCategoryEntity;
 
   /**
    * Bu malzemenin nasıl ölçüldüğü/faturalandığı.
