@@ -329,7 +329,7 @@ function CustomerStatement({
         </button>
         <button
           className="btn bg-slate-100 text-xs"
-          onClick={() => openPdf(`/customers/${customerId}/statement.pdf`)}
+          onClick={() => openPdf(`/customers/${customerId}/statement`)}
         >
           PDF
         </button>

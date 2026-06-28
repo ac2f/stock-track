@@ -97,6 +97,7 @@ export class SalesService {
     manager: EntityManager,
     dto: CreateSaleDto,
     soldById: string,
+    opts: { allowNegativeStock?: boolean } = {},
   ): Promise<{ result: SaleResult; event: SaleCreatedEvent }> {
     await this.customersService.findOne(dto.buyerCustomerId);
     const needsOwner = dto.items.some(
@@ -202,6 +203,7 @@ export class SalesService {
         -item.quantity,
         owner,
         manager,
+        opts.allowNegativeStock ?? false,
       );
     }
 

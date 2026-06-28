@@ -357,6 +357,7 @@ export class PlatesService {
     delta: number,
     ownerCustomerId: string | null = null,
     manager?: EntityManager,
+    allowNegative = false,
   ): Promise<StockLevel> {
     const slRepo = manager
       ? manager.getRepository(StockLevel)
@@ -382,11 +383,14 @@ export class PlatesService {
     }
 
     const next = Number(level.quantity) + delta;
-    if (next < 0) {
+    if (next < 0 && !allowNegative) {
       throw new BadRequestException(
         `Yetersiz stok. Mevcut: ${level.quantity}, talep edilen düşüş: ${-delta}.`,
       );
     }
+    // allowNegative: teklif→satış dönüşümü gibi taahhüt edilmiş satışlarda stok
+    // negatife (backorder) düşebilir; böylece tek transaction'daki işleme
+    // kalemleri de geri alınmaz, dönüşüm tamamlanır.
     level.quantity = next;
     const savedLevel = await slRepo.save(level);
 

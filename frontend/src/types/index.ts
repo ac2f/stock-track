@@ -308,10 +308,19 @@ export type ProcessingStatus =
   | 'completed'
   | 'cancelled';
 
+/** Listelerde gösterim için yeterli, kısa plaka bilgisi (kalan ebat dahil). */
+export interface PlateBrief {
+  name: string;
+  measurementType?: MeasurementType;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  thicknessMm?: number | null;
+}
+
 export interface ProcessingJob {
   id: string;
   plateId: string;
-  plate?: { name: string };
+  plate?: PlateBrief;
   customerId?: string;
   customer?: { name: string };
   status: ProcessingStatus;

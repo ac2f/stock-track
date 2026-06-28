@@ -15,6 +15,7 @@ import {
   fetchPlates,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
+import { plateLabel } from '../../lib/plateLabel';
 import type { QuoteItemInput, QuoteStatus } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', {
@@ -65,11 +66,23 @@ export function QuotesPage() {
       setQuoteStatus(id, status),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
   });
+  const [convertMsg, setConvertMsg] = useState<string | null>(null);
   const convertMut = useMutation({
     mutationFn: (id: string) => convertQuote(id),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['quotes'] });
       qc.invalidateQueries({ queryKey: ['queue'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      const parts: string[] = [];
+      if (res.saleId) parts.push('satış oluşturuldu');
+      if (res.processingJobIds.length)
+        parts.push(`${res.processingJobIds.length} işleme kuyruğa eklendi`);
+      setConvertMsg(
+        parts.length
+          ? `Dönüştürüldü: ${parts.join(' · ')}.`
+          : 'Teklif dönüştürüldü.',
+      );
     },
   });
 
@@ -81,6 +94,21 @@ export function QuotesPage() {
           {showForm ? 'Kapat' : '+ Yeni Teklif'}
         </button>
       </div>
+
+      {convertMsg && (
+        <div className="card flex items-center justify-between bg-emerald-50 text-sm text-emerald-800">
+          <span>{convertMsg}</span>
+          <button className="text-emerald-700 underline" onClick={() => setConvertMsg(null)}>
+            Kapat
+          </button>
+        </div>
+      )}
+      {convertMut.isError && (
+        <div className="card text-sm text-red-600">
+          {(convertMut.error as { response?: { data?: { message?: string } } })
+            ?.response?.data?.message ?? 'Dönüştürme başarısız.'}
+        </div>
+      )}
 
       {/* Geçmiş teklif filtresi — tarih aralığı, müşteri, malzeme. */}
       <div className="card space-y-2">
@@ -359,7 +387,7 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
               <option value="">Malzeme/plaka seçin…</option>
               {plates?.items.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {plateLabel(p)}
                 </option>
               ))}
             </select>

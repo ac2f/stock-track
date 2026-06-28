@@ -5,7 +5,7 @@ import {
   fetchDashboard,
   type DashboardFilters,
 } from '../../api/reports.api';
-import { downloadFile } from '../../api/documents.api';
+import { downloadFile, openPdf } from '../../api/documents.api';
 
 const fmt = (currency: string) =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency });
@@ -48,6 +48,18 @@ export function DashboardPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Mali Dashboard</h1>
         <div className="flex flex-wrap gap-2">
+          <button
+            className="btn bg-slate-100 text-sm"
+            onClick={() => {
+              const q = new URLSearchParams();
+              if (range.from) q.set('from', range.from);
+              if (range.to) q.set('to', range.to);
+              const s = q.toString();
+              openPdf(`/reports/financial/print${s ? `?${s}` : ''}`);
+            }}
+          >
+            🖨 Yazdır / PDF
+          </button>
           <button
             className="btn bg-slate-100 text-sm"
             onClick={() => downloadFile('/reports/aging.xlsx', 'yaslandirma.xlsx')}

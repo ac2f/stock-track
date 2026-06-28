@@ -17,8 +17,17 @@ import {
   type ExpenseFilters,
   type ExpenseInput,
 } from '../../api/expenses.api';
+import { openPdf } from '../../api/documents.api';
 
 const money = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' });
+
+/** Filtrelerden sorgu dizesi üretir (boş alanlar atlanır). */
+function queryString(params: Record<string, string | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -179,9 +188,26 @@ export function ExpensesPage() {
               )}
             </div>
           </div>
-          <a className="btn bg-slate-100 text-sm" href={csvHref} download="giderler.csv">
-            ⬇ CSV (tablo)
-          </a>
+          <div className="flex gap-2">
+            <a className="btn bg-slate-100 text-sm" href={csvHref} download="giderler.csv">
+              ⬇ CSV (tablo)
+            </a>
+            <button
+              className="btn bg-slate-100 text-sm"
+              onClick={() =>
+                openPdf(
+                  `/expenses/report/print${queryString({
+                    from: filters.from,
+                    to: filters.to,
+                    categoryId: filters.categoryId,
+                    projectId: filters.projectId,
+                  })}`,
+                )
+              }
+            >
+              🖨 Yazdır / PDF
+            </button>
+          </div>
         </div>
       )}
 

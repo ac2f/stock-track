@@ -11,56 +11,51 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
-import { PdfService } from './services/pdf.service';
+import { QueryExpenseDto } from '../expenses/dto/expense.dto';
 import { ExportService } from './services/export.service';
 import { QuoteDocumentService } from './services/quote-document.service';
+import { DocumentHtmlService } from './services/document-html.service';
 
-const PDF = 'application/pdf';
 const HTML = 'text/html; charset=utf-8';
 const CSV = 'text/csv; charset=utf-8';
 const XLSX =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/**
+ * Belge üretimi. Yazdırılabilir belgeler (fatura/fiş/ekstre/rapor) TEK TİP,
+ * düzenlenebilir HTML olarak döner; tarayıcıda açılıp Ctrl+P ile PDF alınır.
+ * Veri dökümleri ayrıca CSV/Excel olarak indirilebilir.
+ */
 @ApiTags('documents')
 @ApiBearerAuth()
 @Controller({ version: '1' })
 export class DocumentsController {
   constructor(
-    private readonly pdf: PdfService,
     private readonly exports: ExportService,
     private readonly quoteDocs: QuoteDocumentService,
+    private readonly html: DocumentHtmlService,
   ) {}
 
-  // ── PDF belgeler (OWNER + EMPLOYEE) ─────────────────────────────────
+  // ── Yazdırılabilir HTML belgeler (OWNER + EMPLOYEE) ─────────────────
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
-  @Get('sales/:id/pdf')
+  @Get('sales/:id/print')
   async saleInvoice(
     @Param('id', ParseUUIDPipe) id: string,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const buf = await this.pdf.saleInvoice(id);
-    return this.stream(res, buf, PDF, `satis-${id.slice(0, 8)}.pdf`, 'inline');
+  ): Promise<string> {
+    res.set({ 'Content-Type': HTML });
+    return this.html.saleHtml(id);
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
-  @Get('processing/:id/pdf')
+  @Get('processing/:id/print')
   async processingReceipt(
     @Param('id', ParseUUIDPipe) id: string,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const buf = await this.pdf.processingReceipt(id);
-    return this.stream(res, buf, PDF, `isleme-${id.slice(0, 8)}.pdf`, 'inline');
-  }
-
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
-  @Get('quotes/:id/pdf')
-  async quote(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const buf = await this.pdf.quote(id);
-    return this.stream(res, buf, PDF, `teklif-${id.slice(0, 8)}.pdf`, 'inline');
+  ): Promise<string> {
+    res.set({ 'Content-Type': HTML });
+    return this.html.processingHtml(id);
   }
 
   // Düzenlenebilir HTML şablondan yazdırılabilir teklif (Ctrl+P ile PDF).
@@ -91,13 +86,13 @@ export class DocumentsController {
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
-  @Get('customers/:id/statement.pdf')
+  @Get('customers/:id/statement')
   async statement(
     @Param('id', ParseUUIDPipe) id: string,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile> {
-    const buf = await this.pdf.customerStatement(id);
-    return this.stream(res, buf, PDF, `ekstre-${id.slice(0, 8)}.pdf`, 'inline');
+  ): Promise<string> {
+    res.set({ 'Content-Type': HTML });
+    return this.html.customerStatementHtml(id);
   }
 
   // Cari ekstrenin CSV (tablo) çıktısı — Excel'de açılır.
@@ -114,6 +109,29 @@ export class DocumentsController {
       CSV,
       `ekstre-${id.slice(0, 8)}.csv`,
     );
+  }
+
+  // Gider raporu (yazdırılabilir HTML) — yalnızca OWNER.
+  @Roles(UserRole.OWNER)
+  @Get('expenses/report/print')
+  async expensesReport(
+    @Query() query: QueryExpenseDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    res.set({ 'Content-Type': HTML });
+    return this.html.expensesReportHtml(query);
+  }
+
+  // Mali rapor: kâr/zarar + yaşlandırma (yazdırılabilir HTML) — yalnızca OWNER.
+  @Roles(UserRole.OWNER)
+  @Get('reports/financial/print')
+  async financialReport(
+    @Res({ passthrough: true }) res: Response,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<string> {
+    res.set({ 'Content-Type': HTML });
+    return this.html.financialReportHtml(from, to);
   }
 
   // ── Excel dışa aktarım (OWNER) ──────────────────────────────────────

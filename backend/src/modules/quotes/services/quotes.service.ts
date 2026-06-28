@@ -239,7 +239,12 @@ export class QuotesService {
                 : undefined,
           })),
         };
-        const s = await this.salesService.persist(manager, saleDto, soldById);
+        // Dönüşüm taahhüt edilmiş bir satıştır: işletme stoğu yetmese de satış
+        // tamamlanır (stok backorder olarak negatife düşebilir) ki aynı
+        // transaction'daki işleme kalemleri de kuyruğa düzgün eklensin.
+        const s = await this.salesService.persist(manager, saleDto, soldById, {
+          allowNegativeStock: true,
+        });
         saleId = s.result.sale.id;
         events.push({ name: 'sale.created', payload: s.event });
       }

@@ -6,6 +6,7 @@ import {
   setProcessingStatus,
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
+import { plateRemainingLabel } from '../../lib/plateLabel';
 import type { ProcessingStatus } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', {
@@ -75,6 +76,9 @@ function ProcessingHistory() {
               {job.processedAt?.slice(0, 10)} · {job.customer?.name ?? 'Müşterisiz'} ·{' '}
               {STATUS_LABELS[job.status] ?? job.status}
             </p>
+            {job.plate && plateRemainingLabel(job.plate) && (
+              <p className="text-xs text-slate-400">{plateRemainingLabel(job.plate)}</p>
+            )}
           </div>
           <span className="font-semibold">{money.format(Number(job.totalCost))}</span>
         </div>
@@ -144,6 +148,11 @@ export function ProcessingQueuePage() {
                     {job.customer?.name ?? 'Müşterisiz'} ·{' '}
                     {job.quantityValue} {unitLabel[job.billingUnit] ?? ''}
                   </p>
+                  {job.plate && plateRemainingLabel(job.plate) && (
+                    <p className="text-xs text-slate-400">
+                      {plateRemainingLabel(job.plate)}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <span
@@ -188,7 +197,7 @@ export function ProcessingQueuePage() {
                 </button>
                 <button
                   className="btn bg-slate-100"
-                  onClick={() => openPdf(`/processing/${job.id}/pdf`)}
+                  onClick={() => openPdf(`/processing/${job.id}/print`)}
                 >
                   Fiş
                 </button>
