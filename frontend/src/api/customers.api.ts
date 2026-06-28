@@ -1,5 +1,10 @@
 import { api } from './client';
-import type { Customer, Paginated, PaymentMethod } from '../types';
+import type {
+  Customer,
+  CustomerLedgerEntry,
+  Paginated,
+  PaymentMethod,
+} from '../types';
 
 export interface CustomerFilters {
   search?: string;
@@ -35,6 +40,29 @@ export async function createCustomer(
   input: CreateCustomerInput,
 ): Promise<Customer> {
   const { data } = await api.post<Customer>('/customers', input);
+  return data;
+}
+
+// ── #8b Cari ekstre + geçmiş tarihli borç/alacak ──
+export async function fetchCustomerLedger(
+  id: string,
+): Promise<CustomerLedgerEntry[]> {
+  const { data } = await api.get<CustomerLedgerEntry[]>(`/customers/${id}/ledger`);
+  return data;
+}
+
+export interface LedgerEntryInput {
+  entryType: 'debit' | 'credit';
+  amount: number;
+  occurredAt?: string;
+  description?: string;
+}
+
+export async function addCustomerLedgerEntry(
+  id: string,
+  input: LedgerEntryInput,
+): Promise<Customer> {
+  const { data } = await api.post<Customer>(`/customers/${id}/ledger-entry`, input);
   return data;
 }
 

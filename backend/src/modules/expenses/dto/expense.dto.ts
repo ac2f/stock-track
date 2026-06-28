@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   MinLength,
 } from 'class-validator';
@@ -19,6 +20,18 @@ export class CreateExpenseCategoryDto {
   @IsOptional()
   @IsBoolean()
   isRecurring?: boolean;
+
+  // Sürekli gider için aylık tutar ve ayın günü (vade).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  recurringAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(31)
+  recurringDayOfMonth?: number;
 
   @IsOptional()
   @IsBoolean()

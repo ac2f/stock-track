@@ -8,6 +8,7 @@ import { PurchaseOrder } from '../purchases/entities/purchase-order.entity';
 import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { StockLevel } from '../materials/entities/stock-level.entity';
 import { Sale } from '../sales/entities/sale.entity';
+import { ExpensesModule } from '../expenses/expenses.module';
 import { ReportsController } from './reports.controller';
 import { DashboardService } from './services/dashboard.service';
 import { FinancialReportsService } from './services/financial-reports.service';
@@ -29,6 +30,7 @@ import { InventoryReportsService } from './services/inventory-reports.service';
       StockLevel,
       Sale,
     ]),
+    ExpensesModule, // mali borca bekleyen sürekli giderleri katmak için
   ],
   controllers: [ReportsController],
   providers: [

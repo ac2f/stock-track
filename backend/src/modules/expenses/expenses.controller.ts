@@ -82,6 +82,12 @@ export class ExpensesController {
   summary(@Query() query: QueryExpenseDto) {
     return this.service.summary(query);
   }
+
+  // #7 Bekleyen sürekli giderler (bu ay ödenmemiş sabit giderler).
+  @Get('expenses/pending')
+  pending() {
+    return this.service.pendingRecurring();
+  }
   @Post('expenses')
   createExpense(@Body() dto: CreateExpenseDto) {
     return this.service.createExpense(dto);

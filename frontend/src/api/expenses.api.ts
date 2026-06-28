@@ -4,6 +4,7 @@ import type {
   ExpenseCategory,
   ExpenseSummary,
   Paginated,
+  PendingExpense,
   Project,
 } from '../types';
 
@@ -11,7 +12,15 @@ import type {
 export interface ExpenseCategoryInput {
   name: string;
   isRecurring?: boolean;
+  recurringAmount?: number;
+  recurringDayOfMonth?: number;
   isActive?: boolean;
+}
+
+/** #7 Bu ay ödenmemiş sürekli (sabit) giderler. */
+export async function fetchPendingExpenses(): Promise<PendingExpense[]> {
+  const { data } = await api.get<PendingExpense[]>('/expenses/pending');
+  return data;
 }
 export async function fetchExpenseCategories(): Promise<ExpenseCategory[]> {
   const { data } = await api.get<ExpenseCategory[]>('/expense-categories');

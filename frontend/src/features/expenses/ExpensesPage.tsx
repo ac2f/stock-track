@@ -10,8 +10,10 @@ import {
   fetchExpenseCategories,
   fetchExpenseSummary,
   fetchExpenses,
+  fetchPendingExpenses,
   fetchProjects,
   updateExpenseCategory,
+  type ExpenseCategoryInput,
   type ExpenseFilters,
   type ExpenseInput,
 } from '../../api/expenses.api';
@@ -92,9 +94,9 @@ export function ExpensesPage() {
         </button>
       </div>
 
-      {showCatalogs && (
-        <Catalogs />
-      )}
+      {showCatalogs && <Catalogs />}
+
+      <PendingRecurring />
 
       {/* Filtreler */}
       <div className="card grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -292,11 +294,70 @@ export function ExpensesPage() {
   );
 }
 
+/** #7 Bu ay ödenmemiş sürekli (sabit) giderler — "Ödendi" ile gider oluşturulur. */
+function PendingRecurring() {
+  const qc = useQueryClient();
+  const { data: pending } = useQuery({
+    queryKey: ['pending-expenses'],
+    queryFn: fetchPendingExpenses,
+  });
+  const payMut = useMutation({
+    mutationFn: (p: { categoryId: string; amount: number }) =>
+      createExpense({
+        categoryId: p.categoryId,
+        amount: p.amount,
+        expenseDate: todayISO(),
+        description: 'Sürekli gider (ödendi)',
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-expenses'] });
+      qc.invalidateQueries({ queryKey: ['expenses'] });
+      qc.invalidateQueries({ queryKey: ['expense-summary'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
+  if (!pending?.length) return null;
+  const total = pending.reduce((s, p) => s + p.amount, 0);
+
+  return (
+    <div className="card space-y-2 border border-amber-200 bg-amber-50">
+      <h2 className="font-medium text-amber-800">
+        Bekleyen sürekli giderler — {money.format(total)}
+      </h2>
+      {pending.map((p) => (
+        <div key={p.categoryId} className="flex items-center justify-between gap-2">
+          <span className="text-amber-900">
+            {p.name} · {money.format(p.amount)} · vade {p.dueDate}
+            {p.overdue && (
+              <span className="ml-1 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
+                gecikmiş
+              </span>
+            )}
+          </span>
+          <button
+            className="btn bg-emerald-600 text-white text-xs"
+            disabled={payMut.isPending}
+            onClick={() => payMut.mutate({ categoryId: p.categoryId, amount: p.amount })}
+          >
+            Ödendi
+          </button>
+        </div>
+      ))}
+      <p className="text-xs text-amber-700">
+        Bu tutarlar mali dashboard'da "ödenecek/borç" toplamına dahildir.
+      </p>
+    </div>
+  );
+}
+
 /** Gider türü ve iş/proje katalog yönetimi (ekle/sil + sürekli işareti). */
 function Catalogs() {
   const qc = useQueryClient();
   const [catName, setCatName] = useState('');
   const [catRecurring, setCatRecurring] = useState(false);
+  const [catAmount, setCatAmount] = useState('');
+  const [catDay, setCatDay] = useState('');
   const [projName, setProjName] = useState('');
 
   const { data: categories } = useQuery({
@@ -309,11 +370,14 @@ function Catalogs() {
   const invProj = () => qc.invalidateQueries({ queryKey: ['projects'] });
 
   const addCat = useMutation({
-    mutationFn: createExpenseCategory,
+    mutationFn: (input: ExpenseCategoryInput) => createExpenseCategory(input),
     onSuccess: () => {
       invCat();
+      qc.invalidateQueries({ queryKey: ['pending-expenses'] });
       setCatName('');
       setCatRecurring(false);
+      setCatAmount('');
+      setCatDay('');
     },
   });
   const toggleCat = useMutation({
@@ -353,14 +417,50 @@ function Catalogs() {
           <button
             className="btn"
             disabled={!catName.trim()}
-            onClick={() => addCat.mutate({ name: catName.trim(), isRecurring: catRecurring })}
+            onClick={() =>
+              addCat.mutate({
+                name: catName.trim(),
+                isRecurring: catRecurring,
+                recurringAmount: catRecurring && catAmount ? Number(catAmount) : undefined,
+                recurringDayOfMonth: catRecurring && catDay ? Number(catDay) : undefined,
+              })
+            }
           >
             Ekle
           </button>
         </div>
+        {catRecurring && (
+          <div className="flex gap-2">
+            <input
+              className="input flex-1"
+              type="number"
+              min={0}
+              placeholder="Aylık tutar (örn. 1500)"
+              value={catAmount}
+              onChange={(e) => setCatAmount(e.target.value)}
+            />
+            <input
+              className="input w-28"
+              type="number"
+              min={1}
+              max={31}
+              placeholder="Ayın günü"
+              value={catDay}
+              onChange={(e) => setCatDay(e.target.value)}
+            />
+          </div>
+        )}
         {categories?.map((c) => (
           <div key={c.id} className="flex items-center justify-between text-sm">
-            <span>{c.name}</span>
+            <span>
+              {c.name}
+              {c.isRecurring && c.recurringAmount != null && (
+                <span className="ml-1 text-xs text-amber-700">
+                  (sürekli · {money.format(Number(c.recurringAmount))}
+                  {c.recurringDayOfMonth ? ` · ${c.recurringDayOfMonth}. gün` : ''})
+                </span>
+              )}
+            </span>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-1 text-xs text-slate-500">
                 <input

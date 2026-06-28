@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
+import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import {
   buildPaginatedResult,
   PaginatedResult,
@@ -11,6 +12,7 @@ import { Customer } from '../entities/customer.entity';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
+import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
 import { CustomerAccountService } from './customer-account.service';
 
 @Injectable()
@@ -124,6 +126,30 @@ export class CustomersService {
   async getLedger(id: string) {
     await this.findOne(id);
     return this.accountService.listLedger(id);
+  }
+
+  /**
+   * Cariye elle (geçmiş tarihli olabilir) borç/alacak hareketi ekler (#8b).
+   * Toplam bakiye her zaman doğru güncellenir; ekstre, occurredAt'e göre
+   * kronolojik gösterilip yürüyen bakiye yeniden hesaplanır.
+   */
+  async addLedgerEntry(id: string, dto: CreateLedgerEntryDto): Promise<Customer> {
+    await this.findOne(id);
+    return this.dataSource.transaction(async (manager) => {
+      const movement = {
+        customerId: id,
+        amount: dto.amount,
+        sourceType: LedgerSourceType.MANUAL_ADJUSTMENT,
+        description: dto.description ?? 'Manuel hareket',
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+      };
+      if (dto.entryType === LedgerEntryType.DEBIT) {
+        await this.accountService.applyDebit(manager, movement);
+      } else {
+        await this.accountService.applyCredit(manager, movement);
+      }
+      return manager.findOneOrFail(Customer, { where: { id } });
+    });
   }
 
   /** Müşteri portalı için yeni bir salt-okunur erişim token'ı üretir (varsa yeniler). */

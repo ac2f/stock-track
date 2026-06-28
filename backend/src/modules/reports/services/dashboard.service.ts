@@ -7,11 +7,13 @@ import { Payment } from '../../customers/entities/payment.entity';
 import { ProcessingJob } from '../../processing/entities/processing-job.entity';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import { Sale } from '../../sales/entities/sale.entity';
+import { ExpensesService } from '../../expenses/expenses.service';
 
 export interface DashboardSummary {
   baseCurrency: string;
   totalReceivable: number; // müşterilerden toplam alacak
-  totalPayable: number; // sahiplere toplam borç
+  totalPayable: number; // sahiplere borç + bekleyen sürekli giderler
+  pendingExpenses: number; // bu ay ödenmemiş sürekli giderler (kira vb.)
   todayCollected: number;
   monthCollected: number;
   monthProcessingRevenue: number;
@@ -33,6 +35,7 @@ export class DashboardService {
     private readonly salesRepo: Repository<Sale>,
     @InjectRepository(MaterialPlate)
     private readonly platesRepo: Repository<MaterialPlate>,
+    private readonly expensesService: ExpensesService,
   ) {}
 
   /**
@@ -74,6 +77,7 @@ export class DashboardService {
       processingRevenue,
       sales,
       criticalStockCount,
+      pendingExpenses,
     ] = await Promise.all([
       this.sum(this.customersRepo, 'c', 'c.current_balance', 'c.current_balance > 0'),
       this.sum(this.customersRepo, 'c', '-c.current_balance', 'c.current_balance < 0'),
@@ -86,12 +90,15 @@ export class DashboardService {
         .where('p.reorder_level IS NOT NULL')
         .andWhere('p.quantity_in_stock <= p.reorder_level')
         .getCount(),
+      this.expensesService.pendingRecurringTotal(),
     ]);
 
     return {
       baseCurrency,
       totalReceivable: Number(receivable),
-      totalPayable: Number(payable),
+      // Sahiplere borç + bu ay ödenmemiş sürekli giderler.
+      totalPayable: Number(payable) + Number(pendingExpenses),
+      pendingExpenses: Number(pendingExpenses),
       todayCollected: Number(todayCollected),
       monthCollected: Number(monthCollected),
       monthProcessingRevenue: Number(processingRevenue?.v ?? 0),

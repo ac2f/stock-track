@@ -15,6 +15,20 @@ export class ExpenseCategory extends BaseEntity {
   @Column({ name: 'is_recurring', default: false })
   isRecurring: boolean;
 
+  // Sürekli giderin aylık tutarı (kira vb.) — güncellenebilir.
+  @Column({
+    name: 'recurring_amount',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  recurringAmount?: number | null;
+
+  // Ayın hangi günü ödendiği/vadesi (1-31). Bekleyen hesaplaması için.
+  @Column({ name: 'recurring_day_of_month', type: 'int', nullable: true })
+  recurringDayOfMonth?: number | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 }

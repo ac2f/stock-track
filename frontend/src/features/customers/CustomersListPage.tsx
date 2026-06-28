@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
+  addCustomerLedgerEntry,
   createCustomer,
+  fetchCustomerLedger,
   fetchCustomers,
   type CreateCustomerInput,
   type CustomerFilters,
 } from '../../api/customers.api';
+import type { Customer } from '../../types';
 
 const currency = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -185,24 +188,7 @@ export function CustomersListPage() {
       ) : (
         <div className="space-y-2">
           {data?.items.map((c) => (
-            <div
-              key={c.id}
-              className="card flex items-center justify-between"
-            >
-              <div>
-                <h3 className="font-medium">{c.name}</h3>
-                <p className="text-sm text-slate-500">
-                  {c.companyName ?? c.phone ?? '—'}
-                </p>
-              </div>
-              <span
-                className={`text-sm font-semibold ${
-                  c.currentBalance > 0 ? 'text-red-600' : 'text-emerald-600'
-                }`}
-              >
-                {currency.format(c.currentBalance)}
-              </span>
-            </div>
+            <CustomerRow key={c.id} customer={c} />
           ))}
           {!data?.items.length && (
             <p className="text-slate-400">Kayıt bulunamadı.</p>
@@ -231,6 +217,169 @@ export function CustomersListPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Tek cari satırı: bakiye + ekstre (geçmiş tarihli borç/ödeme) açılır. */
+function CustomerRow({ customer }: { customer: Customer }) {
+  const [openStatement, setOpenStatement] = useState(false);
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-medium">{customer.name}</h3>
+          <p className="text-sm text-slate-500">
+            {customer.companyName ?? customer.phone ?? '—'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className={`text-sm font-semibold ${
+              customer.currentBalance > 0 ? 'text-red-600' : 'text-emerald-600'
+            }`}
+          >
+            {currency.format(customer.currentBalance)}
+          </span>
+          <button className="btn bg-slate-100 text-xs" onClick={() => setOpenStatement((o) => !o)}>
+            {openStatement ? 'Kapat' : 'Ekstre'}
+          </button>
+        </div>
+      </div>
+      {openStatement && <CustomerStatement customerId={customer.id} />}
+    </div>
+  );
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  opening: 'Açılış',
+  processing: 'İşleme',
+  sale: 'Satış',
+  payment: 'Ödeme',
+  manual_adjustment: 'Manuel',
+};
+
+/**
+ * #8b Cari ekstre: hareketler tarihe göre kronolojik; yürüyen bakiye yeniden
+ * hesaplanır. Geçmiş tarihli borç/ödeme eklenebilir (description ödeme yerini taşır).
+ */
+function CustomerStatement({ customerId }: { customerId: string }) {
+  const qc = useQueryClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const [entryType, setEntryType] = useState<'debit' | 'credit'>('debit');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(today);
+  const [desc, setDesc] = useState('');
+
+  const { data: ledger } = useQuery({
+    queryKey: ['ledger', customerId],
+    queryFn: () => fetchCustomerLedger(customerId),
+  });
+  const addMut = useMutation({
+    mutationFn: () =>
+      addCustomerLedgerEntry(customerId, {
+        entryType,
+        amount: Number(amount),
+        occurredAt: date,
+        description: desc || undefined,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ledger', customerId] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      setAmount('');
+      setDesc('');
+    },
+  });
+
+  // Kronolojik sırala + yürüyen bakiyeyi yeniden hesapla.
+  const rows = [...(ledger ?? [])].sort((a, b) =>
+    a.occurredAt < b.occurredAt ? -1 : a.occurredAt > b.occurredAt ? 1 : 0,
+  );
+  let running = 0;
+  const computed = rows.map((e) => {
+    running += e.entryType === 'debit' ? Number(e.amount) : -Number(e.amount);
+    return { ...e, running };
+  });
+
+  return (
+    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2">
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-left text-slate-500">
+            <tr>
+              <th className="py-1">Tarih</th>
+              <th className="py-1">Açıklama</th>
+              <th className="py-1 text-right">Borç</th>
+              <th className="py-1 text-right">Ödeme/Alacak</th>
+              <th className="py-1 text-right">Bakiye</th>
+            </tr>
+          </thead>
+          <tbody>
+            {computed.map((e) => (
+              <tr key={e.id} className="border-t border-slate-100">
+                <td className="py-1">{e.occurredAt?.slice(0, 10)}</td>
+                <td className="py-1">
+                  {SOURCE_LABELS[e.sourceType] ?? e.sourceType}
+                  {e.description ? ` · ${e.description}` : ''}
+                </td>
+                <td className="py-1 text-right text-red-600">
+                  {e.entryType === 'debit' ? currency.format(Number(e.amount)) : ''}
+                </td>
+                <td className="py-1 text-right text-emerald-700">
+                  {e.entryType === 'credit' ? currency.format(Number(e.amount)) : ''}
+                </td>
+                <td className="py-1 text-right font-medium">{currency.format(e.running)}</td>
+              </tr>
+            ))}
+            {!computed.length && (
+              <tr>
+                <td colSpan={5} className="py-2 text-center text-slate-400">
+                  Hareket yok.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Geçmiş tarihli borç/ödeme ekle */}
+      <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">
+        <select
+          className="input w-auto"
+          value={entryType}
+          onChange={(e) => setEntryType(e.target.value as 'debit' | 'credit')}
+        >
+          <option value="debit">Borç ekle</option>
+          <option value="credit">Ödeme/alacak ekle</option>
+        </select>
+        <input
+          className="input w-28"
+          type="number"
+          min={0}
+          placeholder="Tutar"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+        <input
+          className="input w-auto"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        <input
+          className="input flex-1"
+          placeholder="Açıklama (örn. nakit / havale ABC Banka)"
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+        />
+        <button
+          className="btn-primary"
+          disabled={!amount || Number(amount) <= 0 || addMut.isPending}
+          onClick={() => addMut.mutate()}
+        >
+          Ekle
+        </button>
+      </div>
     </div>
   );
 }

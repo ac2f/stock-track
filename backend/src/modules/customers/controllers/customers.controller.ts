@@ -16,6 +16,7 @@ import { UserRole } from '../../../common/enums/user-role.enum';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
+import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
 import { CustomersService } from '../services/customers.service';
 
 @ApiTags('customers')
@@ -54,6 +55,16 @@ export class CustomersController {
   @Get(':id/ledger')
   ledger(@Param('id', ParseUUIDPipe) id: string) {
     return this.customersService.getLedger(id);
+  }
+
+  // #8b Cariye elle (geçmiş tarihli) borç/alacak hareketi ekle (yalnızca Sahip).
+  @Roles(UserRole.OWNER)
+  @Post(':id/ledger-entry')
+  addLedgerEntry(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateLedgerEntryDto,
+  ) {
+    return this.customersService.addLedgerEntry(id, dto);
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)

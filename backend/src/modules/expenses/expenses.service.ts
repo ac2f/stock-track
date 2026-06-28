@@ -156,6 +156,59 @@ export class ExpensesService {
     };
   }
 
+  /**
+   * Bekleyen sürekli giderler: tutarı tanımlı, sürekli (isRecurring) gider
+   * türlerinden, içinde bulunulan ay için henüz gider girilmemiş olanlar.
+   * "İşletmenin bu ay ödemesi gereken ama henüz ödemediği" sabit giderler (#7).
+   */
+  async pendingRecurring(asOf: Date = new Date()): Promise<
+    { categoryId: string; name: string; amount: number; dueDate: string; overdue: boolean }[]
+  > {
+    const recurring = await this.categoriesRepo.find({
+      where: { isRecurring: true, isActive: true },
+    });
+    const year = asOf.getFullYear();
+    const month = asOf.getMonth(); // 0-index
+    const monthStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const next = new Date(year, month + 1, 1);
+    const nextMonthStart = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`;
+
+    const pending: {
+      categoryId: string;
+      name: string;
+      amount: number;
+      dueDate: string;
+      overdue: boolean;
+    }[] = [];
+    for (const c of recurring) {
+      if (c.recurringAmount == null || Number(c.recurringAmount) <= 0) continue;
+      // Bu ay bu tür için gider girilmiş mi?
+      const paid = await this.expensesRepo
+        .createQueryBuilder('e')
+        .where('e.category_id = :id', { id: c.id })
+        .andWhere('e.expense_date >= :s', { s: monthStart })
+        .andWhere('e.expense_date < :n', { n: nextMonthStart })
+        .getCount();
+      if (paid > 0) continue;
+      const day = Math.min(c.recurringDayOfMonth ?? 1, 28);
+      const dueDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      pending.push({
+        categoryId: c.id,
+        name: c.name,
+        amount: Number(c.recurringAmount),
+        dueDate,
+        overdue: asOf.toISOString().slice(0, 10) > dueDate,
+      });
+    }
+    return pending;
+  }
+
+  /** Bekleyen sürekli giderlerin toplamı (mali dashboard borcuna eklenir). */
+  async pendingRecurringTotal(asOf: Date = new Date()): Promise<number> {
+    const pending = await this.pendingRecurring(asOf);
+    return pending.reduce((s, p) => s + p.amount, 0);
+  }
+
   private applyFilters(query: QueryExpenseDto) {
     const qb = this.expensesRepo.createQueryBuilder('e');
     if (query.categoryId) {

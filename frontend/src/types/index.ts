@@ -43,7 +43,27 @@ export interface ExpenseCategory {
   id: string;
   name: string;
   isRecurring: boolean;
+  recurringAmount?: number | null;
+  recurringDayOfMonth?: number | null;
   isActive: boolean;
+}
+
+export interface PendingExpense {
+  categoryId: string;
+  name: string;
+  amount: number;
+  dueDate: string;
+  overdue: boolean;
+}
+
+export interface CustomerLedgerEntry {
+  id: string;
+  entryType: 'debit' | 'credit';
+  sourceType: string;
+  amount: number;
+  balanceAfter: number;
+  occurredAt: string;
+  description?: string | null;
 }
 
 export interface Project {
@@ -219,6 +239,7 @@ export interface DashboardSummary {
   baseCurrency: string;
   totalReceivable: number;
   totalPayable: number;
+  pendingExpenses: number;
   todayCollected: number;
   monthCollected: number;
   monthProcessingRevenue: number;

@@ -33,7 +33,8 @@ export function DashboardPage() {
 
   const cards = [
     { label: 'Toplam Alacak', value: money.format(kpi.totalReceivable), tone: 'text-red-600' },
-    { label: 'Sahiplere Borç', value: money.format(kpi.totalPayable), tone: 'text-amber-600' },
+    { label: 'Ödenecek (borç + sürekli gider)', value: money.format(kpi.totalPayable), tone: 'text-amber-600' },
+    { label: 'Bekleyen Sürekli Gider', value: money.format(kpi.pendingExpenses), tone: kpi.pendingExpenses > 0 ? 'text-amber-600' : 'text-slate-900' },
     { label: 'Bugün Tahsilat', value: money.format(kpi.todayCollected), tone: 'text-emerald-600' },
     { label: `${periodPrefix} Tahsilat`, value: money.format(kpi.monthCollected), tone: 'text-emerald-600' },
     { label: `${periodPrefix} İşleme Cirosu`, value: money.format(kpi.monthProcessingRevenue), tone: 'text-slate-900' },
