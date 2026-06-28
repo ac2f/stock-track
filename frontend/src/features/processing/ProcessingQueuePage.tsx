@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchQueue, setProcessingStatus } from '../../api/processing.api';
+import { useState } from 'react';
+import {
+  fetchProcessingHistory,
+  fetchQueue,
+  setProcessingStatus,
+} from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
 import type { ProcessingStatus } from '../../types';
 
@@ -7,6 +12,77 @@ const money = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
   currency: 'TRY',
 });
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Bekliyor',
+  in_progress: 'İşleniyor',
+  completed: 'Tamamlandı',
+  cancelled: 'İptal',
+};
+
+/** #8a Geçmiş üretim işleri — tarih aralığı + durum ile sorgulanır. */
+function ProcessingHistory() {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const [from, setFrom] = useState(monthAgo);
+  const [to, setTo] = useState(today);
+  const [status, setStatus] = useState<'' | ProcessingStatus>('completed');
+
+  const { data } = useQuery({
+    queryKey: ['processing-history', from, to, status],
+    queryFn: () =>
+      fetchProcessingHistory({
+        from,
+        to,
+        status: status || undefined,
+        page: 1,
+        limit: 100,
+      }),
+  });
+
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-semibold text-slate-500">Geçmiş işler</h2>
+      <div className="card grid grid-cols-3 gap-2">
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs text-slate-500">Başlangıç</span>
+          <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs text-slate-500">Bitiş</span>
+          <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs text-slate-500">Durum</span>
+          <select
+            className="input"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as '' | ProcessingStatus)}
+          >
+            <option value="">Tümü</option>
+            <option value="completed">Tamamlandı</option>
+            <option value="cancelled">İptal</option>
+            <option value="pending">Bekliyor</option>
+            <option value="in_progress">İşleniyor</option>
+          </select>
+        </label>
+      </div>
+      {data?.items.map((job) => (
+        <div key={job.id} className="card flex items-center justify-between">
+          <div>
+            <p className="font-medium">{job.plate?.name ?? '—'}</p>
+            <p className="text-sm text-slate-500">
+              {job.processedAt?.slice(0, 10)} · {job.customer?.name ?? 'Müşterisiz'} ·{' '}
+              {STATUS_LABELS[job.status] ?? job.status}
+            </p>
+          </div>
+          <span className="font-semibold">{money.format(Number(job.totalCost))}</span>
+        </div>
+      ))}
+      {!data?.items.length && <p className="text-slate-400">Bu aralıkta iş yok.</p>}
+    </div>
+  );
+}
 
 const unitLabel: Record<string, string> = {
   area: 'm²',
@@ -121,6 +197,8 @@ export function ProcessingQueuePage() {
           ))}
         </div>
       ))}
+
+      <ProcessingHistory />
     </div>
   );
 }
