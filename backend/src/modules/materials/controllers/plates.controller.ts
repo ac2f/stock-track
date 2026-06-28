@@ -54,14 +54,21 @@ export class PlatesController {
     return this.platesService.listStockLevels(id);
   }
 
-  // Konsinye (müşteriye ait) stoğun sahipliğini işletmeye aktar.
+  // Stok sahipliğini taraflar arasında serbestçe aktar (işletme↔müşteri, müşteri↔müşteri).
   @Roles(UserRole.OWNER)
-  @Post(':id/transfer-to-business')
-  transferToBusiness(
+  @Post(':id/transfer-ownership')
+  transferOwnership(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: TransferOwnershipDto,
   ) {
-    return this.platesService.transferToBusiness(id, dto);
+    return this.platesService.transferOwnership(id, dto);
+  }
+
+  // "Tamamını sat" / stoktan tamamen çıkar (soft-delete).
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Post(':id/deplete')
+  deplete(@Param('id', ParseUUIDPipe) id: string) {
+    return this.platesService.deplete(id);
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)

@@ -108,6 +108,7 @@ export interface Plate {
   reorderLevel?: number;
   addedAt?: string; // edinme/stoğa giriş tarihi (YYYY-MM-DD)
   processedAt?: string; // işlenme tarihi (YYYY-MM-DD)
+  owners?: string[]; // dinamik sahip(ler): "İşletme" ve/veya müşteri adları
   templateId?: string;
   template?: { category: MaterialCategory; name: string };
 }

@@ -18,6 +18,10 @@ export interface PlateFilters {
   brand?: string;
   color?: string;
   inStock?: boolean;
+  ownerCustomerId?: string;
+  owner?: 'business' | 'customer';
+  from?: string; // stoğa giriş (added_at) tarihi aralığı (YYYY-MM-DD)
+  to?: string;
   page?: number;
   limit?: number;
 }
@@ -309,20 +313,28 @@ export async function fetchPlateStockLevels(
 }
 
 export interface TransferOwnershipInput {
-  ownerCustomerId: string;
+  // Boş ise o taraf işletmedir (işletme↔müşteri, müşteri↔müşteri).
+  fromOwnerCustomerId?: string;
+  toOwnerCustomerId?: string;
   warehouseId?: string;
   quantity?: number;
 }
 
-/** Konsinye stoğun sahipliğini işletmeye aktarır. */
-export async function transferPlateToBusiness(
+/** Stok sahipliğini taraflar arasında serbestçe aktarır. */
+export async function transferPlateOwnership(
   plateId: string,
   input: TransferOwnershipInput,
 ): Promise<unknown> {
   const { data } = await api.post(
-    `/plates/${plateId}/transfer-to-business`,
+    `/plates/${plateId}/transfer-ownership`,
     input,
   );
+  return data;
+}
+
+/** "Tamamını sat" / stoktan tamamen çıkar (soft-delete). */
+export async function depletePlate(plateId: string): Promise<unknown> {
+  const { data } = await api.post(`/plates/${plateId}/deplete`);
   return data;
 }
 

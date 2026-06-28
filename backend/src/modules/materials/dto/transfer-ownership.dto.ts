@@ -1,20 +1,27 @@
 import { IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
 
 /**
- * Konsinye (müşteriye ait) stoğun sahipliğini işletmeye aktarma.
- * Belirtilen müşterinin, ilgili depodaki konsinye miktarı işletme stoğuna geçer.
+ * Stok sahipliğini taraflar arasında serbestçe aktarma.
+ * `fromOwnerCustomerId`/`toOwnerCustomerId` boş ise o taraf **işletmedir**.
+ * Böylece işletme↔müşteri ve müşteri↔müşteri aktarımları desteklenir.
  */
 export class TransferOwnershipDto {
-  // Sahipliği aktarılacak konsinye stoğun mevcut sahibi (müşteri).
+  // Kaynak sahip (müşteri); boşsa işletme stoğu.
+  @IsOptional()
   @IsUUID()
-  ownerCustomerId: string;
+  fromOwnerCustomerId?: string;
 
-  // Hangi depodaki konsinye stok aktarılacak; verilmezse varsayılan (Merkez) depo.
+  // Hedef sahip (müşteri); boşsa işletme stoğu.
+  @IsOptional()
+  @IsUUID()
+  toOwnerCustomerId?: string;
+
+  // Hangi depodaki stok aktarılacak; verilmezse varsayılan (Merkez) depo.
   @IsOptional()
   @IsUUID()
   warehouseId?: string;
 
-  // Aktarılacak miktar; verilmezse o depodaki tüm konsinye miktar aktarılır.
+  // Aktarılacak miktar; verilmezse kaynaktaki tüm miktar.
   @IsOptional()
   @IsNumber()
   @Min(0)

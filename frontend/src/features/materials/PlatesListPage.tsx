@@ -3,11 +3,12 @@ import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
+  depletePlate,
   fetchMaterialCategories,
   fetchMaterialTemplates,
   fetchPlateStockLevels,
   fetchPlates,
-  transferPlateToBusiness,
+  transferPlateOwnership,
   updatePlate,
   type CreatePlateInput,
   type PlateFilters,
@@ -421,6 +422,8 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
     ((form.widthMm != null && form.widthMm > std.widthMm) ||
       (form.heightMm != null && form.heightMm > std.heightMm));
 
+  const [targets, setTargets] = useState<Record<string, string>>({});
+
   const updateMut = useMutation({
     mutationFn: (input: UpdatePlateInput) => updatePlate(plate.id, input),
     onSuccess: () => {
@@ -429,18 +432,23 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
     },
   });
   const transferMut = useMutation({
-    mutationFn: (input: TransferOwnershipInput) => transferPlateToBusiness(plate.id, input),
+    mutationFn: (input: TransferOwnershipInput) => transferPlateOwnership(plate.id, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plates'] });
       qc.invalidateQueries({ queryKey: ['plate-stock-levels', plate.id] });
     },
   });
+  const depleteMut = useMutation({
+    mutationFn: () => depletePlate(plate.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      onClose();
+    },
+  });
 
   const customerName = (id?: string | null) =>
     customers?.items.find((c) => c.id === id)?.name ?? 'Müşteri';
-  const consignmentLevels = (levels ?? []).filter(
-    (l) => l.ownerCustomerId && Number(l.quantity) > 0,
-  );
+  const activeLevels = (levels ?? []).filter((l) => Number(l.quantity) > 0);
 
   return (
     <div className="mt-2 space-y-3 rounded-xl border border-slate-200 p-2">
@@ -543,33 +551,70 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
         </Field>
       </div>
 
-      {consignmentLevels.length > 0 && (
-        <div className="space-y-2 rounded-lg bg-amber-50 p-2 text-sm">
-          <p className="font-medium text-amber-800">Konsinye sahiplik</p>
-          {consignmentLevels.map((l) => (
-            <div key={l.id} className="flex items-center justify-between gap-2">
-              <span className="text-amber-900">
-                {customerName(l.ownerCustomerId)} · {Number(l.quantity)} adet ·{' '}
-                {l.warehouse?.name ?? 'depo'}
-              </span>
-              <button
-                className="btn bg-amber-600 text-white"
-                disabled={transferMut.isPending}
-                onClick={() =>
-                  transferMut.mutate({
-                    ownerCustomerId: l.ownerCustomerId as string,
-                    warehouseId: l.warehouseId,
-                  })
-                }
+      {activeLevels.length > 0 && (
+        <div className="space-y-2 rounded-lg bg-slate-50 p-2 text-sm">
+          <p className="font-medium text-slate-700">Sahiplik / stok seviyeleri</p>
+          {activeLevels.map((l) => {
+            const fromLabel = l.ownerCustomerId
+              ? customerName(l.ownerCustomerId)
+              : 'İşletme';
+            const target = targets[l.id] ?? 'business';
+            return (
+              <div
+                key={l.id}
+                className="space-y-1 border-t border-slate-200 pt-2 first:border-0 first:pt-0"
               >
-                İşletmeye aktar
-              </button>
-            </div>
-          ))}
+                <div className="text-slate-700">
+                  {fromLabel} · {Number(l.quantity)} adet · {l.warehouse?.name ?? 'depo'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">aktar →</span>
+                  <select
+                    className="input w-auto py-1"
+                    value={target}
+                    onChange={(e) =>
+                      setTargets((t) => ({ ...t, [l.id]: e.target.value }))
+                    }
+                  >
+                    <option value="business">İşletme</option>
+                    {customers?.items
+                      .filter((c) => c.id !== l.ownerCustomerId)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    className="btn bg-blue-600 text-white"
+                    disabled={
+                      transferMut.isPending ||
+                      (target === 'business' && !l.ownerCustomerId)
+                    }
+                    onClick={() =>
+                      transferMut.mutate({
+                        fromOwnerCustomerId: l.ownerCustomerId ?? undefined,
+                        toOwnerCustomerId: target === 'business' ? undefined : target,
+                        warehouseId: l.warehouseId,
+                      })
+                    }
+                  >
+                    Aktar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      <div className="flex gap-2">
+      {depleteMut.error && (
+        <p className="text-sm text-red-600">
+          {errMessage(depleteMut.error, 'Stoktan çıkarılamadı.')}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
         <button
           className="btn-primary"
           disabled={overSheet || updateMut.isPending}
@@ -577,10 +622,68 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
         >
           Kaydet
         </button>
+        <button
+          className="btn bg-red-600 text-white"
+          disabled={depleteMut.isPending}
+          onClick={() => {
+            if (
+              confirm(
+                'Bu plaka tamamen satıldı/bitti olarak stoktan çıkarılsın mı? (geri alınamaz)',
+              )
+            ) {
+              depleteMut.mutate();
+            }
+          }}
+        >
+          Tamamını sat / stoktan çıkar
+        </button>
         <button className="btn" onClick={onClose}>
           Kapat
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Tek plaka kartı — başlıkta tarih + dinamik sahip, kalan m² ve düzenleme. */
+function PlateCard({ plate }: { plate: Plate }) {
+  const [editing, setEditing] = useState(false);
+  const m2 = areaM2(plate.widthMm, plate.heightMm);
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between">
+        <h3 className="font-medium">{plate.name}</h3>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs ${
+            plate.quantityInStock > 0
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-red-100 text-red-700'
+          }`}
+        >
+          {plate.quantityInStock} adet
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-slate-500">
+        {plate.brand ?? '—'} · {plate.color ?? '—'}
+        {plate.colorCode ? ` (${plate.colorCode})` : ''}
+        {plate.variant ? ` · ${plate.variant}` : ''}
+      </p>
+      <p className="mt-1 text-xs text-slate-400">
+        {plate.widthMm}×{plate.heightMm}×{plate.thicknessMm} mm
+        {m2 != null ? ` · kalan ${m2.toFixed(2)} m²` : ''}
+      </p>
+      {/* Başlık altı: dinamik sahip + stok/işlenme tarihi. */}
+      <p className="mt-1 text-xs text-slate-400">
+        Sahip: {plate.owners?.length ? plate.owners.join(', ') : '—'}
+        {plate.addedAt ? ` · Stok: ${plate.addedAt}` : ''}
+        {plate.processedAt ? ` · İşlendi: ${plate.processedAt}` : ''}
+      </p>
+      <div className="mt-2">
+        <button className="btn" onClick={() => setEditing((v) => !v)}>
+          {editing ? 'Kapat' : 'Düzenle'}
+        </button>
+      </div>
+      {editing && <EditPlateForm plate={plate} onClose={() => setEditing(false)} />}
     </div>
   );
 }
@@ -592,7 +695,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
 export function PlatesListPage() {
   const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: 20 });
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [groupByType, setGroupByType] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['plates', filters],
@@ -602,9 +705,21 @@ export function PlatesListPage() {
     queryKey: ['material-categories'],
     queryFn: fetchMaterialCategories,
   });
+  const { data: customers } = useQuery({
+    queryKey: ['customers', 'all'],
+    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
+  });
 
   const set = (patch: Partial<PlateFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
+
+  // Tür bazlı gruplama (işleme malzemesini kolay bulmak için).
+  const groups = new Map<string, Plate[]>();
+  for (const p of data?.items ?? []) {
+    const key = p.template?.category?.name ?? 'Diğer';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(p);
+  }
 
   return (
     <div className="space-y-4">
@@ -658,6 +773,24 @@ export function PlatesListPage() {
             placeholder="Renk"
             onChange={(e) => set({ color: e.target.value || undefined })}
           />
+          <select
+            className="input w-auto"
+            value={filters.ownerCustomerId ?? filters.owner ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '') set({ owner: undefined, ownerCustomerId: undefined });
+              else if (v === 'business') set({ owner: 'business', ownerCustomerId: undefined });
+              else set({ owner: undefined, ownerCustomerId: v });
+            }}
+          >
+            <option value="">Tüm sahipler</option>
+            <option value="business">İşletme</option>
+            {customers?.items.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
           <label className="flex min-h-[44px] shrink-0 items-center gap-2 px-2 text-sm">
             <input
               type="checkbox"
@@ -665,64 +798,61 @@ export function PlatesListPage() {
             />
             Stokta
           </label>
+          <label className="flex min-h-[44px] shrink-0 items-center gap-2 px-2 text-sm">
+            <input
+              type="checkbox"
+              checked={groupByType}
+              onChange={(e) => setGroupByType(e.target.checked)}
+            />
+            Türe göre grupla
+          </label>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Stok tarihi (baş.)</span>
+            <input
+              className="input"
+              type="date"
+              value={filters.from ?? ''}
+              onChange={(e) => set({ from: e.target.value || undefined })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Stok tarihi (bit.)</span>
+            <input
+              className="input"
+              type="date"
+              value={filters.to ?? ''}
+              onChange={(e) => set({ to: e.target.value || undefined })}
+            />
+          </label>
         </div>
       </div>
 
       {isLoading ? (
         <p className="text-slate-400">Yükleniyor…</p>
+      ) : !data?.items.length ? (
+        <p className="text-slate-400">Kayıt bulunamadı.</p>
+      ) : groupByType ? (
+        <div className="space-y-4">
+          {[...groups.entries()].map(([cat, items]) => (
+            <div key={cat} className="space-y-2">
+              <h2 className="text-sm font-semibold text-slate-500">
+                {cat} · {items.length}
+              </h2>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {items.map((plate) => (
+                  <PlateCard key={plate.id} plate={plate} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {data?.items.map((plate) => {
-            const m2 = areaM2(plate.widthMm, plate.heightMm);
-            const editing = editingId === plate.id;
-            return (
-              <div key={plate.id} className="card">
-                <div className="flex items-start justify-between">
-                  <h3 className="font-medium">{plate.name}</h3>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs ${
-                      plate.quantityInStock > 0
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}
-                  >
-                    {plate.quantityInStock} adet
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  {plate.brand ?? '—'} · {plate.color ?? '—'}
-                  {plate.colorCode ? ` (${plate.colorCode})` : ''}
-                  {plate.variant ? ` · ${plate.variant}` : ''}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  {plate.widthMm}×{plate.heightMm}×{plate.thicknessMm} mm
-                  {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
-                </p>
-                {(plate.addedAt || plate.processedAt) && (
-                  <p className="mt-1 text-xs text-slate-400">
-                    {plate.addedAt ? `Eklendi: ${plate.addedAt}` : ''}
-                    {plate.processedAt
-                      ? `${plate.addedAt ? ' · ' : ''}İşlendi: ${plate.processedAt}`
-                      : ''}
-                  </p>
-                )}
-                <div className="mt-2">
-                  <button
-                    className="btn"
-                    onClick={() => setEditingId(editing ? null : plate.id)}
-                  >
-                    {editing ? 'Kapat' : 'Düzenle'}
-                  </button>
-                </div>
-                {editing && (
-                  <EditPlateForm plate={plate} onClose={() => setEditingId(null)} />
-                )}
-              </div>
-            );
-          })}
-          {!data?.items.length && (
-            <p className="text-slate-400">Kayıt bulunamadı.</p>
-          )}
+          {data.items.map((plate) => (
+            <PlateCard key={plate.id} plate={plate} />
+          ))}
         </div>
       )}
     </div>

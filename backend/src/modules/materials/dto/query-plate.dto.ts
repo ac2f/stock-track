@@ -1,5 +1,13 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
@@ -35,6 +43,20 @@ export class QueryPlateDto extends PaginationDto {
   @IsOptional()
   @IsUUID()
   ownerCustomerId?: string;
+
+  // Sahiplik filtresi: 'business' → işletme stoğu, 'customer' → konsinye (herhangi).
+  @IsOptional()
+  @IsIn(['business', 'customer'])
+  owner?: 'business' | 'customer';
+
+  // Stoğa giriş (added_at) tarihi aralığı — işleme malzemesini kolay bulmak için.
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  to?: string;
 
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)

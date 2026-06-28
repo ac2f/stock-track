@@ -184,7 +184,7 @@ export class PlatesService {
       .leftJoinAndSelect('plate.template', 'template');
 
     // Depo/sahip filtresi için stok seviyelerine join.
-    if (query.warehouseId || query.ownerCustomerId) {
+    if (query.warehouseId || query.ownerCustomerId || query.owner) {
       qb.innerJoin(
         StockLevel,
         'sl',
@@ -200,7 +200,19 @@ export class PlatesService {
           ownerCustomerId: query.ownerCustomerId,
         });
       }
+      if (query.owner === 'business') {
+        qb.andWhere('sl.owner_customer_id IS NULL');
+      } else if (query.owner === 'customer') {
+        qb.andWhere('sl.owner_customer_id IS NOT NULL');
+      }
       qb.andWhere('sl.quantity > 0').distinct(true);
+    }
+
+    if (query.from) {
+      qb.andWhere('plate.added_at >= :from', { from: query.from });
+    }
+    if (query.to) {
+      qb.andWhere('plate.added_at <= :to', { to: query.to });
     }
 
     if (query.templateId) {
@@ -238,7 +250,40 @@ export class PlatesService {
     qb.orderBy('plate.name', 'ASC').skip(query.skip).take(query.limit);
 
     const [items, total] = await qb.getManyAndCount();
+    await this.attachOwners(items);
     return buildPaginatedResult(items, total, query.page, query.limit);
+  }
+
+  /**
+   * Her plakaya güncel sahip(ler)ini ekler (dinamik): işletme stoğu varsa
+   * "İşletme", konsinye seviyeleri varsa o müşterilerin adları. Liste/başlıkta
+   * "kimin nesi" görünmesi için kullanılır.
+   */
+  private async attachOwners(plates: MaterialPlate[]): Promise<void> {
+    if (!plates.length) return;
+    const ids = plates.map((p) => p.id);
+    const rows: { plate_id: string; name: string }[] = await this.dataSource.query(
+      `SELECT DISTINCT sl.plate_id, c.name
+         FROM stock_levels sl
+         JOIN customers c ON c.id = sl.owner_customer_id
+        WHERE sl.plate_id = ANY($1)
+          AND sl.owner_customer_id IS NOT NULL
+          AND sl.quantity > 0
+          AND sl.deleted_at IS NULL`,
+      [ids],
+    );
+    const consignByPlate = new Map<string, string[]>();
+    for (const r of rows) {
+      const list = consignByPlate.get(r.plate_id) ?? [];
+      list.push(r.name);
+      consignByPlate.set(r.plate_id, list);
+    }
+    for (const plate of plates) {
+      const owners: string[] = [];
+      if (Number(plate.quantityInStock) > 0) owners.push('İşletme');
+      owners.push(...(consignByPlate.get(plate.id) ?? []));
+      (plate as MaterialPlate & { owners?: string[] }).owners = owners;
+    }
   }
 
   async findOne(id: string): Promise<MaterialPlate> {
@@ -272,7 +317,17 @@ export class PlatesService {
       std?.widthMm ?? null,
       std?.heightMm ?? null,
     );
-    return this.platesRepo.save(plate);
+    const saved = await this.platesRepo.save(plate);
+
+    // Tabaka (AREA) malzemede kalan m² tükendiyse plakayı stoktan düş.
+    if (
+      saved.measurementType === MeasurementType.AREA &&
+      (Number(saved.widthMm) <= 0 || Number(saved.heightMm) <= 0)
+    ) {
+      await this.deplete(saved.id);
+      saved.isActive = false;
+    }
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
@@ -453,16 +508,24 @@ export class PlatesService {
   }
 
   /**
-   * Konsinye (müşteriye ait) stoğu işletme stoğuna aktarır: belirtilen müşterinin
-   * ilgili depodaki miktarı düşülür, aynı miktar işletme (sahipsiz) stoğuna eklenir.
-   * Miktar verilmezse o depodaki tüm konsinye miktar aktarılır.
+   * Stok sahipliğini taraflar arasında serbestçe aktarır (işletme↔müşteri ve
+   * müşteri↔müşteri). Kaynak/hedef `null` ise o taraf işletmedir. Kaynaktaki
+   * miktar düşülür, aynı miktar hedefe eklenir. Miktar verilmezse tümü aktarılır.
    */
-  async transferToBusiness(
+  async transferOwnership(
     plateId: string,
     dto: TransferOwnershipDto,
   ): Promise<StockLevel> {
     await this.findOne(plateId);
-    await this.customersService.findOne(dto.ownerCustomerId);
+    const fromOwner = dto.fromOwnerCustomerId ?? null;
+    const toOwner = dto.toOwnerCustomerId ?? null;
+    if (fromOwner === toOwner) {
+      throw new BadRequestException(
+        'Kaynak ve hedef sahip aynı olamaz.',
+      );
+    }
+    if (fromOwner) await this.customersService.findOne(fromOwner);
+    if (toOwner) await this.customersService.findOne(toOwner);
 
     return this.dataSource.transaction(async (manager) => {
       const warehouse = dto.warehouseId
@@ -472,17 +535,17 @@ export class PlatesService {
             manager,
           );
 
-      const consignment = await manager.getRepository(StockLevel).findOne({
+      const source = await manager.getRepository(StockLevel).findOne({
         where: {
           plateId,
           warehouseId: warehouse.id,
-          ownerCustomerId: dto.ownerCustomerId,
+          ownerCustomerId: fromOwner ?? IsNull(),
         },
       });
-      const available = consignment ? Number(consignment.quantity) : 0;
+      const available = source ? Number(source.quantity) : 0;
       if (available <= 0) {
         throw new BadRequestException(
-          'Bu depoda aktarılacak konsinye stok bulunmuyor.',
+          'Bu depoda aktarılacak stok bulunmuyor.',
         );
       }
       const qty = dto.quantity ?? available;
@@ -492,15 +555,30 @@ export class PlatesService {
         );
       }
 
-      // Konsinyeden düş (cache'i etkilemez), işletmeye ekle (cache'i artırır).
-      await this.adjustStock(
-        plateId,
-        warehouse.id,
-        -qty,
-        dto.ownerCustomerId,
-        manager,
-      );
-      return this.adjustStock(plateId, warehouse.id, qty, null, manager);
+      // Kaynaktan düş, hedefe ekle (adjustStock işletme tarafında cache'i günceller).
+      await this.adjustStock(plateId, warehouse.id, -qty, fromOwner, manager);
+      return this.adjustStock(plateId, warehouse.id, qty, toOwner, manager);
+    });
+  }
+
+  /**
+   * "Tamamını sat" / stoktan tamamen çıkar: tüm depo/sahip seviyelerini sıfırlar
+   * ve plakayı (soft-delete) listeden kaldırır. Kalan m² tükendiğinde de çağrılır.
+   */
+  async deplete(plateId: string): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const plate = await manager.findOne(MaterialPlate, {
+        where: { id: plateId },
+      });
+      if (!plate) {
+        throw new NotFoundException('Stok kalemi bulunamadı.');
+      }
+      // Tüm stok seviyelerini sıfırla (konsinye dahil) ve toplam cache'i temizle.
+      await manager.getRepository(StockLevel).delete({ plateId });
+      plate.quantityInStock = 0;
+      plate.isActive = false;
+      await manager.save(plate);
+      await manager.softRemove(plate);
     });
   }
 
