@@ -32,6 +32,20 @@ const EMPTY: MaterialTemplateInput = {
   isActive: true,
 };
 
+/** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
+function buildCatalogName(
+  brand: { name: string } | undefined,
+  color: { name: string; code?: string } | undefined,
+  size: { widthMm: number; heightMm: number } | undefined,
+  thickness: { valueMm: number } | undefined,
+): string {
+  const brandPart = brand?.name ?? '—';
+  const colorPart = color ? (color.code ? `${color.name} ${color.code}` : color.name) : '—';
+  const thicknessPart = thickness?.valueMm ?? '—';
+  const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
+  return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
+}
+
 /**
  * Ürün türleri (şablonlar) yönetimi — yalnızca İşletme Sahibi.
  * Marka/renk/ebat/kalınlık katalogları kategoriye özeldir: bir kategoride
@@ -42,6 +56,7 @@ export function MaterialTemplatesPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState<MaterialTemplateInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [nameTouched, setNameTouched] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
   const [newColorName, setNewColorName] = useState('');
   const [newColorCode, setNewColorCode] = useState('');
@@ -79,6 +94,20 @@ export function MaterialTemplatesPage() {
     queryFn: () => fetchMaterialThicknesses(categoryId),
     enabled: !!categoryId,
   });
+
+  /** Marka/renk/ebat/kalınlık seçimlerini forma uygular; isim elle değiştirilmediyse otomatik üretir. */
+  const patchCatalog = (patch: Partial<MaterialTemplateInput>) => {
+    setForm((f) => {
+      if (!f) return f;
+      const next = { ...f, ...patch };
+      if (nameTouched) return next;
+      const brand = brands?.find((b) => b.id === next.defaultBrandId);
+      const color = colors?.find((c) => c.id === next.defaultColorId);
+      const size = sizes?.find((s) => s.id === next.defaultSizeId);
+      const thickness = thicknesses?.find((t) => t.id === next.defaultThicknessId);
+      return { ...next, name: buildCatalogName(brand, color, size, thickness) };
+    });
+  };
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['material-templates'] });
 
@@ -159,6 +188,7 @@ export function MaterialTemplatesPage() {
             onClick={() => {
               setEditingId(null);
               setForm(EMPTY);
+              setNameTouched(false);
             }}
           >
             + Yeni Ürün Türü
@@ -179,13 +209,17 @@ export function MaterialTemplatesPage() {
             className="input"
             placeholder="Ad (örn. Alüminyum Kompozit 3mm)"
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) => {
+              setNameTouched(true);
+              setForm({ ...form, name: e.target.value });
+            }}
           />
           <select
             className="input"
             value={form.categoryId}
             onChange={(e) => {
               const cat = categories?.find((c) => c.id === e.target.value);
+              setNameTouched(false);
               setForm({
                 ...form,
                 categoryId: e.target.value,
@@ -195,6 +229,7 @@ export function MaterialTemplatesPage() {
                 defaultColorId: undefined,
                 defaultSizeId: undefined,
                 defaultThicknessId: undefined,
+                name: '',
               });
             }}
           >
@@ -240,7 +275,7 @@ export function MaterialTemplatesPage() {
                     className="input flex-1"
                     value={form.defaultBrandId ?? ''}
                     onChange={(e) =>
-                      setForm({ ...form, defaultBrandId: e.target.value || undefined })
+                      patchCatalog({ defaultBrandId: e.target.value || undefined })
                     }
                   >
                     <option value="">Marka seç…</option>
@@ -278,7 +313,7 @@ export function MaterialTemplatesPage() {
                   className="input w-full"
                   value={form.defaultColorId ?? ''}
                   onChange={(e) =>
-                    setForm({ ...form, defaultColorId: e.target.value || undefined })
+                    patchCatalog({ defaultColorId: e.target.value || undefined })
                   }
                 >
                   <option value="">Renk seç…</option>
@@ -323,7 +358,7 @@ export function MaterialTemplatesPage() {
                   className="input w-full"
                   value={form.defaultSizeId ?? ''}
                   onChange={(e) =>
-                    setForm({ ...form, defaultSizeId: e.target.value || undefined })
+                    patchCatalog({ defaultSizeId: e.target.value || undefined })
                   }
                 >
                   <option value="">Ebat seç…</option>
@@ -371,7 +406,7 @@ export function MaterialTemplatesPage() {
                   className="input w-full"
                   value={form.defaultThicknessId ?? ''}
                   onChange={(e) =>
-                    setForm({ ...form, defaultThicknessId: e.target.value || undefined })
+                    patchCatalog({ defaultThicknessId: e.target.value || undefined })
                   }
                 >
                   <option value="">Kalınlık seç…</option>
@@ -469,6 +504,7 @@ export function MaterialTemplatesPage() {
                   className="btn"
                   onClick={() => {
                     setEditingId(t.id);
+                    setNameTouched(true);
                     setForm({
                       name: t.name,
                       categoryId: t.categoryId,

@@ -18,7 +18,6 @@ import {
 } from '../../../common/enums/measurement-type.enum';
 import { WarehousesService } from '../../warehouses/warehouses.service';
 import { MaterialPlate } from '../entities/material-plate.entity';
-import { MaterialTemplate } from '../entities/material-template.entity';
 import { StockLevel } from '../entities/stock-level.entity';
 import { CreatePlateDto } from '../dto/create-plate.dto';
 import { UpdatePlateDto } from '../dto/update-plate.dto';
@@ -109,7 +108,7 @@ export class PlatesService {
         templateId: template.id,
         measurementType,
         unitOfMeasure,
-        name: dto.name ?? this.deriveName(template, brand, size),
+        name: dto.name ?? this.buildCatalogName(brand, color, size, thickness),
         sku: dto.sku,
         brand: brand?.name,
         brandId: brand?.id ?? null,
@@ -323,14 +322,22 @@ export class PlatesService {
     return savedLevel;
   }
 
-  private deriveName(
-    template: MaterialTemplate,
+  /** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
+  private buildCatalogName(
     brand: { name: string } | null,
+    color: { name: string; code?: string | null } | null,
     size: { widthMm: number; heightMm: number } | null,
+    thickness: { valueMm: number } | null,
   ): string {
-    const dims = size ? `${size.widthMm}x${size.heightMm}` : null;
-    const parts = [template.name, brand?.name, dims].filter(Boolean);
-    return parts.join(' · ');
+    const brandPart = brand?.name ?? '—';
+    const colorPart = color
+      ? color.code
+        ? `${color.name} ${color.code}`
+        : color.name
+      : '—';
+    const thicknessPart = thickness?.valueMm ?? '—';
+    const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
+    return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
   }
 
   /**

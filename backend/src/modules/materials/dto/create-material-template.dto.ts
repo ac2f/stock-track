@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsObject,
   IsOptional,
@@ -50,4 +51,8 @@ export class CreateMaterialTemplateDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

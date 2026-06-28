@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
@@ -23,9 +23,24 @@ function areaM2(widthMm?: number, heightMm?: number): number | null {
 
 const EMPTY_PLATE: CreatePlateInput = { templateId: '' };
 
+/** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
+function buildCatalogName(
+  brand: { name: string } | undefined,
+  color: { name: string; code?: string } | undefined,
+  size: { widthMm: number; heightMm: number } | undefined,
+  thickness: { valueMm: number } | undefined,
+): string {
+  const brandPart = brand?.name ?? '—';
+  const colorPart = color ? (color.code ? `${color.name} ${color.code}` : color.name) : '—';
+  const thicknessPart = thickness?.valueMm ?? '—';
+  const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
+  return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
+}
+
 function NewPlateForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreatePlateInput>(EMPTY_PLATE);
+  const [nameTouched, setNameTouched] = useState(false);
 
   const { data: templates } = useQuery({
     queryKey: ['material-templates'],
@@ -73,10 +88,35 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     },
   });
 
+  /** Marka/renk/ebat/kalınlık seçimlerini forma uygular; isim elle değiştirilmediyse otomatik üretir. */
+  const patchCatalog = (patch: Partial<CreatePlateInput>) => {
+    setForm((f) => {
+      const next = { ...f, ...patch };
+      if (nameTouched) return next;
+      const brand = brands?.find((b) => b.id === next.brandId);
+      const color = colors?.find((c) => c.id === next.colorId);
+      const size = sizes?.find((s) => s.id === next.sizeId);
+      const thickness = thicknesses?.find((t) => t.id === next.thicknessId);
+      return { ...next, name: buildCatalogName(brand, color, size, thickness) };
+    });
+  };
+
+  // Katalog listeleri (kategori değişince) yüklendiğinde isim önerisini günceller.
+  useEffect(() => {
+    if (nameTouched || !form.templateId) return;
+    const brand = brands?.find((b) => b.id === form.brandId);
+    const color = colors?.find((c) => c.id === form.colorId);
+    const size = sizes?.find((s) => s.id === form.sizeId);
+    const thickness = thicknesses?.find((t) => t.id === form.thicknessId);
+    const name = buildCatalogName(brand, color, size, thickness);
+    setForm((f) => (f.name === name ? f : { ...f, name }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brands, colors, sizes, thicknesses]);
+
   const applyTemplateDefaults = (templateId: string) => {
     const tpl = templates?.find((t) => t.id === templateId);
-    setForm({
-      ...form,
+    setNameTouched(false);
+    patchCatalog({
       templateId,
       measurementType: tpl?.measurementType,
       brandId: tpl?.defaultBrandId,
@@ -114,7 +154,10 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             className="input"
             placeholder="Ad (boş bırakılırsa otomatik oluşturulur)"
             value={form.name ?? ''}
-            onChange={(e) => setForm({ ...form, name: e.target.value || undefined })}
+            onChange={(e) => {
+              setNameTouched(true);
+              setForm({ ...form, name: e.target.value || undefined });
+            }}
           />
           <input
             className="input"
@@ -131,7 +174,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           <select
             className="input"
             value={form.brandId ?? ''}
-            onChange={(e) => setForm({ ...form, brandId: e.target.value || undefined })}
+            onChange={(e) => patchCatalog({ brandId: e.target.value || undefined })}
           >
             <option value="">Marka seç…</option>
             {brands?.map((b) => (
@@ -143,7 +186,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           <select
             className="input"
             value={form.colorId ?? ''}
-            onChange={(e) => setForm({ ...form, colorId: e.target.value || undefined })}
+            onChange={(e) => patchCatalog({ colorId: e.target.value || undefined })}
           >
             <option value="">Renk seç…</option>
             {colors?.map((c) => (
@@ -157,7 +200,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             className="input"
             value={form.thicknessId ?? ''}
             onChange={(e) =>
-              setForm({ ...form, thicknessId: e.target.value || undefined })
+              patchCatalog({ thicknessId: e.target.value || undefined })
             }
           >
             <option value="">Kalınlık seç…</option>
@@ -173,7 +216,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
               <select
                 className="input"
                 value={form.sizeId ?? ''}
-                onChange={(e) => setForm({ ...form, sizeId: e.target.value || undefined })}
+                onChange={(e) => patchCatalog({ sizeId: e.target.value || undefined })}
               >
                 <option value="">Ebat seç…</option>
                 {sizes?.map((s) => (
