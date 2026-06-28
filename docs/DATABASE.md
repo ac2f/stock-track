@@ -102,39 +102,93 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | default_measurement_type | enum `MeasurementType` | area/length/piece/weight — yeni şablonlara varsayılan |
 | is_active | boolean | |
 
+### 4c. Kategori Bazlı Kataloglar — `material_brands` / `material_colors` / `material_sizes` / `material_thicknesses`
+> Marka/renk/ebat/kalınlık serbest metin değil, her kategoriye özel kataloglardır
+> (kompozit kategorisinde pleksi markası seçilemez). Şablon/plaka silme-koruması
+> ile aynı desen: kullanan şablon veya plaka varsa silme `409` döner.
+
+**`material_brands`**
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| name | varchar | "Alupanel" |
+| category_id | uuid (FK → material_categories) | |
+| is_active | boolean | |
+
+**`material_colors`**
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| name | varchar | "Beyaz" |
+| code | varchar (nullable) | RAL / üretici kodu — seçilince renk adıyla birlikte gelir |
+| category_id | uuid (FK → material_categories) | |
+| is_active | boolean | |
+
+**`material_sizes`**
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| width_mm | numeric | |
+| height_mm | numeric | |
+| category_id | uuid (FK → material_categories) | |
+| is_active | boolean | |
+
+**`material_thicknesses`**
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| value_mm | numeric | |
+| category_id | uuid (FK → material_categories) | |
+| is_active | boolean | |
+
 ### 5. `material_templates` — Malzeme Şablonu / Profil
 > Aynı özellikleri tekrar tekrar yazmayı önler. Bir kez tanımlanır, plakalar
-> bu şablondan üretilir.
+> bu şablondan üretilir. Marka/renk/ebat/kalınlık varsayılanları artık FK ile
+> kategoriye özel kataloglara bağlanır (eager ilişki — API yanıtında kayıt
+> nesnesiyle birlikte döner).
 
 | Alan | Tip | Açıklama |
 |------|-----|----------|
 | id | uuid (PK) | |
 | name | varchar | "Alüminyum Kompozit 3mm" |
 | category_id | uuid (FK → material_categories) | Malzeme türü |
-| default_brand | varchar (nullable) | |
-| default_thickness_mm | numeric (nullable) | |
-| default_color | varchar (nullable) | |
-| default_color_code | varchar (nullable) | RAL / üretici kodu |
+| default_brand_id | uuid (FK → material_brands, nullable) | Şablonun kategorisiyle eşleşmeli |
+| default_color_id | uuid (FK → material_colors, nullable) | Şablonun kategorisiyle eşleşmeli |
+| default_size_id | uuid (FK → material_sizes, nullable) | Şablonun kategorisiyle eşleşmeli |
+| default_thickness_id | uuid (FK → material_thicknesses, nullable) | Şablonun kategorisiyle eşleşmeli |
 | default_variant | varchar (nullable) | Kategori içi alt tür (örn. Pleksi'de "Dökme"/"Çekme") |
-| default_width_mm / default_height_mm | numeric (nullable) | Standart ebat |
 | default_attributes | jsonb | Türü genişleten serbest nitelikler |
 | description | text (nullable) | |
 | is_active | boolean | |
 
 ### 6. `material_plates` — Plaka (Stok SKU)
+> `brand/color/color_code/width_mm/height_mm/thickness_mm` skaler kolonları
+> hesaplama kodu (alan/m², işleme, teklif) tarafından doğrudan okunduğu için
+> değişmeden kalır; oluşturma sırasında seçilen katalog kaydının değerleri bu
+> kolonlara yazılır. `*_id` kolonları yalnızca form ön-doldurma ve kategori
+> doğrulaması için eklenmiştir.
+
 | Alan | Tip | Açıklama |
 |------|-----|----------|
 | id | uuid (PK) | |
 | template_id | uuid (FK → material_templates) | Profilden türer |
 | name | varchar | Görünen ad |
 | sku | varchar (unique, nullable) | Barkod/stok kodu |
-| brand | varchar (nullable) | |
-| color | varchar (nullable) | |
-| color_code | varchar (nullable) | |
+| brand | varchar (nullable) | Seçilen `material_brands` kaydının adı |
+| brand_id | uuid (FK → material_brands, nullable) | |
+| color | varchar (nullable) | Seçilen `material_colors` kaydının adı |
+| color_code | varchar (nullable) | Seçilen `material_colors` kaydının kodu |
+| color_id | uuid (FK → material_colors, nullable) | |
 | variant | varchar (nullable) | Şablondan miras, override edilebilir alt tür |
-| width_mm | numeric | En |
-| height_mm | numeric | Boy |
-| thickness_mm | numeric | Kalınlık |
+| width_mm | numeric | Seçilen `material_sizes` kaydından |
+| height_mm | numeric | Seçilen `material_sizes` kaydından |
+| size_id | uuid (FK → material_sizes, nullable) | |
+| thickness_mm | numeric | Seçilen `material_thicknesses` kaydından |
+| thickness_id | uuid (FK → material_thicknesses, nullable) | |
 | attributes | jsonb | Özel nitelikler (doku, yüzey, baskı vb.) |
 | quantity_in_stock | numeric | Mevcut adet |
 | reorder_level | numeric (nullable) | Kritik stok |

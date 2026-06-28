@@ -1,12 +1,10 @@
 import {
   IsEnum,
-  IsNumber,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   MinLength,
-  Min,
 } from 'class-validator';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
@@ -23,36 +21,27 @@ export class CreateMaterialTemplateDto {
   @IsEnum(MeasurementType)
   measurementType?: MeasurementType;
 
+  // Kategori bazlı kataloglardan seçilir; sunucu, kategorinin şablonunkiyle
+  // eşleştiğini doğrular (örn. Pleksi şablonunda Kompozit markası reddedilir).
   @IsOptional()
-  @IsString()
-  defaultBrand?: string;
+  @IsUUID()
+  defaultBrandId?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  defaultThicknessMm?: number;
+  @IsUUID()
+  defaultColorId?: string;
 
   @IsOptional()
-  @IsString()
-  defaultColor?: string;
+  @IsUUID()
+  defaultSizeId?: string;
 
   @IsOptional()
-  @IsString()
-  defaultColorCode?: string;
+  @IsUUID()
+  defaultThicknessId?: string;
 
   @IsOptional()
   @IsString()
   defaultVariant?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  defaultWidthMm?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  defaultHeightMm?: number;
 
   @IsOptional()
   @IsObject()

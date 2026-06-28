@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { roundMoney } from '../../../common/utils/area.util';
 import { PriceUnit } from '../../../common/enums/price-unit.enum';
 import { SuppliersService } from '../../suppliers/suppliers.service';
+import { CurrencyService } from '../../currency/currency.service';
 import { SupplierMaterialPrice } from '../entities/supplier-material-price.entity';
 import { UpsertSupplierPriceDto } from '../dto/upsert-supplier-price.dto';
 import { PlatesService } from './plates.service';
@@ -20,6 +22,7 @@ export interface PriceComparison {
   plateId: string;
   cheapest: PriceComparisonRow | null;
   mostRecent: PriceComparisonRow | null;
+  average: { amount: number; currency: string } | null;
   prices: PriceComparisonRow[];
 }
 
@@ -30,6 +33,7 @@ export class SupplierPricesService {
     private readonly pricesRepo: Repository<SupplierMaterialPrice>,
     private readonly platesService: PlatesService,
     private readonly suppliersService: SuppliersService,
+    private readonly currencyService: CurrencyService,
   ) {}
 
   /**
@@ -105,7 +109,34 @@ export class SupplierPricesService {
         )[0]
       : null;
 
-    return { plateId, cheapest, mostRecent, prices: mapped };
+    const average = await this.computeAverage(mapped);
+
+    return { plateId, cheapest, mostRecent, average, prices: mapped };
+  }
+
+  /**
+   * Tedarikçi fiyatlarını sistem baz para birimine çevirip aritmetik ortalama
+   * alır. Bir satırın çevirimi (tanımsız kur) başarısız olursa o satır
+   * ortalamadan hariç tutulur; hiçbiri çevrilemezse `null` döner.
+   */
+  private async computeAverage(
+    rows: PriceComparisonRow[],
+  ): Promise<{ amount: number; currency: string } | null> {
+    if (!rows.length) return null;
+    const converted: number[] = [];
+    for (const row of rows) {
+      try {
+        converted.push(await this.currencyService.toBase(row.price, row.currency));
+      } catch {
+        // Kur tanımsız — bu satır ortalamadan hariç tutulur.
+      }
+    }
+    if (!converted.length) return null;
+    const sum = converted.reduce((acc, v) => acc + v, 0);
+    return {
+      amount: roundMoney(sum / converted.length),
+      currency: this.currencyService.baseCurrency,
+    };
   }
 
   async remove(plateId: string, priceId: string): Promise<void> {

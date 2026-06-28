@@ -3,8 +3,12 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
+  fetchMaterialBrands,
   fetchMaterialCategories,
+  fetchMaterialColors,
+  fetchMaterialSizes,
   fetchMaterialTemplates,
+  fetchMaterialThicknesses,
   fetchPlates,
   type CreatePlateInput,
   type PlateFilters,
@@ -33,9 +37,33 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   });
 
   const selectedTemplate = templates?.find((t) => t.id === form.templateId);
+  const categoryId = selectedTemplate?.categoryId;
   const measurementType = form.measurementType ?? selectedTemplate?.measurementType;
   const isArea = measurementType === 'area';
-  const preview = isArea ? areaM2(form.widthMm, form.heightMm) : null;
+
+  const { data: brands } = useQuery({
+    queryKey: ['material-brands', categoryId],
+    queryFn: () => fetchMaterialBrands(categoryId),
+    enabled: !!categoryId,
+  });
+  const { data: colors } = useQuery({
+    queryKey: ['material-colors', categoryId],
+    queryFn: () => fetchMaterialColors(categoryId),
+    enabled: !!categoryId,
+  });
+  const { data: sizes } = useQuery({
+    queryKey: ['material-sizes', categoryId],
+    queryFn: () => fetchMaterialSizes(categoryId),
+    enabled: !!categoryId,
+  });
+  const { data: thicknesses } = useQuery({
+    queryKey: ['material-thicknesses', categoryId],
+    queryFn: () => fetchMaterialThicknesses(categoryId),
+    enabled: !!categoryId,
+  });
+
+  const selectedSize = sizes?.find((s) => s.id === form.sizeId);
+  const preview = isArea ? areaM2(selectedSize?.widthMm, selectedSize?.heightMm) : null;
 
   const createMut = useMutation({
     mutationFn: createPlate,
@@ -51,13 +79,11 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
       ...form,
       templateId,
       measurementType: tpl?.measurementType,
-      brand: tpl?.defaultBrand,
-      color: tpl?.defaultColor,
-      colorCode: tpl?.defaultColorCode,
+      brandId: tpl?.defaultBrandId,
+      colorId: tpl?.defaultColorId,
+      sizeId: tpl?.defaultSizeId,
+      thicknessId: tpl?.defaultThicknessId,
       variant: tpl?.defaultVariant,
-      thicknessMm: tpl?.defaultThicknessMm,
-      widthMm: tpl?.defaultWidthMm,
-      heightMm: tpl?.defaultHeightMm,
     });
   };
 
@@ -102,68 +128,60 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             value={form.variant ?? ''}
             onChange={(e) => setForm({ ...form, variant: e.target.value || undefined })}
           />
-          <input
+          <select
             className="input"
-            placeholder="Marka"
-            value={form.brand ?? ''}
-            onChange={(e) => setForm({ ...form, brand: e.target.value || undefined })}
-          />
-          <input
+            value={form.brandId ?? ''}
+            onChange={(e) => setForm({ ...form, brandId: e.target.value || undefined })}
+          >
+            <option value="">Marka seç…</option>
+            {brands?.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <select
             className="input"
-            placeholder="Renk"
-            value={form.color ?? ''}
-            onChange={(e) => setForm({ ...form, color: e.target.value || undefined })}
-          />
-          <input
+            value={form.colorId ?? ''}
+            onChange={(e) => setForm({ ...form, colorId: e.target.value || undefined })}
+          >
+            <option value="">Renk seç…</option>
+            {colors?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {c.code ? ` (${c.code})` : ''}
+              </option>
+            ))}
+          </select>
+          <select
             className="input"
-            placeholder="Renk Kodu"
-            value={form.colorCode ?? ''}
-            onChange={(e) => setForm({ ...form, colorCode: e.target.value || undefined })}
-          />
-          <input
-            className="input"
-            type="number"
-            min={0}
-            placeholder="Kalınlık (mm)"
-            value={form.thicknessMm ?? ''}
+            value={form.thicknessId ?? ''}
             onChange={(e) =>
-              setForm({
-                ...form,
-                thicknessMm: e.target.value ? Number(e.target.value) : undefined,
-              })
+              setForm({ ...form, thicknessId: e.target.value || undefined })
             }
-          />
+          >
+            <option value="">Kalınlık seç…</option>
+            {thicknesses?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.valueMm} mm
+              </option>
+            ))}
+          </select>
 
           {isArea && (
             <div className="space-y-1">
-              <div className="flex gap-2">
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  placeholder="En (mm)"
-                  value={form.widthMm ?? ''}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      widthMm: e.target.value ? Number(e.target.value) : undefined,
-                    })
-                  }
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  placeholder="Boy (mm)"
-                  value={form.heightMm ?? ''}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      heightMm: e.target.value ? Number(e.target.value) : undefined,
-                    })
-                  }
-                />
-              </div>
+              <select
+                className="input"
+                value={form.sizeId ?? ''}
+                onChange={(e) => setForm({ ...form, sizeId: e.target.value || undefined })}
+              >
+                <option value="">Ebat seç…</option>
+                {sizes?.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.widthMm}×{s.heightMm} mm
+                  </option>
+                ))}
+              </select>
               {preview != null && (
                 <p className="text-sm text-slate-500">≈ {preview.toFixed(3)} m²</p>
               )}

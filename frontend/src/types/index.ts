@@ -37,15 +37,47 @@ export interface MaterialTemplate {
   categoryId: string;
   category?: MaterialCategory;
   measurementType: MeasurementType;
-  defaultBrand?: string;
-  defaultColor?: string;
-  defaultColorCode?: string;
+  defaultBrandId?: string;
+  defaultBrand?: MaterialBrand;
+  defaultColorId?: string;
+  defaultColor?: MaterialColor;
+  defaultSizeId?: string;
+  defaultSize?: MaterialSize;
+  defaultThicknessId?: string;
+  defaultThickness?: MaterialThickness;
   defaultVariant?: string;
-  defaultThicknessMm?: number;
-  defaultWidthMm?: number;
-  defaultHeightMm?: number;
   defaultAttributes?: Record<string, unknown>;
   description?: string;
+  isActive: boolean;
+}
+
+export interface MaterialBrand {
+  id: string;
+  name: string;
+  categoryId: string;
+  isActive: boolean;
+}
+
+export interface MaterialColor {
+  id: string;
+  name: string;
+  code?: string;
+  categoryId: string;
+  isActive: boolean;
+}
+
+export interface MaterialSize {
+  id: string;
+  widthMm: number;
+  heightMm: number;
+  categoryId: string;
+  isActive: boolean;
+}
+
+export interface MaterialThickness {
+  id: string;
+  valueMm: number;
+  categoryId: string;
   isActive: boolean;
 }
 
@@ -61,13 +93,17 @@ export interface Plate {
   name: string;
   sku?: string;
   brand?: string;
+  brandId?: string;
   color?: string;
   colorCode?: string;
+  colorId?: string;
   variant?: string;
   measurementType: MeasurementType;
   widthMm: number;
   heightMm: number;
+  sizeId?: string;
   thicknessMm: number;
+  thicknessId?: string;
   quantityInStock: number;
   reorderLevel?: number;
   templateId?: string;
@@ -78,6 +114,7 @@ export interface PriceComparison {
   plateId: string;
   cheapest: PriceRow | null;
   mostRecent: PriceRow | null;
+  average: { amount: number; currency: string } | null;
   prices: PriceRow[];
 }
 

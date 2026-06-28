@@ -24,6 +24,10 @@ import { CreatePlateDto } from '../dto/create-plate.dto';
 import { UpdatePlateDto } from '../dto/update-plate.dto';
 import { QueryPlateDto } from '../dto/query-plate.dto';
 import { MaterialTemplatesService } from './material-templates.service';
+import { MaterialBrandsService } from './material-brands.service';
+import { MaterialColorsService } from './material-colors.service';
+import { MaterialSizesService } from './material-sizes.service';
+import { MaterialThicknessesService } from './material-thicknesses.service';
 
 @Injectable()
 export class PlatesService {
@@ -36,6 +40,10 @@ export class PlatesService {
     private readonly stockLevelsRepo: Repository<StockLevel>,
     private readonly templatesService: MaterialTemplatesService,
     private readonly warehousesService: WarehousesService,
+    private readonly brandsService: MaterialBrandsService,
+    private readonly colorsService: MaterialColorsService,
+    private readonly sizesService: MaterialSizesService,
+    private readonly thicknessesService: MaterialThicknessesService,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     configService: ConfigService,
@@ -57,9 +65,34 @@ export class PlatesService {
     const unitOfMeasure =
       dto.unitOfMeasure ?? defaultUnitForMeasurement(measurementType);
 
-    const widthMm = dto.widthMm ?? template.defaultWidthMm ?? null;
-    const heightMm = dto.heightMm ?? template.defaultHeightMm ?? null;
-    const thicknessMm = dto.thicknessMm ?? template.defaultThicknessMm ?? null;
+    const brandId = dto.brandId ?? template.defaultBrandId ?? null;
+    const colorId = dto.colorId ?? template.defaultColorId ?? null;
+    const sizeId = dto.sizeId ?? template.defaultSizeId ?? null;
+    const thicknessId = dto.thicknessId ?? template.defaultThicknessId ?? null;
+
+    const [brand, color, size, thickness] = await Promise.all([
+      brandId === template.defaultBrandId
+        ? Promise.resolve(template.defaultBrand ?? null)
+        : this.resolveCatalogRef(this.brandsService, brandId, template.categoryId, 'marka'),
+      colorId === template.defaultColorId
+        ? Promise.resolve(template.defaultColor ?? null)
+        : this.resolveCatalogRef(this.colorsService, colorId, template.categoryId, 'renk'),
+      sizeId === template.defaultSizeId
+        ? Promise.resolve(template.defaultSize ?? null)
+        : this.resolveCatalogRef(this.sizesService, sizeId, template.categoryId, 'ebat'),
+      thicknessId === template.defaultThicknessId
+        ? Promise.resolve(template.defaultThickness ?? null)
+        : this.resolveCatalogRef(
+            this.thicknessesService,
+            thicknessId,
+            template.categoryId,
+            'kalınlık',
+          ),
+    ]);
+
+    const widthMm = size?.widthMm ?? null;
+    const heightMm = size?.heightMm ?? null;
+    const thicknessMm = thickness?.valueMm ?? null;
 
     if (measurementType === MeasurementType.AREA) {
       if (widthMm == null || heightMm == null) {
@@ -76,15 +109,19 @@ export class PlatesService {
         templateId: template.id,
         measurementType,
         unitOfMeasure,
-        name: dto.name ?? this.deriveName(template, dto),
+        name: dto.name ?? this.deriveName(template, brand, size),
         sku: dto.sku,
-        brand: dto.brand ?? template.defaultBrand,
-        color: dto.color ?? template.defaultColor,
-        colorCode: dto.colorCode ?? template.defaultColorCode,
+        brand: brand?.name,
+        brandId: brand?.id ?? null,
+        color: color?.name,
+        colorCode: color?.code,
+        colorId: color?.id ?? null,
         variant: dto.variant ?? template.defaultVariant,
         widthMm,
         heightMm,
+        sizeId: size?.id ?? null,
         thicknessMm,
+        thicknessId: thickness?.id ?? null,
         attributes: { ...template.defaultAttributes, ...(dto.attributes ?? {}) },
         quantityInStock: 0,
         reorderLevel: dto.reorderLevel,
@@ -286,14 +323,33 @@ export class PlatesService {
     return savedLevel;
   }
 
-  private deriveName(template: MaterialTemplate, dto: CreatePlateDto): string {
-    const dims =
-      dto.widthMm && dto.heightMm ? `${dto.widthMm}x${dto.heightMm}` : null;
-    const parts = [
-      template.name,
-      dto.color ?? template.defaultColor,
-      dims,
-    ].filter(Boolean);
+  private deriveName(
+    template: MaterialTemplate,
+    brand: { name: string } | null,
+    size: { widthMm: number; heightMm: number } | null,
+  ): string {
+    const dims = size ? `${size.widthMm}x${size.heightMm}` : null;
+    const parts = [template.name, brand?.name, dims].filter(Boolean);
     return parts.join(' · ');
+  }
+
+  /**
+   * Verilen id'deki katalog kaydını çeker ve şablonun kategorisiyle eşleştiğini
+   * doğrular. id `null` ise (ne dto'da ne şablonda tanımlı) `null` döner.
+   */
+  private async resolveCatalogRef<T extends { categoryId: string }>(
+    service: { findOne(id: string): Promise<T> },
+    id: string | null,
+    templateCategoryId: string,
+    label: string,
+  ): Promise<T | null> {
+    if (!id) return null;
+    const record = await service.findOne(id);
+    if (record.categoryId !== templateCategoryId) {
+      throw new BadRequestException(
+        `Seçilen ${label} bu şablonun kategorisine ait değil.`,
+      );
+    }
+    return record;
   }
 }

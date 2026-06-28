@@ -45,11 +45,19 @@ export class MaterialPlate extends BaseEntity {
   @Column({ nullable: true })
   brand?: string;
 
+  /** Marka kataloğuna işaretçi (ön-doldurma/kategori doğrulaması için). */
+  @Column({ name: 'brand_id', type: 'uuid', nullable: true })
+  brandId?: string | null;
+
   @Column({ nullable: true })
   color?: string;
 
   @Column({ name: 'color_code', nullable: true })
   colorCode?: string;
+
+  /** Renk kataloğuna işaretçi (ön-doldurma/kategori doğrulaması için). */
+  @Column({ name: 'color_id', type: 'uuid', nullable: true })
+  colorId?: string | null;
 
   /** Kategori içi alt tür (örn. Pleksi için "Dökme"/"Çekme") — şablondan miras, override edilebilir. */
   @Column({ nullable: true })
@@ -92,6 +100,10 @@ export class MaterialPlate extends BaseEntity {
   })
   heightMm?: number | null; // boy (tabaka) / profil yüksekliği değil — yükseklik attributes'ta
 
+  /** Ebat kataloğuna işaretçi (ön-doldurma/kategori doğrulaması için). */
+  @Column({ name: 'size_id', type: 'uuid', nullable: true })
+  sizeId?: string | null;
+
   @Column({
     name: 'thickness_mm',
     type: 'numeric',
@@ -100,6 +112,10 @@ export class MaterialPlate extends BaseEntity {
     nullable: true,
   })
   thicknessMm?: number | null; // kalınlık
+
+  /** Kalınlık kataloğuna işaretçi (ön-doldurma/kategori doğrulaması için). */
+  @Column({ name: 'thickness_id', type: 'uuid', nullable: true })
+  thicknessId?: string | null;
 
   /**
    * Kaleme özel ek nitelikler. Rulo/şerit için tipik:

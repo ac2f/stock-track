@@ -8,7 +8,7 @@ import {
   type CreateQuoteInput,
 } from '../../api/quotes.api';
 import { fetchCustomers } from '../../api/customers.api';
-import { fetchPlates } from '../../api/materials.api';
+import { comparePrices, fetchPlates } from '../../api/materials.api';
 import { openPdf } from '../../api/documents.api';
 import type { QuoteItemInput, QuoteStatus } from '../../types';
 
@@ -135,6 +135,20 @@ export function QuotesPage() {
   );
 }
 
+function AveragePriceNote({ plateId }: { plateId: string }) {
+  const { data } = useQuery({
+    queryKey: ['price-compare', plateId],
+    queryFn: () => comparePrices(plateId),
+    enabled: !!plateId,
+  });
+  if (!data?.average) return null;
+  return (
+    <p className="text-xs text-slate-400">
+      Ortalama tedarikçi fiyatı: {data.average.amount} {data.average.currency}
+    </p>
+  );
+}
+
 function NewQuoteForm({ onDone }: { onDone: () => void }) {
   const [buyerCustomerId, setBuyer] = useState('');
   const [items, setItems] = useState<QuoteItemInput[]>([]);
@@ -220,6 +234,9 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
               onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
             />
           </div>
+          {item.lineKind === 'sale' && item.plateId && (
+            <AveragePriceNote plateId={item.plateId} />
+          )}
           {item.lineKind === 'processing' && (
             <div className="flex gap-2">
               <select

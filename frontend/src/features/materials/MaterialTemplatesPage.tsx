@@ -1,10 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { fetchMaterialCategories } from '../../api/materials.api';
 import {
+  createMaterialBrand,
+  createMaterialColor,
+  createMaterialSize,
   createMaterialTemplate,
+  createMaterialThickness,
   deleteMaterialTemplate,
+  fetchMaterialBrands,
+  fetchMaterialCategories,
+  fetchMaterialColors,
+  fetchMaterialSizes,
   fetchMaterialTemplates,
+  fetchMaterialThicknesses,
   updateMaterialTemplate,
   type MaterialTemplateInput,
 } from '../../api/materials.api';
@@ -26,13 +34,20 @@ const EMPTY: MaterialTemplateInput = {
 
 /**
  * Ürün türleri (şablonlar) yönetimi — yalnızca İşletme Sahibi.
- * Marka/renk/ebat/tür varsayımlarını burada tanımla; stok kalemi eklerken
- * bu şablonlardan biri seçilip miras alınır (override edilebilir).
+ * Marka/renk/ebat/kalınlık katalogları kategoriye özeldir: bir kategoride
+ * tanımlı kayıt başka kategoride seçilemez. Stok kalemi eklerken bu
+ * şablonlardan biri seçilip miras alınır (override edilebilir).
  */
 export function MaterialTemplatesPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState<MaterialTemplateInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [newColorName, setNewColorName] = useState('');
+  const [newColorCode, setNewColorCode] = useState('');
+  const [newSizeWidth, setNewSizeWidth] = useState('');
+  const [newSizeHeight, setNewSizeHeight] = useState('');
+  const [newThicknessValue, setNewThicknessValue] = useState('');
 
   const { data: categories } = useQuery({
     queryKey: ['material-categories'],
@@ -41,6 +56,28 @@ export function MaterialTemplatesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['material-templates'],
     queryFn: () => fetchMaterialTemplates(),
+  });
+
+  const categoryId = form?.categoryId || undefined;
+  const { data: brands } = useQuery({
+    queryKey: ['material-brands', categoryId],
+    queryFn: () => fetchMaterialBrands(categoryId),
+    enabled: !!categoryId,
+  });
+  const { data: colors } = useQuery({
+    queryKey: ['material-colors', categoryId],
+    queryFn: () => fetchMaterialColors(categoryId),
+    enabled: !!categoryId,
+  });
+  const { data: sizes } = useQuery({
+    queryKey: ['material-sizes', categoryId],
+    queryFn: () => fetchMaterialSizes(categoryId),
+    enabled: !!categoryId,
+  });
+  const { data: thicknesses } = useQuery({
+    queryKey: ['material-thicknesses', categoryId],
+    queryFn: () => fetchMaterialThicknesses(categoryId),
+    enabled: !!categoryId,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['material-templates'] });
@@ -66,6 +103,41 @@ export function MaterialTemplatesPage() {
     onSuccess: invalidate,
   });
 
+  const createBrandMut = useMutation({
+    mutationFn: createMaterialBrand,
+    onSuccess: (brand) => {
+      qc.invalidateQueries({ queryKey: ['material-brands', categoryId] });
+      setForm((f) => (f ? { ...f, defaultBrandId: brand.id } : f));
+      setNewBrandName('');
+    },
+  });
+  const createColorMut = useMutation({
+    mutationFn: createMaterialColor,
+    onSuccess: (color) => {
+      qc.invalidateQueries({ queryKey: ['material-colors', categoryId] });
+      setForm((f) => (f ? { ...f, defaultColorId: color.id } : f));
+      setNewColorName('');
+      setNewColorCode('');
+    },
+  });
+  const createSizeMut = useMutation({
+    mutationFn: createMaterialSize,
+    onSuccess: (size) => {
+      qc.invalidateQueries({ queryKey: ['material-sizes', categoryId] });
+      setForm((f) => (f ? { ...f, defaultSizeId: size.id } : f));
+      setNewSizeWidth('');
+      setNewSizeHeight('');
+    },
+  });
+  const createThicknessMut = useMutation({
+    mutationFn: createMaterialThickness,
+    onSuccess: (thickness) => {
+      qc.invalidateQueries({ queryKey: ['material-thicknesses', categoryId] });
+      setForm((f) => (f ? { ...f, defaultThicknessId: thickness.id } : f));
+      setNewThicknessValue('');
+    },
+  });
+
   const submit = () => {
     if (!form) return;
     if (editingId) {
@@ -76,7 +148,6 @@ export function MaterialTemplatesPage() {
   };
 
   const mutationError = createMut.error ?? updateMut.error ?? deleteMut.error;
-  const isArea = form?.measurementType === 'area';
 
   return (
     <div className="space-y-4">
@@ -119,6 +190,11 @@ export function MaterialTemplatesPage() {
                 ...form,
                 categoryId: e.target.value,
                 measurementType: cat?.defaultMeasurementType ?? form.measurementType,
+                // Kategori değişti — önceki kategorinin kataloğu geçersiz.
+                defaultBrandId: undefined,
+                defaultColorId: undefined,
+                defaultSizeId: undefined,
+                defaultThicknessId: undefined,
               });
             }}
           >
@@ -151,67 +227,186 @@ export function MaterialTemplatesPage() {
             value={form.defaultVariant ?? ''}
             onChange={(e) => setForm({ ...form, defaultVariant: e.target.value })}
           />
-          <input
-            className="input"
-            placeholder="Marka"
-            value={form.defaultBrand ?? ''}
-            onChange={(e) => setForm({ ...form, defaultBrand: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="Renk"
-            value={form.defaultColor ?? ''}
-            onChange={(e) => setForm({ ...form, defaultColor: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="Renk Kodu"
-            value={form.defaultColorCode ?? ''}
-            onChange={(e) => setForm({ ...form, defaultColorCode: e.target.value })}
-          />
-          <input
-            className="input"
-            type="number"
-            min={0}
-            placeholder="Kalınlık (mm)"
-            value={form.defaultThicknessMm ?? ''}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                defaultThicknessMm: e.target.value ? Number(e.target.value) : undefined,
-              })
-            }
-          />
-          {isArea && (
-            <div className="flex gap-2">
-              <input
-                className="input"
-                type="number"
-                min={0}
-                placeholder="En (mm)"
-                value={form.defaultWidthMm ?? ''}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    defaultWidthMm: e.target.value ? Number(e.target.value) : undefined,
-                  })
-                }
-              />
-              <input
-                className="input"
-                type="number"
-                min={0}
-                placeholder="Boy (mm)"
-                value={form.defaultHeightMm ?? ''}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    defaultHeightMm: e.target.value ? Number(e.target.value) : undefined,
-                  })
-                }
-              />
-            </div>
+
+          {!form.categoryId ? (
+            <p className="text-sm text-slate-400">
+              Marka/renk/ebat/kalınlık seçmek için önce kategori seçin.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <div className="flex gap-2">
+                  <select
+                    className="input flex-1"
+                    value={form.defaultBrandId ?? ''}
+                    onChange={(e) =>
+                      setForm({ ...form, defaultBrandId: e.target.value || undefined })
+                    }
+                  >
+                    <option value="">Marka seç…</option>
+                    {brands?.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    placeholder="+ Yeni marka adı"
+                    value={newBrandName}
+                    onChange={(e) => setNewBrandName(e.target.value)}
+                  />
+                  <button
+                    className="btn"
+                    disabled={!newBrandName.trim()}
+                    onClick={() =>
+                      createBrandMut.mutate({
+                        name: newBrandName.trim(),
+                        categoryId: form.categoryId,
+                      })
+                    }
+                  >
+                    Ekle
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <select
+                  className="input w-full"
+                  value={form.defaultColorId ?? ''}
+                  onChange={(e) =>
+                    setForm({ ...form, defaultColorId: e.target.value || undefined })
+                  }
+                >
+                  <option value="">Renk seç…</option>
+                  {colors?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.code ? ` (${c.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    placeholder="+ Yeni renk adı"
+                    value={newColorName}
+                    onChange={(e) => setNewColorName(e.target.value)}
+                  />
+                  <input
+                    className="input w-28"
+                    placeholder="Kod"
+                    value={newColorCode}
+                    onChange={(e) => setNewColorCode(e.target.value)}
+                  />
+                  <button
+                    className="btn"
+                    disabled={!newColorName.trim()}
+                    onClick={() =>
+                      createColorMut.mutate({
+                        name: newColorName.trim(),
+                        code: newColorCode.trim() || undefined,
+                        categoryId: form.categoryId,
+                      })
+                    }
+                  >
+                    Ekle
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <select
+                  className="input w-full"
+                  value={form.defaultSizeId ?? ''}
+                  onChange={(e) =>
+                    setForm({ ...form, defaultSizeId: e.target.value || undefined })
+                  }
+                >
+                  <option value="">Ebat seç…</option>
+                  {sizes?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.widthMm}×{s.heightMm} mm
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    type="number"
+                    min={0}
+                    placeholder="+ En (mm)"
+                    value={newSizeWidth}
+                    onChange={(e) => setNewSizeWidth(e.target.value)}
+                  />
+                  <input
+                    className="input flex-1"
+                    type="number"
+                    min={0}
+                    placeholder="Boy (mm)"
+                    value={newSizeHeight}
+                    onChange={(e) => setNewSizeHeight(e.target.value)}
+                  />
+                  <button
+                    className="btn"
+                    disabled={!newSizeWidth || !newSizeHeight}
+                    onClick={() =>
+                      createSizeMut.mutate({
+                        widthMm: Number(newSizeWidth),
+                        heightMm: Number(newSizeHeight),
+                        categoryId: form.categoryId,
+                      })
+                    }
+                  >
+                    Ekle
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <select
+                  className="input w-full"
+                  value={form.defaultThicknessId ?? ''}
+                  onChange={(e) =>
+                    setForm({ ...form, defaultThicknessId: e.target.value || undefined })
+                  }
+                >
+                  <option value="">Kalınlık seç…</option>
+                  {thicknesses?.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.valueMm} mm
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1"
+                    type="number"
+                    min={0}
+                    placeholder="+ Yeni kalınlık (mm)"
+                    value={newThicknessValue}
+                    onChange={(e) => setNewThicknessValue(e.target.value)}
+                  />
+                  <button
+                    className="btn"
+                    disabled={!newThicknessValue}
+                    onClick={() =>
+                      createThicknessMut.mutate({
+                        valueMm: Number(newThicknessValue),
+                        categoryId: form.categoryId,
+                      })
+                    }
+                  >
+                    Ekle
+                  </button>
+                </div>
+              </div>
+            </>
           )}
+
           <input
             className="input"
             placeholder="Açıklama"
@@ -263,8 +458,10 @@ export function MaterialTemplatesPage() {
                   {t.defaultVariant ? ` · ${t.defaultVariant}` : ''}
                 </p>
                 <p className="text-xs text-slate-400">
-                  {t.defaultBrand ?? '—'} · {t.defaultColor ?? '—'}
-                  {t.defaultColorCode ? ` (${t.defaultColorCode})` : ''}
+                  {t.defaultBrand?.name ?? '—'} · {t.defaultColor?.name ?? '—'}
+                  {t.defaultColor?.code ? ` (${t.defaultColor.code})` : ''}
+                  {t.defaultSize ? ` · ${t.defaultSize.widthMm}×${t.defaultSize.heightMm} mm` : ''}
+                  {t.defaultThickness ? ` · ${t.defaultThickness.valueMm} mm` : ''}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -276,13 +473,11 @@ export function MaterialTemplatesPage() {
                       name: t.name,
                       categoryId: t.categoryId,
                       measurementType: t.measurementType,
-                      defaultBrand: t.defaultBrand,
-                      defaultColor: t.defaultColor,
-                      defaultColorCode: t.defaultColorCode,
+                      defaultBrandId: t.defaultBrandId,
+                      defaultColorId: t.defaultColorId,
+                      defaultSizeId: t.defaultSizeId,
+                      defaultThicknessId: t.defaultThicknessId,
                       defaultVariant: t.defaultVariant,
-                      defaultThicknessMm: t.defaultThicknessMm,
-                      defaultWidthMm: t.defaultWidthMm,
-                      defaultHeightMm: t.defaultHeightMm,
                       description: t.description,
                       isActive: t.isActive,
                     });

@@ -39,17 +39,40 @@ Kimlik doğrulama: `Authorization: Bearer <accessToken>` (login hariç tüm uçl
 | PATCH | `/material-categories/:id` | 👔 | |
 | DELETE | `/material-categories/:id` | 👔 | Kullanan şablon varsa `409` |
 
+## Materials — Marka/Renk/Ebat/Kalınlık Katalogları
+Her biri kategori bazlıdır (`categoryId`) — bir kategoride tanımlı kayıt başka kategoride
+kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda doğrulanır).
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| POST | `/material-brands` | 👔 | `{ name, categoryId, isActive? }` |
+| GET | `/material-brands` | 👥 | `?categoryId=` |
+| PATCH | `/material-brands/:id` | 👔 | |
+| DELETE | `/material-brands/:id` | 👔 | Kullanan şablon/plaka varsa `409` |
+| POST | `/material-colors` | 👔 | `{ name, code?, categoryId, isActive? }` — renk kodu seçilen kayıtla birlikte gelir |
+| GET | `/material-colors` | 👥 | `?categoryId=` |
+| PATCH | `/material-colors/:id` | 👔 | |
+| DELETE | `/material-colors/:id` | 👔 | Kullanan şablon/plaka varsa `409` |
+| POST | `/material-sizes` | 👔 | `{ widthMm, heightMm, categoryId, isActive? }` |
+| GET | `/material-sizes` | 👥 | `?categoryId=` |
+| PATCH | `/material-sizes/:id` | 👔 | |
+| DELETE | `/material-sizes/:id` | 👔 | Kullanan şablon/plaka varsa `409` |
+| POST | `/material-thicknesses` | 👔 | `{ valueMm, categoryId, isActive? }` |
+| GET | `/material-thicknesses` | 👥 | `?categoryId=` |
+| PATCH | `/material-thicknesses/:id` | 👔 | |
+| DELETE | `/material-thicknesses/:id` | 👔 | Kullanan şablon/plaka varsa `409` |
+
 ## Materials — Şablonlar
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/material-templates` | 👔 | Yeni şablon — `{ categoryId, defaultBrand?, defaultColor?, defaultColorCode?, defaultVariant?, defaultThicknessMm?, defaultWidthMm?, defaultHeightMm?, ... }`. `defaultVariant` kategori içi alt tür için (örn. Pleksi'de "Dökme"/"Çekme") |
-| GET | `/material-templates` | 👥 | `?categoryId=&search=` |
+| POST | `/material-templates` | 👔 | Yeni şablon — `{ categoryId, defaultBrandId?, defaultColorId?, defaultSizeId?, defaultThicknessId?, defaultVariant?, ... }`. Her `default*Id`'nin işaret ettiği katalog kaydı şablonun `categoryId`'siyle eşleşmelidir, aksi halde `400`. `defaultVariant` kategori içi alt tür için (örn. Pleksi'de "Dökme"/"Çekme") |
+| GET | `/material-templates` | 👥 | `?categoryId=&search=` — yanıt `defaultBrand/defaultColor/defaultSize/defaultThickness` ilişkilerini eager döner |
 | PATCH | `/material-templates/:id` | 👔 | |
 
 ## Materials — Plakalar (Stok)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, brand?, color?, colorCode?, variant?, widthMm?, heightMm?, thicknessMm?, quantityInStock?, warehouseId?, reorderLevel? }`. Verilmeyen alanlar şablonun `default*` değerlerinden miras alınır (`variant` ← `defaultVariant`) |
+| POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, brandId?, colorId?, sizeId?, thicknessId?, variant?, quantityInStock?, warehouseId?, reorderLevel? }`. Verilmeyen `*Id` alanları şablonun `default*Id` değerlerinden miras alınır; seçilen katalog kaydı şablonun kategorisiyle eşleşmiyorsa `400`. Çözümlenen kayıtların `name/code/widthMm/heightMm/valueMm` değerleri plakanın `brand/color/colorCode/widthMm/heightMm/thicknessMm` kolonlarına yazılır |
 | GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&search=&inStock=true&page=&limit=` |
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
 | PATCH | `/plates/:id` | 🧑‍🔧 | |
@@ -58,19 +81,23 @@ Kimlik doğrulama: `Authorization: Bearer <accessToken>` (login hariç tüm uçl
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | PUT | `/plates/:plateId/prices` | 🧑‍🔧 | Tedarikçi fiyatını ekle/güncelle (zaman damgası otomatik) |
-| GET | `/plates/:plateId/prices/compare` | 👥 | **Fiyat karşılaştırması** — en ucuzdan pahalıya, son güncelleme ile |
+| GET | `/plates/:plateId/prices/compare` | 👥 | **Fiyat karşılaştırması** — en ucuzdan pahalıya, son güncelleme ile, baz para birimine çevrilmiş ortalama |
 
 Örnek karşılaştırma yanıtı:
 ```json
 {
   "plateId": "…",
   "cheapest": { "supplier": "Malzemeci A", "price": 1850.00, "updatedAt": "2026-06-20T09:12:00Z" },
+  "average": { "amount": 1885.00, "currency": "TRY" },
   "prices": [
     { "supplier": "Malzemeci A", "price": 1850.00, "unit": "per_plate", "updatedAt": "2026-06-20T09:12:00Z" },
     { "supplier": "Malzemeci B", "price": 1920.00, "unit": "per_plate", "updatedAt": "2026-06-18T14:03:00Z" }
   ]
 }
 ```
+`average`, tedarikçi fiyatları farklı para birimlerinde girilmişse her satırı baz para birimine
+çevirip aritmetik ortalama alır; tanımsız kur içeren satırlar ortalamadan hariç tutulur, hiçbiri
+çevrilemezse `null` döner. Yalnızca bilgi amaçlıdır — teklif formunda birim fiyatı otomatik doldurmaz.
 
 ## Purchases (Satın Alma)
 | Metot | Yol | Yetki | Açıklama |

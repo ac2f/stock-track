@@ -39,36 +39,27 @@ export class CreatePlateDto {
   @IsString()
   sku?: string;
 
+  // Kategori bazlı kataloglardan seçilir; verilmezse şablonun varsayılanından
+  // miras alınır. Sunucu, kataloğun şablonun kategorisiyle eşleştiğini doğrular.
   @IsOptional()
-  @IsString()
-  brand?: string;
+  @IsUUID()
+  brandId?: string;
 
   @IsOptional()
-  @IsString()
-  color?: string;
+  @IsUUID()
+  colorId?: string;
 
   @IsOptional()
-  @IsString()
-  colorCode?: string;
+  @IsUUID()
+  sizeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  thicknessId?: string;
 
   @IsOptional()
   @IsString()
   variant?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  widthMm?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  heightMm?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  thicknessMm?: number;
 
   @IsOptional()
   @IsObject()

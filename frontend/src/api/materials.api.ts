@@ -1,7 +1,11 @@
 import { api } from './client';
 import type {
+  MaterialBrand,
   MaterialCategory,
+  MaterialColor,
+  MaterialSize,
   MaterialTemplate,
+  MaterialThickness,
   Paginated,
   Plate,
   PriceComparison,
@@ -52,6 +56,151 @@ export async function deleteMaterialCategory(id: string): Promise<void> {
   await api.delete(`/material-categories/${id}`);
 }
 
+/** Kategori bazlı katalog: markalar. */
+export async function fetchMaterialBrands(
+  categoryId?: string,
+): Promise<MaterialBrand[]> {
+  const { data } = await api.get<MaterialBrand[]>('/material-brands', {
+    params: categoryId ? { categoryId } : undefined,
+  });
+  return data;
+}
+
+export interface MaterialBrandInput {
+  name: string;
+  categoryId: string;
+  isActive?: boolean;
+}
+
+export async function createMaterialBrand(
+  input: MaterialBrandInput,
+): Promise<MaterialBrand> {
+  const { data } = await api.post<MaterialBrand>('/material-brands', input);
+  return data;
+}
+
+export async function updateMaterialBrand(
+  id: string,
+  input: Partial<MaterialBrandInput>,
+): Promise<MaterialBrand> {
+  const { data } = await api.patch<MaterialBrand>(`/material-brands/${id}`, input);
+  return data;
+}
+
+export async function deleteMaterialBrand(id: string): Promise<void> {
+  await api.delete(`/material-brands/${id}`);
+}
+
+/** Kategori bazlı katalog: renkler (renk kodu birlikte tutulur). */
+export async function fetchMaterialColors(
+  categoryId?: string,
+): Promise<MaterialColor[]> {
+  const { data } = await api.get<MaterialColor[]>('/material-colors', {
+    params: categoryId ? { categoryId } : undefined,
+  });
+  return data;
+}
+
+export interface MaterialColorInput {
+  name: string;
+  code?: string;
+  categoryId: string;
+  isActive?: boolean;
+}
+
+export async function createMaterialColor(
+  input: MaterialColorInput,
+): Promise<MaterialColor> {
+  const { data } = await api.post<MaterialColor>('/material-colors', input);
+  return data;
+}
+
+export async function updateMaterialColor(
+  id: string,
+  input: Partial<MaterialColorInput>,
+): Promise<MaterialColor> {
+  const { data } = await api.patch<MaterialColor>(`/material-colors/${id}`, input);
+  return data;
+}
+
+export async function deleteMaterialColor(id: string): Promise<void> {
+  await api.delete(`/material-colors/${id}`);
+}
+
+/** Kategori bazlı katalog: ebatlar. */
+export async function fetchMaterialSizes(
+  categoryId?: string,
+): Promise<MaterialSize[]> {
+  const { data } = await api.get<MaterialSize[]>('/material-sizes', {
+    params: categoryId ? { categoryId } : undefined,
+  });
+  return data;
+}
+
+export interface MaterialSizeInput {
+  widthMm: number;
+  heightMm: number;
+  categoryId: string;
+  isActive?: boolean;
+}
+
+export async function createMaterialSize(
+  input: MaterialSizeInput,
+): Promise<MaterialSize> {
+  const { data } = await api.post<MaterialSize>('/material-sizes', input);
+  return data;
+}
+
+export async function updateMaterialSize(
+  id: string,
+  input: Partial<MaterialSizeInput>,
+): Promise<MaterialSize> {
+  const { data } = await api.patch<MaterialSize>(`/material-sizes/${id}`, input);
+  return data;
+}
+
+export async function deleteMaterialSize(id: string): Promise<void> {
+  await api.delete(`/material-sizes/${id}`);
+}
+
+/** Kategori bazlı katalog: kalınlıklar. */
+export async function fetchMaterialThicknesses(
+  categoryId?: string,
+): Promise<MaterialThickness[]> {
+  const { data } = await api.get<MaterialThickness[]>('/material-thicknesses', {
+    params: categoryId ? { categoryId } : undefined,
+  });
+  return data;
+}
+
+export interface MaterialThicknessInput {
+  valueMm: number;
+  categoryId: string;
+  isActive?: boolean;
+}
+
+export async function createMaterialThickness(
+  input: MaterialThicknessInput,
+): Promise<MaterialThickness> {
+  const { data } = await api.post<MaterialThickness>('/material-thicknesses', input);
+  return data;
+}
+
+export async function updateMaterialThickness(
+  id: string,
+  input: Partial<MaterialThicknessInput>,
+): Promise<MaterialThickness> {
+  const { data } = await api.patch<MaterialThickness>(
+    `/material-thicknesses/${id}`,
+    input,
+  );
+  return data;
+}
+
+export async function deleteMaterialThickness(id: string): Promise<void> {
+  await api.delete(`/material-thicknesses/${id}`);
+}
+
 export interface MaterialTemplateFilters {
   categoryId?: string;
   search?: string;
@@ -71,13 +220,11 @@ export interface MaterialTemplateInput {
   name: string;
   categoryId: string;
   measurementType?: MaterialTemplate['measurementType'];
-  defaultBrand?: string;
-  defaultColor?: string;
-  defaultColorCode?: string;
+  defaultBrandId?: string;
+  defaultColorId?: string;
+  defaultSizeId?: string;
+  defaultThicknessId?: string;
   defaultVariant?: string;
-  defaultThicknessMm?: number;
-  defaultWidthMm?: number;
-  defaultHeightMm?: number;
   defaultAttributes?: Record<string, unknown>;
   description?: string;
   isActive?: boolean;
@@ -110,13 +257,11 @@ export interface CreatePlateInput {
   measurementType?: Plate['measurementType'];
   name?: string;
   sku?: string;
-  brand?: string;
-  color?: string;
-  colorCode?: string;
+  brandId?: string;
+  colorId?: string;
+  sizeId?: string;
+  thicknessId?: string;
   variant?: string;
-  widthMm?: number;
-  heightMm?: number;
-  thicknessMm?: number;
   attributes?: Record<string, unknown>;
   quantityInStock?: number;
   warehouseId?: string;
