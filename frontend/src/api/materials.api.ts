@@ -8,6 +8,7 @@ import type {
   MaterialThickness,
   Paginated,
   Plate,
+  PlateStockLevel,
   PriceComparison,
 } from '../types';
 
@@ -257,19 +258,71 @@ export interface CreatePlateInput {
   measurementType?: Plate['measurementType'];
   name?: string;
   sku?: string;
-  brandId?: string;
-  colorId?: string;
-  sizeId?: string;
-  thicknessId?: string;
   variant?: string;
+  // Bu fiziksel parçanın kalan (kesilmiş) ebadı; verilmezse standart tabaka ebadı.
+  widthMm?: number;
+  heightMm?: number;
+  // Konsinye sahibi (müşteri); boşsa stok işletmeye aittir.
+  ownerCustomerId?: string;
+  addedAt?: string; // edinme tarihi (YYYY-MM-DD); boşsa bugün
+  processedAt?: string; // işlenme tarihi (YYYY-MM-DD)
   attributes?: Record<string, unknown>;
   quantityInStock?: number;
   warehouseId?: string;
-  reorderLevel?: number;
 }
 
 export async function createPlate(input: CreatePlateInput): Promise<Plate> {
   const { data } = await api.post<Plate>('/plates', input);
+  return data;
+}
+
+/** Plaka düzenleme (kalan ebat, tarihler, ad, stok kodu, varyant). */
+export type UpdatePlateInput = Partial<
+  Pick<
+    CreatePlateInput,
+    | 'name'
+    | 'sku'
+    | 'variant'
+    | 'widthMm'
+    | 'heightMm'
+    | 'addedAt'
+    | 'processedAt'
+  >
+>;
+
+export async function updatePlate(
+  id: string,
+  input: UpdatePlateInput,
+): Promise<Plate> {
+  const { data } = await api.patch<Plate>(`/plates/${id}`, input);
+  return data;
+}
+
+/** Bir plakanın depo/sahip bazlı stok seviyeleri (konsinye dahil). */
+export async function fetchPlateStockLevels(
+  plateId: string,
+): Promise<PlateStockLevel[]> {
+  const { data } = await api.get<PlateStockLevel[]>(
+    `/plates/${plateId}/stock-levels`,
+  );
+  return data;
+}
+
+export interface TransferOwnershipInput {
+  ownerCustomerId: string;
+  warehouseId?: string;
+  quantity?: number;
+}
+
+/** Konsinye stoğun sahipliğini işletmeye aktarır. */
+export async function transferPlateToBusiness(
+  plateId: string,
+  input: TransferOwnershipInput,
+): Promise<unknown> {
+  const { data } = await api.post(
+    `/plates/${plateId}/transfer-to-business`,
+    input,
+  );
   return data;
 }
 

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { WarehousesModule } from '../warehouses/warehouses.module';
 import { CurrencyModule } from '../currency/currency.module';
+import { CustomersModule } from '../customers/customers.module';
 import { MaterialTemplate } from './entities/material-template.entity';
 import { MaterialPlate } from './entities/material-plate.entity';
 import { MaterialCategoryEntity } from './entities/material-category.entity';
@@ -51,6 +52,7 @@ import { SupplierPricesService } from './services/supplier-prices.service';
     SuppliersModule,
     WarehousesModule,
     CurrencyModule,
+    CustomersModule, // konsinye sahibini (müşteri) doğrulamak için
   ],
   controllers: [
     MaterialCategoriesController,

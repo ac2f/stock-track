@@ -27,6 +27,8 @@ import { MaterialBrandsService } from './material-brands.service';
 import { MaterialColorsService } from './material-colors.service';
 import { MaterialSizesService } from './material-sizes.service';
 import { MaterialThicknessesService } from './material-thicknesses.service';
+import { CustomersService } from '../../customers/services/customers.service';
+import { TransferOwnershipDto } from '../dto/transfer-ownership.dto';
 
 @Injectable()
 export class PlatesService {
@@ -43,6 +45,7 @@ export class PlatesService {
     private readonly colorsService: MaterialColorsService,
     private readonly sizesService: MaterialSizesService,
     private readonly thicknessesService: MaterialThicknessesService,
+    private readonly customersService: CustomersService,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     configService: ConfigService,
@@ -89,9 +92,21 @@ export class PlatesService {
           ),
     ]);
 
-    const widthMm = size?.widthMm ?? null;
-    const heightMm = size?.heightMm ?? null;
+    // Standart tabaka ebadı (şablon/katalog). Kalan (kesilmiş) ebat bunu aşamaz.
+    const standardWidthMm = size?.widthMm ?? null;
+    const standardHeightMm = size?.heightMm ?? null;
+
+    // Kalan (güncel) ebat: verilmezse standart tabaka ebadından miras alınır.
+    const widthMm = dto.widthMm ?? standardWidthMm;
+    const heightMm = dto.heightMm ?? standardHeightMm;
     const thicknessMm = thickness?.valueMm ?? null;
+
+    this.assertRemainingWithinSheet(
+      widthMm,
+      heightMm,
+      standardWidthMm,
+      standardHeightMm,
+    );
 
     if (measurementType === MeasurementType.AREA) {
       if (widthMm == null || heightMm == null) {
@@ -101,6 +116,17 @@ export class PlatesService {
       }
     }
 
+    // Konsinye sahibi verildiyse müşterinin varlığını doğrula (yoksa NotFound).
+    const ownerCustomerId = dto.ownerCustomerId ?? null;
+    if (ownerCustomerId) {
+      await this.customersService.findOne(ownerCustomerId);
+    }
+
+    // Stok kodu elle verilmediyse tür+marka+renk+kalınlık+tabaka ebatından üret.
+    const sku =
+      dto.sku ?? (await this.buildSku(template, brand, color, thickness, size));
+    const addedAt = dto.addedAt ?? new Date().toISOString().slice(0, 10);
+
     const initialQty = dto.quantityInStock ?? 0;
 
     return this.dataSource.transaction(async (manager) => {
@@ -109,7 +135,7 @@ export class PlatesService {
         measurementType,
         unitOfMeasure,
         name: dto.name ?? this.buildCatalogName(brand, color, size, thickness),
-        sku: dto.sku,
+        sku,
         brand: brand?.name,
         brandId: brand?.id ?? null,
         color: color?.name,
@@ -124,6 +150,8 @@ export class PlatesService {
         attributes: { ...template.defaultAttributes, ...(dto.attributes ?? {}) },
         quantityInStock: 0,
         reorderLevel: dto.reorderLevel,
+        addedAt,
+        processedAt: dto.processedAt ?? null,
       });
       const saved = await manager.save(plate);
 
@@ -134,7 +162,13 @@ export class PlatesService {
               this.defaultWarehouseCode,
               manager,
             );
-        await this.adjustStock(saved.id, warehouse.id, initialQty, null, manager);
+        await this.adjustStock(
+          saved.id,
+          warehouse.id,
+          initialQty,
+          ownerCustomerId,
+          manager,
+        );
       }
       return manager.findOneOrFail(MaterialPlate, { where: { id: saved.id } });
     });
@@ -230,6 +264,14 @@ export class PlatesService {
     if (attributes) {
       plate.attributes = { ...plate.attributes, ...attributes };
     }
+    // Güncellenen kalan ebat, türün standart tabaka ebadını aşamaz.
+    const std = plate.template?.defaultSize;
+    this.assertRemainingWithinSheet(
+      plate.widthMm ?? null,
+      plate.heightMm ?? null,
+      std?.widthMm ?? null,
+      std?.heightMm ?? null,
+    );
     return this.platesRepo.save(plate);
   }
 
@@ -338,6 +380,128 @@ export class PlatesService {
     const thicknessPart = thickness?.valueMm ?? '—';
     const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
     return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
+  }
+
+  /** Kalan (kesilmiş) ebat, standart tabaka ebadını aşarsa hata fırlatır. */
+  private assertRemainingWithinSheet(
+    widthMm: number | null,
+    heightMm: number | null,
+    sheetWidthMm: number | null,
+    sheetHeightMm: number | null,
+  ): void {
+    if (
+      (sheetWidthMm != null && widthMm != null && widthMm > sheetWidthMm) ||
+      (sheetHeightMm != null && heightMm != null && heightMm > sheetHeightMm)
+    ) {
+      throw new BadRequestException(
+        `Kalan ebat (${widthMm}x${heightMm}) tabaka ebadını (${sheetWidthMm}x${sheetHeightMm}) aşamaz.`,
+      );
+    }
+  }
+
+  /**
+   * Stok kodunu tür + marka + renk(+kod) + kalınlık + tabaka ebatından üretir.
+   * SKU benzersiz (kısmi unique index) olduğundan, taban kod doluysa "-N" ekiyle
+   * benzersizleştirilir (silinmiş kayıtlar da dikkate alınır).
+   */
+  private async buildSku(
+    template: { name: string },
+    brand: { name: string } | null,
+    color: { name: string; code?: string | null } | null,
+    thickness: { valueMm: number } | null,
+    size: { widthMm: number; heightMm: number } | null,
+  ): Promise<string> {
+    const colorPart = color
+      ? color.code
+        ? `${color.name} ${color.code}`
+        : color.name
+      : null;
+    const parts = [
+      template.name,
+      brand?.name ?? null,
+      colorPart,
+      thickness?.valueMm != null ? `${thickness.valueMm}mm` : null,
+      size ? `${size.widthMm}x${size.heightMm}` : null,
+    ].filter((p): p is string => !!p);
+    const base = this.slugify(parts.join('-')) || 'SKU';
+
+    let candidate = base;
+    let n = 1;
+    while (
+      await this.platesRepo.findOne({
+        where: { sku: candidate },
+        withDeleted: true,
+      })
+    ) {
+      n += 1;
+      candidate = `${base}-${n}`;
+    }
+    return candidate;
+  }
+
+  /** Türkçe karakterleri ASCII'ye indirger, büyük harfe çevirip tireli koda dönüştürür. */
+  private slugify(value: string): string {
+    const map: Record<string, string> = {
+      ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u',
+      Ç: 'c', Ğ: 'g', İ: 'i', Ö: 'o', Ş: 's', Ü: 'u',
+    };
+    return value
+      .replace(/[çğıöşüÇĞİÖŞÜ]/g, (c) => map[c] ?? c)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  /**
+   * Konsinye (müşteriye ait) stoğu işletme stoğuna aktarır: belirtilen müşterinin
+   * ilgili depodaki miktarı düşülür, aynı miktar işletme (sahipsiz) stoğuna eklenir.
+   * Miktar verilmezse o depodaki tüm konsinye miktar aktarılır.
+   */
+  async transferToBusiness(
+    plateId: string,
+    dto: TransferOwnershipDto,
+  ): Promise<StockLevel> {
+    await this.findOne(plateId);
+    await this.customersService.findOne(dto.ownerCustomerId);
+
+    return this.dataSource.transaction(async (manager) => {
+      const warehouse = dto.warehouseId
+        ? await this.warehousesService.findOne(dto.warehouseId)
+        : await this.warehousesService.resolveDefault(
+            this.defaultWarehouseCode,
+            manager,
+          );
+
+      const consignment = await manager.getRepository(StockLevel).findOne({
+        where: {
+          plateId,
+          warehouseId: warehouse.id,
+          ownerCustomerId: dto.ownerCustomerId,
+        },
+      });
+      const available = consignment ? Number(consignment.quantity) : 0;
+      if (available <= 0) {
+        throw new BadRequestException(
+          'Bu depoda aktarılacak konsinye stok bulunmuyor.',
+        );
+      }
+      const qty = dto.quantity ?? available;
+      if (qty <= 0 || qty > available) {
+        throw new BadRequestException(
+          `Aktarılacak miktar 0 ile ${available} arasında olmalıdır.`,
+        );
+      }
+
+      // Konsinyeden düş (cache'i etkilemez), işletmeye ekle (cache'i artırır).
+      await this.adjustStock(
+        plateId,
+        warehouse.id,
+        -qty,
+        dto.ownerCustomerId,
+        manager,
+      );
+      return this.adjustStock(plateId, warehouse.id, qty, null, manager);
+    });
   }
 
   /**

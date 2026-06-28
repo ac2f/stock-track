@@ -184,14 +184,16 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | color_code | varchar (nullable) | Seçilen `material_colors` kaydının kodu |
 | color_id | uuid (FK → material_colors, nullable) | |
 | variant | varchar (nullable) | Şablondan miras, override edilebilir alt tür |
-| width_mm | numeric | Seçilen `material_sizes` kaydından |
-| height_mm | numeric | Seçilen `material_sizes` kaydından |
-| size_id | uuid (FK → material_sizes, nullable) | |
+| width_mm | numeric | Bu parçanın **kalan (kesilmiş) eni**; verilmezse standart tabaka ebadından |
+| height_mm | numeric | Bu parçanın **kalan (kesilmiş) boyu**; standart tabaka ebadını aşamaz |
+| size_id | uuid (FK → material_sizes, nullable) | Standart tabaka ebadı (şablondan miras) |
 | thickness_mm | numeric | Seçilen `material_thicknesses` kaydından |
 | thickness_id | uuid (FK → material_thicknesses, nullable) | |
 | attributes | jsonb | Özel nitelikler (doku, yüzey, baskı vb.) |
-| quantity_in_stock | numeric | Mevcut adet |
+| quantity_in_stock | numeric | Mevcut adet (işletme stoğu toplamı) |
 | reorder_level | numeric (nullable) | Kritik stok |
+| added_at | date (nullable) | Edinme/stoğa giriş tarihi (elle ayarlanabilir, varsayılan bugün) |
+| processed_at | date (nullable) | İşlenme (kesim/üretim) tarihi — proje dosyasını bulmaya yarar |
 | is_active | boolean | |
 
 > **Hesaplanan alan:** `area_m2 = (width_mm/1000) × (height_mm/1000)` —

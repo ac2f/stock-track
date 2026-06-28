@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsEnum,
   IsNumber,
   IsObject,
@@ -61,11 +62,38 @@ export class CreatePlateDto {
   @IsString()
   variant?: string;
 
+  // Bu fiziksel parçanın güncel (kalan) ebadı. Verilmezse standart tabaka ebadından
+  // miras alınır; verilirse standart tabaka ebadını aşamaz (servis doğrular).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  widthMm?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  heightMm?: number;
+
   @IsOptional()
   @IsObject()
   attributes?: Record<string, unknown>;
 
-  // Açılış stoğu (opsiyonel). Verilirse ilgili depoya işletme stoğu olarak yazılır.
+  // Konsinye sahibi (müşteri). Verilirse açılış stoğu işletmenin değil bu müşterinin
+  // konsinye stoğu olarak yazılır. Boşsa stok işletmeye aittir.
+  @IsOptional()
+  @IsUUID()
+  ownerCustomerId?: string;
+
+  // Edinme (stoğa giriş) tarihi; verilmezse bugün. İşlenme tarihi opsiyoneldir.
+  @IsOptional()
+  @IsDateString()
+  addedAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  processedAt?: string;
+
+  // Açılış stoğu (opsiyonel). Verilirse ilgili depoya stok olarak yazılır.
   @IsOptional()
   @IsNumber()
   @Min(0)

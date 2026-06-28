@@ -17,6 +17,7 @@ import { PriceUnit } from '../../../common/enums/price-unit.enum';
 import { CreatePlateDto } from '../dto/create-plate.dto';
 import { UpdatePlateDto } from '../dto/update-plate.dto';
 import { QueryPlateDto } from '../dto/query-plate.dto';
+import { TransferOwnershipDto } from '../dto/transfer-ownership.dto';
 import { UpsertSupplierPriceDto } from '../dto/upsert-supplier-price.dto';
 import { PlatesService } from '../services/plates.service';
 import { SupplierPricesService } from '../services/supplier-prices.service';
@@ -51,6 +52,16 @@ export class PlatesController {
   @Get(':id/stock-levels')
   stockLevels(@Param('id', ParseUUIDPipe) id: string) {
     return this.platesService.listStockLevels(id);
+  }
+
+  // Konsinye (müşteriye ait) stoğun sahipliğini işletmeye aktar.
+  @Roles(UserRole.OWNER)
+  @Post(':id/transfer-to-business')
+  transferToBusiness(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransferOwnershipDto,
+  ) {
+    return this.platesService.transferToBusiness(id, dto);
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)

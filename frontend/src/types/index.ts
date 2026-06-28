@@ -106,8 +106,20 @@ export interface Plate {
   thicknessId?: string;
   quantityInStock: number;
   reorderLevel?: number;
+  addedAt?: string; // edinme/stoğa giriş tarihi (YYYY-MM-DD)
+  processedAt?: string; // işlenme tarihi (YYYY-MM-DD)
   templateId?: string;
   template?: { category: MaterialCategory; name: string };
+}
+
+/** Bir plakanın depo/sahip bazlı stok seviyesi (konsinye-farkında). */
+export interface PlateStockLevel {
+  id: string;
+  plateId: string;
+  warehouseId: string;
+  warehouse?: Warehouse;
+  ownerCustomerId?: string | null;
+  quantity: number;
 }
 
 export interface PriceComparison {

@@ -142,6 +142,14 @@ export class MaterialPlate extends BaseEntity {
   })
   reorderLevel?: number;
 
+  /** Kaleme/parçaya edinilme (stoğa giriş) tarihi — elle ayarlanabilir, proje dosyasını bulmaya yarar. */
+  @Column({ name: 'added_at', type: 'date', nullable: true })
+  addedAt?: string | null;
+
+  /** İşlenme (kesim/üretim) tarihi — opsiyonel; o tarihteki proje dosyasını bulmaya yarar. */
+  @Column({ name: 'processed_at', type: 'date', nullable: true })
+  processedAt?: string | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

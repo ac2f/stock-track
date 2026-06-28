@@ -72,10 +72,11 @@ kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda d
 ## Materials — Plakalar (Stok)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, brandId?, colorId?, sizeId?, thicknessId?, variant?, quantityInStock?, warehouseId?, reorderLevel? }`. Verilmeyen `*Id` alanları şablonun `default*Id` değerlerinden miras alınır; seçilen katalog kaydı şablonun kategorisiyle eşleşmiyorsa `400`. Çözümlenen kayıtların `name/code/widthMm/heightMm/valueMm` değerleri plakanın `brand/color/colorCode/widthMm/heightMm/thicknessMm` kolonlarına yazılır |
+| POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, name?, sku?, variant?, widthMm?, heightMm?, ownerCustomerId?, addedAt?, processedAt?, quantityInStock?, warehouseId? }`. Marka/renk/ebat/kalınlık şablonun `default*Id` değerlerinden miras alınır. `widthMm/heightMm` bu fiziksel parçanın **kalan (kesilmiş) ebadıdır**; verilmezse standart tabaka ebadından alınır, verilirse standart ebadı **aşamaz** (`400`). `sku` boşsa `tür+marka+renk+kalınlık+tabaka ebatı`'ndan otomatik üretilir (gerekirse `-N` ekiyle benzersizleştirilir). `ownerCustomerId` verilirse açılış stoğu o müşterinin **konsinye** stoğu olarak yazılır; `addedAt` verilmezse bugün |
 | GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&search=&inStock=true&page=&limit=` |
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
-| PATCH | `/plates/:id` | 🧑‍🔧 | |
+| PATCH | `/plates/:id` | 🧑‍🔧 | Kalan ebat, tarihler (`addedAt/processedAt`), ad, `sku`, `variant` güncellenir; kalan ebat türün standart tabaka ebadını aşamaz |
+| POST | `/plates/:id/transfer-to-business` | 👔 | Konsinye (müşteriye ait) stoğun sahipliğini işletmeye aktarır — `{ ownerCustomerId, warehouseId?, quantity? }`. Miktar verilmezse o depodaki tüm konsinye miktar aktarılır |
 
 ## Materials — Piyasa Fiyatları
 | Metot | Yol | Yetki | Açıklama |

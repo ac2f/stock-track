@@ -1,27 +1,45 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
-  fetchMaterialBrands,
   fetchMaterialCategories,
-  fetchMaterialColors,
-  fetchMaterialSizes,
   fetchMaterialTemplates,
-  fetchMaterialThicknesses,
+  fetchPlateStockLevels,
   fetchPlates,
+  transferPlateToBusiness,
+  updatePlate,
   type CreatePlateInput,
   type PlateFilters,
+  type TransferOwnershipInput,
+  type UpdatePlateInput,
 } from '../../api/materials.api';
 import { fetchWarehouses } from '../../api/warehouses.api';
+import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
+import type { MaterialTemplate, Plate } from '../../types';
 
 function areaM2(widthMm?: number, heightMm?: number): number | null {
   if (!widthMm || !heightMm) return null;
   return (widthMm / 1000) * (heightMm / 1000);
 }
 
-const EMPTY_PLATE: CreatePlateInput = { templateId: '' };
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Türkçe karakterleri ASCII'ye indirger, büyük harfli tireli koda dönüştürür. */
+function slugify(value: string): string {
+  const map: Record<string, string> = {
+    ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u',
+    Ç: 'c', Ğ: 'g', İ: 'i', Ö: 'o', Ş: 's', Ü: 'u',
+  };
+  return value
+    .replace(/[çğıöşüÇĞİÖŞÜ]/g, (ch) => map[ch] ?? ch)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 /** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
 function buildCatalogName(
@@ -37,10 +55,57 @@ function buildCatalogName(
   return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
 }
 
+/** Stok kodu önizlemesi: tür + marka + renk(+kod) + kalınlık + tabaka ebatı. */
+function buildSku(tpl: MaterialTemplate): string {
+  const c = tpl.defaultColor;
+  const colorPart = c ? (c.code ? `${c.name} ${c.code}` : c.name) : null;
+  const parts = [
+    tpl.name,
+    tpl.defaultBrand?.name,
+    colorPart,
+    tpl.defaultThickness ? `${tpl.defaultThickness.valueMm}mm` : null,
+    tpl.defaultSize ? `${tpl.defaultSize.widthMm}x${tpl.defaultSize.heightMm}` : null,
+  ].filter((p): p is string => !!p);
+  return slugify(parts.join('-'));
+}
+
+/** Etiketli form alanı sarmalayıcısı — her input'un ne ifade ettiği açıkça görünsün. */
+function Field({
+  label,
+  children,
+  hint,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  hint?: string;
+  className?: string;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1 block text-sm font-medium text-slate-600">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
+    </label>
+  );
+}
+
+function errMessage(error: unknown, fallback: string): string {
+  return (
+    (error as { response?: { data?: { message?: string } } })?.response?.data
+      ?.message ?? fallback
+  );
+}
+
 function NewPlateForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<CreatePlateInput>(EMPTY_PLATE);
-  const [nameTouched, setNameTouched] = useState(false);
+  const [form, setForm] = useState<CreatePlateInput>(() => ({
+    templateId: '',
+    quantityInStock: 1,
+    addedAt: todayISO(),
+  }));
+  const [skuTouched, setSkuTouched] = useState(false);
+  const [owner, setOwner] = useState<'business' | 'customer'>('business');
 
   const { data: templates } = useQuery({
     queryKey: ['material-templates'],
@@ -50,35 +115,22 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     queryKey: ['warehouses'],
     queryFn: fetchWarehouses,
   });
-
-  const selectedTemplate = templates?.find((t) => t.id === form.templateId);
-  const categoryId = selectedTemplate?.categoryId;
-  const measurementType = form.measurementType ?? selectedTemplate?.measurementType;
-  const isArea = measurementType === 'area';
-
-  const { data: brands } = useQuery({
-    queryKey: ['material-brands', categoryId],
-    queryFn: () => fetchMaterialBrands(categoryId),
-    enabled: !!categoryId,
-  });
-  const { data: colors } = useQuery({
-    queryKey: ['material-colors', categoryId],
-    queryFn: () => fetchMaterialColors(categoryId),
-    enabled: !!categoryId,
-  });
-  const { data: sizes } = useQuery({
-    queryKey: ['material-sizes', categoryId],
-    queryFn: () => fetchMaterialSizes(categoryId),
-    enabled: !!categoryId,
-  });
-  const { data: thicknesses } = useQuery({
-    queryKey: ['material-thicknesses', categoryId],
-    queryFn: () => fetchMaterialThicknesses(categoryId),
-    enabled: !!categoryId,
+  const { data: customers } = useQuery({
+    queryKey: ['customers', 'all'],
+    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
   });
 
-  const selectedSize = sizes?.find((s) => s.id === form.sizeId);
-  const preview = isArea ? areaM2(selectedSize?.widthMm, selectedSize?.heightMm) : null;
+  const tpl = templates?.find((t) => t.id === form.templateId);
+  const std = tpl?.defaultSize;
+  const isArea = (form.measurementType ?? tpl?.measurementType) === 'area';
+  const suggestedSku = tpl ? buildSku(tpl) : '';
+
+  const overSheet =
+    isArea &&
+    !!std &&
+    ((form.widthMm != null && form.widthMm > std.widthMm) ||
+      (form.heightMm != null && form.heightMm > std.heightMm));
+  const m2 = isArea ? areaM2(form.widthMm, form.heightMm) : null;
 
   const createMut = useMutation({
     mutationFn: createPlate,
@@ -88,204 +140,445 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     },
   });
 
-  /** Marka/renk/ebat/kalınlık seçimlerini forma uygular; isim elle değiştirilmediyse otomatik üretir. */
-  const patchCatalog = (patch: Partial<CreatePlateInput>) => {
-    setForm((f) => {
-      const next = { ...f, ...patch };
-      if (nameTouched) return next;
-      const brand = brands?.find((b) => b.id === next.brandId);
-      const color = colors?.find((c) => c.id === next.colorId);
-      const size = sizes?.find((s) => s.id === next.sizeId);
-      const thickness = thicknesses?.find((t) => t.id === next.thicknessId);
-      return { ...next, name: buildCatalogName(brand, color, size, thickness) };
-    });
-  };
-
-  // Katalog listeleri (kategori değişince) yüklendiğinde isim önerisini günceller.
-  useEffect(() => {
-    if (nameTouched || !form.templateId) return;
-    const brand = brands?.find((b) => b.id === form.brandId);
-    const color = colors?.find((c) => c.id === form.colorId);
-    const size = sizes?.find((s) => s.id === form.sizeId);
-    const thickness = thicknesses?.find((t) => t.id === form.thicknessId);
-    const name = buildCatalogName(brand, color, size, thickness);
-    setForm((f) => (f.name === name ? f : { ...f, name }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brands, colors, sizes, thicknesses]);
-
+  // Ürün türü seçilince özellikler (ad/varyant/standart ebat) türden miras alınır.
   const applyTemplateDefaults = (templateId: string) => {
-    const tpl = templates?.find((t) => t.id === templateId);
-    setNameTouched(false);
-    patchCatalog({
+    const t = templates?.find((x) => x.id === templateId);
+    setSkuTouched(false);
+    setForm((f) => ({
+      ...f,
       templateId,
-      measurementType: tpl?.measurementType,
-      brandId: tpl?.defaultBrandId,
-      colorId: tpl?.defaultColorId,
-      sizeId: tpl?.defaultSizeId,
-      thicknessId: tpl?.defaultThicknessId,
-      variant: tpl?.defaultVariant,
-    });
+      measurementType: t?.measurementType,
+      variant: t?.defaultVariant,
+      widthMm: t?.defaultSize?.widthMm,
+      heightMm: t?.defaultSize?.heightMm,
+      name: t
+        ? buildCatalogName(t.defaultBrand, t.defaultColor, t.defaultSize, t.defaultThickness)
+        : undefined,
+    }));
   };
+
+  const canSubmit =
+    !!form.templateId &&
+    !overSheet &&
+    !(owner === 'customer' && !form.ownerCustomerId) &&
+    !createMut.isPending;
 
   return (
     <div className="card space-y-3">
       {createMut.error && (
         <p className="text-sm text-red-600">
-          {(createMut.error as { response?: { data?: { message?: string } } })
-            ?.response?.data?.message ?? 'Stok kalemi oluşturulamadı.'}
+          {errMessage(createMut.error, 'Stok kalemi oluşturulamadı.')}
         </p>
       )}
-      <select
-        className="input"
-        value={form.templateId}
-        onChange={(e) => applyTemplateDefaults(e.target.value)}
-      >
-        <option value="">Ürün türü seç…</option>
-        {templates?.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </select>
 
-      {form.templateId && (
+      <Field label="Ürün türü (özellikler buradan gelir)">
+        <select
+          className="input"
+          value={form.templateId}
+          onChange={(e) => applyTemplateDefaults(e.target.value)}
+        >
+          <option value="">Ürün türü seç…</option>
+          {templates?.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      {tpl && (
         <>
-          <input
-            className="input"
-            placeholder="Ad (boş bırakılırsa otomatik oluşturulur)"
-            value={form.name ?? ''}
-            onChange={(e) => {
-              setNameTouched(true);
-              setForm({ ...form, name: e.target.value || undefined });
-            }}
-          />
-          <input
-            className="input"
-            placeholder="Stok Kodu / SKU"
-            value={form.sku ?? ''}
-            onChange={(e) => setForm({ ...form, sku: e.target.value || undefined })}
-          />
-          <input
-            className="input"
-            placeholder="Tür/Varyant (örn. Dökme / Çekme)"
-            value={form.variant ?? ''}
-            onChange={(e) => setForm({ ...form, variant: e.target.value || undefined })}
-          />
-          <select
-            className="input"
-            value={form.brandId ?? ''}
-            onChange={(e) => patchCatalog({ brandId: e.target.value || undefined })}
+          {/* Türden gelen, okunur özellikler (formda düzenlenmez). */}
+          <div className="space-y-0.5 rounded-xl bg-slate-50 p-2 text-xs text-slate-500">
+            <p className="font-medium text-slate-600">Türden gelen özellikler</p>
+            <p>
+              Marka: {tpl.defaultBrand?.name ?? '—'} · Renk:{' '}
+              {tpl.defaultColor?.name ?? '—'}
+              {tpl.defaultColor?.code ? ` (${tpl.defaultColor.code})` : ''}
+            </p>
+            <p>
+              Kalınlık: {tpl.defaultThickness ? `${tpl.defaultThickness.valueMm} mm` : '—'} ·
+              Standart tabaka: {std ? `${std.widthMm}×${std.heightMm} mm` : '—'}
+            </p>
+          </div>
+
+          <Field label="Ad (otomatik oluşur, düzenleyebilirsiniz)">
+            <input
+              className="input"
+              placeholder="Otomatik oluşturulur"
+              value={form.name ?? ''}
+              onChange={(e) => setForm({ ...form, name: e.target.value || undefined })}
+            />
+          </Field>
+
+          <Field
+            label="Stok kodu / SKU"
+            hint="Boş bırakılırsa türden otomatik üretilir."
           >
-            <option value="">Marka seç…</option>
-            {brands?.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={form.colorId ?? ''}
-            onChange={(e) => patchCatalog({ colorId: e.target.value || undefined })}
-          >
-            <option value="">Renk seç…</option>
-            {colors?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.code ? ` (${c.code})` : ''}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={form.thicknessId ?? ''}
-            onChange={(e) =>
-              patchCatalog({ thicknessId: e.target.value || undefined })
-            }
-          >
-            <option value="">Kalınlık seç…</option>
-            {thicknesses?.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.valueMm} mm
-              </option>
-            ))}
-          </select>
+            <input
+              className="input"
+              placeholder={suggestedSku || 'Otomatik oluşturulur'}
+              value={skuTouched ? form.sku ?? '' : suggestedSku}
+              onChange={(e) => {
+                setSkuTouched(true);
+                setForm({ ...form, sku: e.target.value || undefined });
+              }}
+            />
+          </Field>
+
+          <Field label="Tür/Varyant (örn. Dökme / Çekme)">
+            <input
+              className="input"
+              value={form.variant ?? ''}
+              onChange={(e) => setForm({ ...form, variant: e.target.value || undefined })}
+            />
+          </Field>
 
           {isArea && (
-            <div className="space-y-1">
-              <select
-                className="input"
-                value={form.sizeId ?? ''}
-                onChange={(e) => patchCatalog({ sizeId: e.target.value || undefined })}
-              >
-                <option value="">Ebat seç…</option>
-                {sizes?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.widthMm}×{s.heightMm} mm
-                  </option>
-                ))}
-              </select>
-              {preview != null && (
-                <p className="text-sm text-slate-500">≈ {preview.toFixed(3)} m²</p>
-              )}
-            </div>
+            <Field
+              label="Kalan ebat (en × boy, mm)"
+              hint={
+                std
+                  ? `Bu parçanın güncel/kesilmiş ebadı. Standart tabaka: ${std.widthMm}×${std.heightMm} mm.`
+                  : 'Bu parçanın güncel/kesilmiş ebadı.'
+              }
+            >
+              <div className="space-y-1">
+                <div className="flex gap-2">
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    placeholder="En (mm)"
+                    value={form.widthMm ?? ''}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        widthMm: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    placeholder="Boy (mm)"
+                    value={form.heightMm ?? ''}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        heightMm: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                </div>
+                {overSheet ? (
+                  <p className="text-xs text-red-600">
+                    Kalan ebat standart tabaka ebadını ({std?.widthMm}×{std?.heightMm} mm)
+                    aşamaz.
+                  </p>
+                ) : m2 != null ? (
+                  <p className="text-xs text-slate-500">≈ {m2.toFixed(3)} m²</p>
+                ) : null}
+              </div>
+            </Field>
           )}
 
           <div className="flex gap-2">
-            <input
-              className="input"
-              type="number"
-              min={0}
-              placeholder="Açılış Stoğu"
-              value={form.quantityInStock ?? ''}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  quantityInStock: e.target.value ? Number(e.target.value) : undefined,
-                })
-              }
-            />
+            <Field label="Eklenme tarihi" className="flex-1">
+              <input
+                className="input"
+                type="date"
+                value={form.addedAt ?? ''}
+                onChange={(e) => setForm({ ...form, addedAt: e.target.value || undefined })}
+              />
+            </Field>
+            <Field label="İşlenme tarihi (varsa)" className="flex-1">
+              <input
+                className="input"
+                type="date"
+                value={form.processedAt ?? ''}
+                onChange={(e) =>
+                  setForm({ ...form, processedAt: e.target.value || undefined })
+                }
+              />
+            </Field>
+          </div>
+
+          <Field label="Sahiplik">
             <select
               className="input"
-              value={form.warehouseId ?? ''}
-              onChange={(e) =>
-                setForm({ ...form, warehouseId: e.target.value || undefined })
-              }
+              value={owner}
+              onChange={(e) => {
+                const v = e.target.value as 'business' | 'customer';
+                setOwner(v);
+                if (v === 'business') setForm({ ...form, ownerCustomerId: undefined });
+              }}
             >
-              <option value="">Varsayılan depo</option>
-              {warehouses?.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
+              <option value="business">İşletmeye ait (işletme stoğu)</option>
+              <option value="customer">Müşteriye ait (konsinye)</option>
             </select>
+          </Field>
+
+          {owner === 'customer' && (
+            <Field label="Sahip müşteri" hint="Sahipliği sonradan işletmeye aktarabilirsiniz.">
+              <select
+                className="input"
+                value={form.ownerCustomerId ?? ''}
+                onChange={(e) =>
+                  setForm({ ...form, ownerCustomerId: e.target.value || undefined })
+                }
+              >
+                <option value="">Müşteri seç…</option>
+                {customers?.items.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          <div className="flex gap-2">
+            <Field label="Açılış stoğu (adet)" className="flex-1">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={form.quantityInStock ?? ''}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    quantityInStock: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+            </Field>
+            <Field label="Depo" className="flex-1">
+              <select
+                className="input"
+                value={form.warehouseId ?? ''}
+                onChange={(e) =>
+                  setForm({ ...form, warehouseId: e.target.value || undefined })
+                }
+              >
+                <option value="">Varsayılan (Merkez) depo</option>
+                {warehouses?.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
+        </>
+      )}
+
+      <div className="flex gap-2">
+        <button className="btn-primary" disabled={!canSubmit} onClick={() => createMut.mutate(form)}>
+          Kaydet
+        </button>
+        <button className="btn" onClick={onClose}>
+          İptal
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** İşlenmiş/kesilmiş bir plakanın kalan ebat, tarih ve sahiplik bilgisini düzenler. */
+function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState<UpdatePlateInput>({
+    name: plate.name,
+    sku: plate.sku,
+    variant: plate.variant,
+    widthMm: plate.widthMm,
+    heightMm: plate.heightMm,
+    addedAt: plate.addedAt,
+    processedAt: plate.processedAt,
+  });
+
+  const { data: templates } = useQuery({
+    queryKey: ['material-templates'],
+    queryFn: () => fetchMaterialTemplates(),
+  });
+  const { data: customers } = useQuery({
+    queryKey: ['customers', 'all'],
+    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
+  });
+  const { data: levels } = useQuery({
+    queryKey: ['plate-stock-levels', plate.id],
+    queryFn: () => fetchPlateStockLevels(plate.id),
+  });
+
+  const tpl = templates?.find((t) => t.id === plate.templateId);
+  const std = tpl?.defaultSize;
+  const isArea = plate.measurementType === 'area';
+  const overSheet =
+    isArea &&
+    !!std &&
+    ((form.widthMm != null && form.widthMm > std.widthMm) ||
+      (form.heightMm != null && form.heightMm > std.heightMm));
+
+  const updateMut = useMutation({
+    mutationFn: (input: UpdatePlateInput) => updatePlate(plate.id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      onClose();
+    },
+  });
+  const transferMut = useMutation({
+    mutationFn: (input: TransferOwnershipInput) => transferPlateToBusiness(plate.id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      qc.invalidateQueries({ queryKey: ['plate-stock-levels', plate.id] });
+    },
+  });
+
+  const customerName = (id?: string | null) =>
+    customers?.items.find((c) => c.id === id)?.name ?? 'Müşteri';
+  const consignmentLevels = (levels ?? []).filter(
+    (l) => l.ownerCustomerId && Number(l.quantity) > 0,
+  );
+
+  return (
+    <div className="mt-2 space-y-3 rounded-xl border border-slate-200 p-2">
+      {updateMut.error && (
+        <p className="text-sm text-red-600">
+          {errMessage(updateMut.error, 'Güncellenemedi.')}
+        </p>
+      )}
+      {transferMut.error && (
+        <p className="text-sm text-red-600">
+          {errMessage(transferMut.error, 'Sahiplik aktarılamadı.')}
+        </p>
+      )}
+
+      <Field label="Ad">
+        <input
+          className="input"
+          value={form.name ?? ''}
+          onChange={(e) => setForm({ ...form, name: e.target.value || undefined })}
+        />
+      </Field>
+      <Field label="Stok kodu / SKU">
+        <input
+          className="input"
+          value={form.sku ?? ''}
+          onChange={(e) => setForm({ ...form, sku: e.target.value || undefined })}
+        />
+      </Field>
+      <Field label="Tür/Varyant">
+        <input
+          className="input"
+          value={form.variant ?? ''}
+          onChange={(e) => setForm({ ...form, variant: e.target.value || undefined })}
+        />
+      </Field>
+
+      {isArea && (
+        <Field
+          label="Kalan ebat (en × boy, mm)"
+          hint={
+            std
+              ? `İşlem sonrası güncel ebat. Standart tabaka: ${std.widthMm}×${std.heightMm} mm.`
+              : 'İşlem sonrası güncel ebat.'
+          }
+        >
+          <div className="space-y-1">
+            <div className="flex gap-2">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                placeholder="En (mm)"
+                value={form.widthMm ?? ''}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    widthMm: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                placeholder="Boy (mm)"
+                value={form.heightMm ?? ''}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    heightMm: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+            </div>
+            {overSheet && (
+              <p className="text-xs text-red-600">
+                Kalan ebat standart tabaka ebadını ({std?.widthMm}×{std?.heightMm} mm) aşamaz.
+              </p>
+            )}
+          </div>
+        </Field>
+      )}
+
+      <div className="flex gap-2">
+        <Field label="Eklenme tarihi" className="flex-1">
           <input
             className="input"
-            type="number"
-            min={0}
-            placeholder="Kritik Stok Eşiği"
-            value={form.reorderLevel ?? ''}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                reorderLevel: e.target.value ? Number(e.target.value) : undefined,
-              })
-            }
+            type="date"
+            value={form.addedAt ?? ''}
+            onChange={(e) => setForm({ ...form, addedAt: e.target.value || undefined })}
           />
-        </>
+        </Field>
+        <Field label="İşlenme tarihi" className="flex-1">
+          <input
+            className="input"
+            type="date"
+            value={form.processedAt ?? ''}
+            onChange={(e) => setForm({ ...form, processedAt: e.target.value || undefined })}
+          />
+        </Field>
+      </div>
+
+      {consignmentLevels.length > 0 && (
+        <div className="space-y-2 rounded-lg bg-amber-50 p-2 text-sm">
+          <p className="font-medium text-amber-800">Konsinye sahiplik</p>
+          {consignmentLevels.map((l) => (
+            <div key={l.id} className="flex items-center justify-between gap-2">
+              <span className="text-amber-900">
+                {customerName(l.ownerCustomerId)} · {Number(l.quantity)} adet ·{' '}
+                {l.warehouse?.name ?? 'depo'}
+              </span>
+              <button
+                className="btn bg-amber-600 text-white"
+                disabled={transferMut.isPending}
+                onClick={() =>
+                  transferMut.mutate({
+                    ownerCustomerId: l.ownerCustomerId as string,
+                    warehouseId: l.warehouseId,
+                  })
+                }
+              >
+                İşletmeye aktar
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="flex gap-2">
         <button
           className="btn-primary"
-          disabled={!form.templateId}
-          onClick={() => createMut.mutate(form)}
+          disabled={overSheet || updateMut.isPending}
+          onClick={() => updateMut.mutate(form)}
         >
           Kaydet
         </button>
         <button className="btn" onClick={onClose}>
-          İptal
+          Kapat
         </button>
       </div>
     </div>
@@ -299,6 +592,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
 export function PlatesListPage() {
   const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: 20 });
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['plates', filters],
@@ -380,6 +674,7 @@ export function PlatesListPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {data?.items.map((plate) => {
             const m2 = areaM2(plate.widthMm, plate.heightMm);
+            const editing = editingId === plate.id;
             return (
               <div key={plate.id} className="card">
                 <div className="flex items-start justify-between">
@@ -403,6 +698,25 @@ export function PlatesListPage() {
                   {plate.widthMm}×{plate.heightMm}×{plate.thicknessMm} mm
                   {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
                 </p>
+                {(plate.addedAt || plate.processedAt) && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {plate.addedAt ? `Eklendi: ${plate.addedAt}` : ''}
+                    {plate.processedAt
+                      ? `${plate.addedAt ? ' · ' : ''}İşlendi: ${plate.processedAt}`
+                      : ''}
+                  </p>
+                )}
+                <div className="mt-2">
+                  <button
+                    className="btn"
+                    onClick={() => setEditingId(editing ? null : plate.id)}
+                  >
+                    {editing ? 'Kapat' : 'Düzenle'}
+                  </button>
+                </div>
+                {editing && (
+                  <EditPlateForm plate={plate} onClose={() => setEditingId(null)} />
+                )}
               </div>
             );
           })}
