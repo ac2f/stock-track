@@ -143,6 +143,13 @@ export class ProcessingJob extends BaseEntity {
   @Column({ name: 'consumed_quantity', type: 'numeric', precision: 12, scale: 2, default: 0 })
   consumedQuantity: number;
 
+  /**
+   * Tabaka (AREA) işinde stoktan düşülen kalan boy (mm). İptalde bu kadar boy
+   * tabakaya geri eklenir. AREA dışı işlerde null.
+   */
+  @Column({ name: 'consumed_height_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  consumedHeightMm?: number | null;
+
   @Column({ type: 'text', nullable: true })
   note?: string;
 }

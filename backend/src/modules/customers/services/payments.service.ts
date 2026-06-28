@@ -190,7 +190,10 @@ export class PaymentsService {
       .leftJoinAndSelect('p.receivedBy', 'receivedBy')
       .leftJoinAndSelect('p.bankAccount', 'bankAccount')
       .leftJoinAndSelect('p.customer', 'customer')
-      .orderBy('p.payment_date', 'DESC')
+      // NOT: join + take birlikteyken TypeORM sayfalama için orderBy'ı seçili
+      // ifadelerle eşler; bu yüzden ham DB sütunu ('p.payment_date') değil entity
+      // property'si ('p.paymentDate') kullanılmalı, aksi halde 'databaseName' hatası.
+      .orderBy('p.paymentDate', 'DESC')
       .take(200);
     if (filters.receivedById) {
       qb.andWhere('p.received_by_id = :rid', { rid: filters.receivedById });

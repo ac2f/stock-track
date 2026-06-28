@@ -188,7 +188,8 @@ export class SalesService {
     });
     const savedSale = await manager.save(sale);
 
-    // Stok hareketleri (kaynağa göre).
+    // Stok hareketleri (kaynağa göre). Tabaka (AREA) malzemede satılan parçanın
+    // boyu kadar kalan ebat otomatik düşülür; diğerlerinde adet düşülür.
     for (const item of dto.items) {
       if (item.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) {
         continue; // stok takip edilmiyor
@@ -197,14 +198,15 @@ export class SalesService {
         item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
           ? dto.ownerCustomerId ?? null
           : null;
-      await this.platesService.adjustStock(
-        item.plateId,
-        warehouse!.id,
-        -item.quantity,
-        owner,
+      await this.platesService.consume({
+        plateId: item.plateId,
+        warehouseId: warehouse!.id,
+        quantity: item.quantity,
+        consumedHeightMm: item.heightMm ?? null,
+        ownerCustomerId: owner,
         manager,
-        opts.allowNegativeStock ?? false,
-      );
+        allowNegative: opts.allowNegativeStock ?? false,
+      });
     }
 
     // Alıcı borçlanır (DEBIT, baz tutarda).

@@ -173,13 +173,20 @@ export class ProcessingService {
     const saved = await manager.save(job);
 
     if (consumeNow) {
-      await this.platesService.adjustStock(
-        plate.id,
-        warehouse!.id,
-        -quantity,
-        null,
+      // Tabaka (AREA) işinde kalan boy düşülür; değilse adet. Düşülen boy iptal
+      // için saklanır.
+      const cut = await this.platesService.consume({
+        plateId: plate.id,
+        warehouseId: warehouse!.id,
+        quantity,
+        consumedHeightMm:
+          billingUnit === MeasurementType.AREA ? heightMm : null,
         manager,
-      );
+      });
+      if (cut > 0) {
+        saved.consumedHeightMm = cut;
+        await manager.save(saved);
+      }
     }
 
     if (billNow) {
@@ -215,24 +222,39 @@ export class ProcessingService {
 
       if (status === ProcessingStatus.COMPLETED) {
         if (!job.stockConsumed && job.warehouseId) {
-          // İşletme stoğundan mevcut kadarını düş — yetersizse tamamlamayı
-          // engelleme (örn. konsinye plakada işletme stoğu 0 olabilir). Kalan
-          // miktar negatife düşmez; gerçek m² tüketimi ileride ele alınır.
-          const plate = await manager.findOne(MaterialPlate, {
-            where: { id: job.plateId },
-          });
-          const available = plate ? Math.max(0, Number(plate.quantityInStock)) : 0;
-          const consume = Math.min(Number(job.quantity), available);
-          if (consume > 0) {
-            await this.platesService.adjustStock(
-              job.plateId,
-              job.warehouseId,
-              -consume,
-              null,
+          if (job.billingUnit === MeasurementType.AREA) {
+            // Tabaka: kalan boy, işlenen parçanın boyu kadar düşülür (tam
+            // genişlikte şerit). Düşülen boy iptal için saklanır.
+            const cut = await this.platesService.consume({
+              plateId: job.plateId,
+              warehouseId: job.warehouseId,
+              quantity: Number(job.quantity),
+              consumedHeightMm: job.heightMm != null ? Number(job.heightMm) : null,
               manager,
-            );
+            });
+            job.consumedHeightMm = cut || null;
+            job.consumedQuantity = 0;
+          } else {
+            // İşletme stoğundan mevcut kadarını düş — yetersizse tamamlamayı
+            // engelleme (örn. konsinye plakada işletme stoğu 0 olabilir).
+            const plate = await manager.findOne(MaterialPlate, {
+              where: { id: job.plateId },
+            });
+            const available = plate
+              ? Math.max(0, Number(plate.quantityInStock))
+              : 0;
+            const consume = Math.min(Number(job.quantity), available);
+            if (consume > 0) {
+              await this.platesService.adjustStock(
+                job.plateId,
+                job.warehouseId,
+                -consume,
+                null,
+                manager,
+              );
+            }
+            job.consumedQuantity = consume;
           }
-          job.consumedQuantity = consume;
           job.stockConsumed = true;
         }
         if (
@@ -256,15 +278,26 @@ export class ProcessingService {
         }
       } else if (status === ProcessingStatus.CANCELLED) {
         if (job.stockConsumed && job.warehouseId) {
-          const refund = Number(job.consumedQuantity) || Number(job.quantity);
-          if (refund > 0) {
-            await this.platesService.adjustStock(
+          if (job.consumedHeightMm && Number(job.consumedHeightMm) > 0) {
+            // Tabaka işi: düşülen boyu geri ekle (best-effort).
+            await this.platesService.restoreSheetHeight(
               job.plateId,
-              job.warehouseId,
-              refund,
-              null,
+              Number(job.consumedHeightMm),
               manager,
             );
+            job.consumedHeightMm = null;
+          } else {
+            const refund =
+              Number(job.consumedQuantity) || Number(job.quantity);
+            if (refund > 0) {
+              await this.platesService.adjustStock(
+                job.plateId,
+                job.warehouseId,
+                refund,
+                null,
+                manager,
+              );
+            }
           }
           job.consumedQuantity = 0;
           job.stockConsumed = false;

@@ -33,6 +33,18 @@ export class SaleItemDto {
   @IsEnum(SaleStockSource)
   stockSource: SaleStockSource;
 
+  // Tabaka (AREA) malzemede satılan parçanın ebadı (mm). Stoktan kalan boy
+  // bu parçanın boyu kadar (tam genişlikte şerit) otomatik düşülür.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  widthMm?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  heightMm?: number;
+
   // Üçüncü kişi malzemesinde (stockSource != business) gereklidir.
   @IsOptional()
   @IsEnum(OwnerSettlementType)

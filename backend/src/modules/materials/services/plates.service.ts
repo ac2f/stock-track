@@ -423,6 +423,115 @@ export class PlatesService {
     return savedLevel;
   }
 
+  /**
+   * Satış/işleme tüketimi. TABAKA (AREA) malzemede stok adet değil EBAT olarak
+   * düşülür: kesilen parçanın boyu (heightMm) kadar kalan BOY azalır, EN (tabaka
+   * genişliği) sabit kalır — tam genişlikte şerit kesimi varsayımı. Böylece
+   * 135×200 tabakadan 135×100 ya da 100×100 satıldığında kalan 135×100 olur.
+   * Kalan boy ≤ 0 olursa tabaka stoktan çıkar. AREA dışı malzemede klasik adet
+   * düşüşü uygulanır. Dönüş: AREA'da düşülen toplam boy (mm) — iptalde geri
+   * eklemek için; adet düşüşünde 0.
+   */
+  async consume(opts: {
+    plateId: string;
+    warehouseId: string;
+    quantity: number;
+    consumedHeightMm?: number | null;
+    ownerCustomerId?: string | null;
+    manager: EntityManager;
+    allowNegative?: boolean;
+  }): Promise<number> {
+    const {
+      plateId,
+      warehouseId,
+      quantity,
+      ownerCustomerId = null,
+      manager,
+      allowNegative = false,
+    } = opts;
+
+    const plate = await manager.findOne(MaterialPlate, {
+      where: { id: plateId },
+    });
+    const cutHeight =
+      opts.consumedHeightMm != null
+        ? Number(opts.consumedHeightMm) * (quantity || 1)
+        : 0;
+
+    // Tabaka + geçerli kesim boyu → ebat (boy) düşür.
+    if (
+      plate &&
+      plate.measurementType === MeasurementType.AREA &&
+      cutHeight > 0
+    ) {
+      return this.reduceSheetHeight(plate, cutHeight, manager, allowNegative);
+    }
+
+    // Diğer tüm durumlar: klasik adet düşüşü.
+    await this.adjustStock(
+      plateId,
+      warehouseId,
+      -quantity,
+      ownerCustomerId,
+      manager,
+      allowNegative,
+    );
+    return 0;
+  }
+
+  /** Tabakanın kalan boyunu kesim kadar azaltır; biterse tüketir (soft-remove). */
+  private async reduceSheetHeight(
+    plate: MaterialPlate,
+    cutHeightMm: number,
+    manager: EntityManager,
+    allowNegative: boolean,
+  ): Promise<number> {
+    const current = Number(plate.heightMm) || 0;
+    const next = current - cutHeightMm;
+    if (next <= 0) {
+      if (next < 0 && !allowNegative) {
+        throw new BadRequestException(
+          `Yetersiz tabaka boyu. Kalan: ${current} mm, kesilen: ${cutHeightMm} mm.`,
+        );
+      }
+      // Tabaka tümüyle tükendi: stok seviyelerini sıfırla + listeden kaldır.
+      await manager.getRepository(StockLevel).delete({ plateId: plate.id });
+      plate.quantityInStock = 0;
+      plate.heightMm = 0;
+      plate.isActive = false;
+      await manager.save(MaterialPlate, plate);
+      await manager.softRemove(MaterialPlate, plate);
+      return current;
+    }
+    plate.heightMm = next;
+    await manager.save(MaterialPlate, plate);
+    return cutHeightMm;
+  }
+
+  /**
+   * İptal/iade: tabakanın kalan boyunu geri ekler (best-effort). Tabaka silinmişse
+   * geri yükler. AREA dışı iadeler için adjustStock kullanılır.
+   */
+  async restoreSheetHeight(
+    plateId: string,
+    heightMm: number,
+    manager: EntityManager,
+  ): Promise<void> {
+    if (!heightMm) return;
+    const plate = await manager.findOne(MaterialPlate, {
+      where: { id: plateId },
+      withDeleted: true,
+    });
+    if (!plate) return;
+    plate.heightMm = (Number(plate.heightMm) || 0) + heightMm;
+    if (plate.deletedAt) {
+      plate.deletedAt = null;
+      plate.isActive = true;
+      plate.quantityInStock = Number(plate.quantityInStock) || 1;
+    }
+    await manager.save(MaterialPlate, plate);
+  }
+
   /** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
   private buildCatalogName(
     brand: { name: string } | null,

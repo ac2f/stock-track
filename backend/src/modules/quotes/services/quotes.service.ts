@@ -230,6 +230,9 @@ export class QuotesService {
             plateId: l.plateId,
             quantity: Number(l.quantity),
             unitPrice: Number(l.unitPrice),
+            // Tabaka satışında kesilen ebat → kalan boy otomatik düşülsün.
+            widthMm: l.widthMm != null ? Number(l.widthMm) : undefined,
+            heightMm: l.heightMm != null ? Number(l.heightMm) : undefined,
             stockSource: l.stockSource ?? SaleStockSource.BUSINESS,
             ownerSettlement: l.ownerSettlement ?? undefined,
             ownerAmount: l.ownerAmount != null ? Number(l.ownerAmount) : undefined,
