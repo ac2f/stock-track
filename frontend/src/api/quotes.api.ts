@@ -4,6 +4,9 @@ import type { Paginated, Quote, QuoteItemInput, QuoteStatus } from '../types';
 export interface QuoteFilters {
   buyerCustomerId?: string;
   status?: QuoteStatus;
+  plateId?: string;
+  from?: string; // ISO tarih (YYYY-MM-DD)
+  to?: string;
   page?: number;
   limit?: number;
 }

@@ -33,8 +33,12 @@ export class ReportsController {
   }
 
   @Get('dashboard')
-  dashboard() {
-    return this.dashboardService.summary(this.baseCurrency);
+  dashboard(@Query() query: ReportQueryDto) {
+    return this.dashboardService.summary(
+      this.baseCurrency,
+      query.from ? new Date(query.from) : undefined,
+      query.to ? new Date(query.to) : undefined,
+    );
   }
 
   @Get('aging')

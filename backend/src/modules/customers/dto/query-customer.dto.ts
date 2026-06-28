@@ -1,9 +1,15 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsNumber, IsOptional } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsIn,
+  IsNumber,
+  IsOptional,
+} from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 /**
- * Müşteri filtreleme — borç durumuna göre arama dahil.
+ * Müşteri filtreleme — borç durumuna göre arama + kayıt tarihi aralığı.
  */
 export class QueryCustomerDto extends PaginationDto {
   @IsOptional()
@@ -15,6 +21,15 @@ export class QueryCustomerDto extends PaginationDto {
   @Transform(({ value }) => Number(value))
   @IsNumber()
   minDebt?: number;
+
+  // Kayıt (oluşturulma) tarihi aralığı — büyük veride sayfayı daraltmak için.
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  to?: string;
 
   @IsOptional()
   @IsIn(['name', 'balance', 'recent'])

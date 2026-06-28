@@ -6,6 +6,7 @@ import {
   fetchQuotes,
   setQuoteStatus,
   type CreateQuoteInput,
+  type QuoteFilters,
 } from '../../api/quotes.api';
 import { fetchCustomers } from '../../api/customers.api';
 import { comparePrices, fetchPlates } from '../../api/materials.api';
@@ -29,10 +30,31 @@ const STATUS: Record<QuoteStatus, { label: string; cls: string }> = {
 export function QuotesPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [filters, setFilters] = useState<QuoteFilters>({ page: 1, limit: 50 });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['quotes'],
-    queryFn: () => fetchQuotes({ page: 1, limit: 50 }),
+    queryKey: ['quotes', filters],
+    queryFn: () => fetchQuotes(filters),
   });
+  // Filtre açılır listeleri için müşteri ve malzeme listeleri.
+  const { data: customers } = useQuery({
+    queryKey: ['customers', 'all'],
+    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
+  });
+  const { data: plates } = useQuery({
+    queryKey: ['plates', 'all'],
+    queryFn: () => fetchPlates({ page: 1, limit: 100 }),
+  });
+
+  const setFilter = (patch: Partial<QuoteFilters>) =>
+    setFilters((f) => ({ ...f, ...patch, page: 1 }));
+  const hasFilter = !!(
+    filters.buyerCustomerId ||
+    filters.status ||
+    filters.plateId ||
+    filters.from ||
+    filters.to
+  );
 
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: QuoteStatus }) =>
@@ -54,6 +76,75 @@ export function QuotesPage() {
         <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
           {showForm ? 'Kapat' : '+ Yeni Teklif'}
         </button>
+      </div>
+
+      {/* Geçmiş teklif filtresi — tarih aralığı, müşteri, malzeme. */}
+      <div className="card space-y-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Başlangıç tarihi</span>
+            <input
+              className="input"
+              type="date"
+              value={filters.from ?? ''}
+              onChange={(e) => setFilter({ from: e.target.value || undefined })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Bitiş tarihi</span>
+            <input
+              className="input"
+              type="date"
+              value={filters.to ?? ''}
+              onChange={(e) => setFilter({ to: e.target.value || undefined })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Müşteri</span>
+            <select
+              className="input"
+              value={filters.buyerCustomerId ?? ''}
+              onChange={(e) => setFilter({ buyerCustomerId: e.target.value || undefined })}
+            >
+              <option value="">Tümü</option>
+              {customers?.items.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Malzeme</span>
+            <select
+              className="input"
+              value={filters.plateId ?? ''}
+              onChange={(e) => setFilter({ plateId: e.target.value || undefined })}
+            >
+              <option value="">Tümü</option>
+              {plates?.items.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span>
+            {hasFilter
+              ? 'Filtre uygulanıyor · karara bağlanmamış teklifler en üstte'
+              : 'Filtre yok · son 1 hafta gösteriliyor'}
+          </span>
+          {hasFilter && (
+            <button
+              className="text-slate-500 underline"
+              onClick={() => setFilters({ page: 1, limit: 50 })}
+            >
+              Filtreyi temizle
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && (

@@ -1,5 +1,10 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchAging, fetchDashboard } from '../../api/reports.api';
+import {
+  fetchAging,
+  fetchDashboard,
+  type DashboardFilters,
+} from '../../api/reports.api';
 import { downloadFile } from '../../api/documents.api';
 
 const fmt = (currency: string) =>
@@ -7,12 +12,16 @@ const fmt = (currency: string) =>
 
 /**
  * Mali Dashboard (yalnızca İşletme Sahibi). KPI kartları + cari yaşlandırma.
+ * Dönem metrikleri tarih aralığına göre; aralık verilmezse içinde bulunulan ay.
  * Mobil: tek/iki sütun kartlar; masaüstü: dört sütun.
  */
 export function DashboardPage() {
+  const [range, setRange] = useState<DashboardFilters>({});
+  const hasRange = !!(range.from || range.to);
+
   const { data: kpi, isLoading } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: fetchDashboard,
+    queryKey: ['dashboard', range],
+    queryFn: () => fetchDashboard(range),
   });
   const { data: aging } = useQuery({ queryKey: ['aging'], queryFn: fetchAging });
 
@@ -20,15 +29,16 @@ export function DashboardPage() {
     return <p className="text-slate-400">Yükleniyor…</p>;
   }
   const money = fmt(kpi.baseCurrency);
+  const periodPrefix = hasRange ? 'Dönem' : 'Ay';
 
   const cards = [
     { label: 'Toplam Alacak', value: money.format(kpi.totalReceivable), tone: 'text-red-600' },
     { label: 'Sahiplere Borç', value: money.format(kpi.totalPayable), tone: 'text-amber-600' },
     { label: 'Bugün Tahsilat', value: money.format(kpi.todayCollected), tone: 'text-emerald-600' },
-    { label: 'Ay Tahsilat', value: money.format(kpi.monthCollected), tone: 'text-emerald-600' },
-    { label: 'Ay İşleme Cirosu', value: money.format(kpi.monthProcessingRevenue), tone: 'text-slate-900' },
-    { label: 'Ay Satış Cirosu', value: money.format(kpi.monthSalesTurnover), tone: 'text-slate-900' },
-    { label: 'Ay Satış Kârı', value: money.format(kpi.monthSalesMargin), tone: 'text-slate-900' },
+    { label: `${periodPrefix} Tahsilat`, value: money.format(kpi.monthCollected), tone: 'text-emerald-600' },
+    { label: `${periodPrefix} İşleme Cirosu`, value: money.format(kpi.monthProcessingRevenue), tone: 'text-slate-900' },
+    { label: `${periodPrefix} Satış Cirosu`, value: money.format(kpi.monthSalesTurnover), tone: 'text-slate-900' },
+    { label: `${periodPrefix} Satış Kârı`, value: money.format(kpi.monthSalesMargin), tone: 'text-slate-900' },
     { label: 'Kritik Stok', value: String(kpi.criticalStockCount), tone: kpi.criticalStockCount > 0 ? 'text-red-600' : 'text-slate-900' },
   ];
 
@@ -60,6 +70,39 @@ export function DashboardPage() {
             ⬇ Stok Değeri
           </button>
         </div>
+      </div>
+
+      {/* Dönem filtresi — tahsilat/ciro/kâr metriklerini tarih aralığına göre. */}
+      <div className="card flex flex-wrap items-end gap-3">
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs text-slate-500">Başlangıç</span>
+          <input
+            className="input"
+            type="date"
+            value={range.from ?? ''}
+            onChange={(e) => setRange((r) => ({ ...r, from: e.target.value || undefined }))}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs text-slate-500">Bitiş</span>
+          <input
+            className="input"
+            type="date"
+            value={range.to ?? ''}
+            onChange={(e) => setRange((r) => ({ ...r, to: e.target.value || undefined }))}
+          />
+        </label>
+        <span className="text-xs text-slate-400">
+          {hasRange ? 'Seçili döneme göre' : 'Dönem: içinde bulunulan ay'}
+        </span>
+        {hasRange && (
+          <button
+            className="text-xs text-slate-500 underline"
+            onClick={() => setRange({})}
+          >
+            Temizle
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

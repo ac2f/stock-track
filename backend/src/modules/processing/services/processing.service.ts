@@ -167,6 +167,7 @@ export class ProcessingService {
       isBilled: billNow,
       billOnCompletion: deferred,
       stockConsumed: consumeNow,
+      consumedQuantity: consumeNow ? quantity : 0,
       note: dto.note,
     });
     const saved = await manager.save(job);
@@ -214,13 +215,24 @@ export class ProcessingService {
 
       if (status === ProcessingStatus.COMPLETED) {
         if (!job.stockConsumed && job.warehouseId) {
-          await this.platesService.adjustStock(
-            job.plateId,
-            job.warehouseId,
-            -Number(job.quantity),
-            null,
-            manager,
-          );
+          // İşletme stoğundan mevcut kadarını düş — yetersizse tamamlamayı
+          // engelleme (örn. konsinye plakada işletme stoğu 0 olabilir). Kalan
+          // miktar negatife düşmez; gerçek m² tüketimi ileride ele alınır.
+          const plate = await manager.findOne(MaterialPlate, {
+            where: { id: job.plateId },
+          });
+          const available = plate ? Math.max(0, Number(plate.quantityInStock)) : 0;
+          const consume = Math.min(Number(job.quantity), available);
+          if (consume > 0) {
+            await this.platesService.adjustStock(
+              job.plateId,
+              job.warehouseId,
+              -consume,
+              null,
+              manager,
+            );
+          }
+          job.consumedQuantity = consume;
           job.stockConsumed = true;
         }
         if (
@@ -244,13 +256,17 @@ export class ProcessingService {
         }
       } else if (status === ProcessingStatus.CANCELLED) {
         if (job.stockConsumed && job.warehouseId) {
-          await this.platesService.adjustStock(
-            job.plateId,
-            job.warehouseId,
-            Number(job.quantity),
-            null,
-            manager,
-          );
+          const refund = Number(job.consumedQuantity) || Number(job.quantity);
+          if (refund > 0) {
+            await this.platesService.adjustStock(
+              job.plateId,
+              job.warehouseId,
+              refund,
+              null,
+              manager,
+            );
+          }
+          job.consumedQuantity = 0;
           job.stockConsumed = false;
         }
         if (job.isBilled && job.customerId && Number(job.baseTotalCost) > 0) {

@@ -35,10 +35,36 @@ export class DashboardService {
     private readonly platesRepo: Repository<MaterialPlate>,
   ) {}
 
-  async summary(baseCurrency: string): Promise<DashboardSummary> {
+  /**
+   * Mali özet. `from`/`to` verilirse dönem metrikleri (tahsilat, işleme geliri,
+   * satış cirosu/kârı) o aralığa göre; verilmezse içinde bulunulan ay baz alınır.
+   * Nokta-anı metrikler (alacak/borç, günlük tahsilat, kritik stok) aralıktan
+   * etkilenmez.
+   */
+  async summary(
+    baseCurrency: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<DashboardSummary> {
     const now = new Date();
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodStart = from ?? monthStart;
+
+    const processingQb = this.jobsRepo
+      .createQueryBuilder('j')
+      .select('COALESCE(SUM(j.base_total_cost), 0)', 'v')
+      .where('j.is_billed = true')
+      .andWhere('j.processed_at >= :periodStart', { periodStart });
+    const salesQb = this.salesRepo
+      .createQueryBuilder('s')
+      .select('COALESCE(SUM(s.base_sale_total), 0)', 'turnover')
+      .addSelect('COALESCE(SUM(s.base_sale_total - s.base_owner_amount), 0)', 'margin')
+      .where('s.sale_date >= :periodStart', { periodStart });
+    if (to) {
+      processingQb.andWhere('j.processed_at <= :to', { to });
+      salesQb.andWhere('s.sale_date <= :to', { to });
+    }
 
     const [
       receivable,
@@ -52,19 +78,9 @@ export class DashboardService {
       this.sum(this.customersRepo, 'c', 'c.current_balance', 'c.current_balance > 0'),
       this.sum(this.customersRepo, 'c', '-c.current_balance', 'c.current_balance < 0'),
       this.sumPayments(PaymentDirection.INCOMING, dayStart),
-      this.sumPayments(PaymentDirection.INCOMING, monthStart),
-      this.jobsRepo
-        .createQueryBuilder('j')
-        .select('COALESCE(SUM(j.base_total_cost), 0)', 'v')
-        .where('j.is_billed = true')
-        .andWhere('j.processed_at >= :monthStart', { monthStart })
-        .getRawOne<{ v: string }>(),
-      this.salesRepo
-        .createQueryBuilder('s')
-        .select('COALESCE(SUM(s.base_sale_total), 0)', 'turnover')
-        .addSelect('COALESCE(SUM(s.base_sale_total - s.base_owner_amount), 0)', 'margin')
-        .where('s.sale_date >= :monthStart', { monthStart })
-        .getRawOne<{ turnover: string; margin: string }>(),
+      this.sumPayments(PaymentDirection.INCOMING, periodStart, to),
+      processingQb.getRawOne<{ v: string }>(),
+      salesQb.getRawOne<{ turnover: string; margin: string }>(),
       this.platesRepo
         .createQueryBuilder('p')
         .where('p.reorder_level IS NOT NULL')
@@ -102,13 +118,17 @@ export class DashboardService {
   private async sumPayments(
     direction: PaymentDirection,
     from: Date,
+    to?: Date,
   ): Promise<number> {
-    const row = await this.paymentsRepo
+    const qb = this.paymentsRepo
       .createQueryBuilder('p')
       .select('COALESCE(SUM(p.base_amount), 0)', 'v')
       .where('p.direction = :direction', { direction })
-      .andWhere('p.payment_date >= :from', { from })
-      .getRawOne<{ v: string }>();
+      .andWhere('p.payment_date >= :from', { from });
+    if (to) {
+      qb.andWhere('p.payment_date <= :to', { to });
+    }
+    const row = await qb.getRawOne<{ v: string }>();
     return Number(row?.v ?? 0);
   }
 }

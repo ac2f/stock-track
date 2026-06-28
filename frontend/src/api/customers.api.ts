@@ -5,6 +5,8 @@ export interface CustomerFilters {
   search?: string;
   hasDebt?: boolean;
   minDebt?: number;
+  from?: string; // kayıt tarihi aralığı (YYYY-MM-DD)
+  to?: string;
   sort?: 'name' | 'balance' | 'recent';
   page?: number;
   limit?: number;

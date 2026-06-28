@@ -116,6 +116,8 @@ export function CustomersListPage() {
 
   const set = (patch: Partial<CustomerFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
+  const goPage = (page: number) => setFilters((f) => ({ ...f, page }));
+  const meta = data?.meta;
 
   return (
     <div className="space-y-4">
@@ -136,6 +138,26 @@ export function CustomersListPage() {
           placeholder="Ara (ad, firma, telefon)…"
           onChange={(e) => set({ search: e.target.value || undefined })}
         />
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Kayıt başlangıç</span>
+            <input
+              className="input"
+              type="date"
+              value={filters.from ?? ''}
+              onChange={(e) => set({ from: e.target.value || undefined })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Kayıt bitiş</span>
+            <input
+              className="input"
+              type="date"
+              value={filters.to ?? ''}
+              onChange={(e) => set({ to: e.target.value || undefined })}
+            />
+          </label>
+        </div>
         <div className="flex flex-wrap gap-2">
           <label className="flex min-h-[44px] items-center gap-2 px-2 text-sm">
             <input
@@ -184,6 +206,28 @@ export function CustomersListPage() {
           ))}
           {!data?.items.length && (
             <p className="text-slate-400">Kayıt bulunamadı.</p>
+          )}
+
+          {meta && meta.pageCount > 1 && (
+            <div className="flex items-center justify-between pt-2 text-sm">
+              <button
+                className="btn bg-slate-100"
+                disabled={meta.page <= 1}
+                onClick={() => goPage(meta.page - 1)}
+              >
+                ← Önceki
+              </button>
+              <span className="text-slate-500">
+                Sayfa {meta.page} / {meta.pageCount} · {meta.total} kayıt
+              </span>
+              <button
+                className="btn bg-slate-100"
+                disabled={meta.page >= meta.pageCount}
+                onClick={() => goPage(meta.page + 1)}
+              >
+                Sonraki →
+              </button>
+            </div>
           )}
         </div>
       )}

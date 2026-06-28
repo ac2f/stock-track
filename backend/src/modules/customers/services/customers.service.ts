@@ -78,6 +78,12 @@ export class CustomersService {
         minDebt: query.minDebt,
       });
     }
+    if (query.from) {
+      qb.andWhere('customer.created_at >= :from', { from: query.from });
+    }
+    if (query.to) {
+      qb.andWhere('customer.created_at <= :to', { to: query.to });
+    }
 
     switch (query.sort) {
       case 'balance':

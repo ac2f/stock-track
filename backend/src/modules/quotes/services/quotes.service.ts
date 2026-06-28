@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import {
   QuoteLineKind,
@@ -91,17 +91,69 @@ export class QuotesService {
     });
   }
 
+  /**
+   * Teklif geçmişi: tarih aralığı, müşteri ve malzeme (plaka) ile filtrelenir.
+   * Karara bağlanmamış (DRAFT/SENT) teklifler daima en üstte, ardından tarihe
+   * göre yeni→eski. Hiçbir filtre verilmezse son 1 haftalık kayıtlar gösterilir.
+   */
   async findAll(query: QueryQuoteDto): Promise<PaginatedResult<Quote>> {
-    const where: FindOptionsWhere<Quote> = {};
-    if (query.buyerCustomerId) where.buyerCustomerId = query.buyerCustomerId;
-    if (query.status) where.status = query.status;
-    const [items, total] = await this.quotesRepo.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      skip: query.skip,
-      take: query.limit,
-    });
-    return buildPaginatedResult(items, total, query.page, query.limit);
+    // ManyToOne (buyerCustomer) join'i sayfalamayı bozmaz; items koleksiyonunu
+    // ayrı yükleyip sırayı koruyoruz (koleksiyon join'i skip/take'i şişirir).
+    const qb = this.quotesRepo
+      .createQueryBuilder('quote')
+      .leftJoinAndSelect('quote.buyerCustomer', 'buyerCustomer');
+
+    if (query.buyerCustomerId) {
+      qb.andWhere('quote.buyer_customer_id = :buyerCustomerId', {
+        buyerCustomerId: query.buyerCustomerId,
+      });
+    }
+    if (query.status) {
+      qb.andWhere('quote.status = :status', { status: query.status });
+    }
+    if (query.plateId) {
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM quote_items qi
+                 WHERE qi.quote_id = quote.id AND qi.plate_id = :plateId
+                   AND qi.deleted_at IS NULL)`,
+        { plateId: query.plateId },
+      );
+    }
+    if (query.from) qb.andWhere('quote.created_at >= :from', { from: query.from });
+    if (query.to) qb.andWhere('quote.created_at <= :to', { to: query.to });
+
+    const hasFilter = !!(
+      query.buyerCustomerId ||
+      query.status ||
+      query.plateId ||
+      query.from ||
+      query.to
+    );
+    if (!hasFilter) {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      qb.andWhere('quote.created_at >= :weekAgo', { weekAgo });
+    }
+
+    qb.orderBy(
+      `CASE WHEN quote.status IN ('draft','sent') THEN 0 ELSE 1 END`,
+      'ASC',
+    )
+      .addOrderBy('quote.created_at', 'DESC')
+      .skip(query.skip)
+      .take(query.limit);
+
+    const [rows, total] = await qb.getManyAndCount();
+
+    // items eager olsa da QueryBuilder otomatik yüklemez; sırayı koruyarak ekle.
+    const ids = rows.map((r) => r.id);
+    const full = ids.length
+      ? await this.quotesRepo.find({ where: { id: In(ids) } })
+      : [];
+    const byId = new Map(full.map((q) => [q.id, q]));
+    const ordered = rows.map((r) => byId.get(r.id) ?? r);
+
+    return buildPaginatedResult(ordered, total, query.page, query.limit);
   }
 
   async findOne(id: string): Promise<Quote> {

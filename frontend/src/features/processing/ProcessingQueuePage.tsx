@@ -45,6 +45,13 @@ export function ProcessingQueuePage() {
     <div className="space-y-5">
       <h1 className="text-xl font-bold">Üretim Kuyruğu</h1>
 
+      {mut.isError && (
+        <p className="card text-sm text-red-600">
+          {(mut.error as { response?: { data?: { message?: string } } })?.response
+            ?.data?.message ?? 'İşlem güncellenemedi.'}
+        </p>
+      )}
+
       {empty && <p className="text-slate-400">Kuyrukta bekleyen iş yok.</p>}
 
       {groups.map((group) => (
@@ -81,6 +88,7 @@ export function ProcessingQueuePage() {
                 {job.status === 'pending' && (
                   <button
                     className="btn bg-blue-600 text-white"
+                    disabled={mut.isPending}
                     onClick={() =>
                       mut.mutate({ id: job.id, status: 'in_progress' })
                     }
@@ -90,12 +98,14 @@ export function ProcessingQueuePage() {
                 )}
                 <button
                   className="btn bg-emerald-600 text-white"
+                  disabled={mut.isPending}
                   onClick={() => mut.mutate({ id: job.id, status: 'completed' })}
                 >
                   Tamamla
                 </button>
                 <button
                   className="btn bg-slate-100"
+                  disabled={mut.isPending}
                   onClick={() => mut.mutate({ id: job.id, status: 'cancelled' })}
                 >
                   İptal

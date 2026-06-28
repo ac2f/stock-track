@@ -139,6 +139,10 @@ export class ProcessingJob extends BaseEntity {
   @Column({ name: 'stock_consumed', default: false })
   stockConsumed: boolean;
 
+  /** Bu iş için fiilen düşülen miktar (iptalde tam bu kadar iade edilir). */
+  @Column({ name: 'consumed_quantity', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  consumedQuantity: number;
+
   @Column({ type: 'text', nullable: true })
   note?: string;
 }
