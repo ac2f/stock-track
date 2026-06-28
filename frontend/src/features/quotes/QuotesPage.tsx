@@ -415,6 +415,49 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
           {item.lineKind === 'sale' && item.plateId && (
             <AveragePriceNote plateId={item.plateId} />
           )}
+          {/* #11 Tabaka (m²) satışında satılacak ebat + "Tamamını sat" */}
+          {item.lineKind === 'sale' &&
+            (() => {
+              const plate = plates?.items.find((p) => p.id === item.plateId);
+              if (!plate || plate.measurementType !== 'area') return null;
+              return (
+                <div className="space-y-1 rounded-lg bg-slate-50 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500">
+                      Satılacak ebat (en × boy, mm) — m² üzerinden fiyatlanır
+                    </span>
+                    <button
+                      className="btn bg-slate-200 text-xs"
+                      onClick={() =>
+                        patch(i, { widthMm: plate.widthMm, heightMm: plate.heightMm })
+                      }
+                    >
+                      Tamamını sat ({plate.widthMm}×{plate.heightMm})
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      className="input"
+                      type="number"
+                      placeholder="en (mm)"
+                      value={item.widthMm ?? ''}
+                      onChange={(e) =>
+                        patch(i, { widthMm: e.target.value ? Number(e.target.value) : undefined })
+                      }
+                    />
+                    <input
+                      className="input"
+                      type="number"
+                      placeholder="boy (mm)"
+                      value={item.heightMm ?? ''}
+                      onChange={(e) =>
+                        patch(i, { heightMm: e.target.value ? Number(e.target.value) : undefined })
+                      }
+                    />
+                  </div>
+                </div>
+              );
+            })()}
           {item.lineKind === 'processing' && (
             <div className="flex gap-2">
               <Field label="Faturalama birimi">
