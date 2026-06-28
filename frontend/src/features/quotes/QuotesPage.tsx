@@ -10,7 +10,7 @@ import {
 } from '../../api/quotes.api';
 import { fetchCustomers } from '../../api/customers.api';
 import { comparePrices, fetchPlates } from '../../api/materials.api';
-import { openPdf } from '../../api/documents.api';
+import { downloadFile, openPdf } from '../../api/documents.api';
 import type { QuoteItemInput, QuoteStatus } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', {
@@ -210,9 +210,17 @@ export function QuotesPage() {
                 )}
                 <button
                   className="btn bg-slate-100"
-                  onClick={() => openPdf(`/quotes/${q.id}/pdf`)}
+                  onClick={() => openPdf(`/quotes/${q.id}/print`)}
                 >
-                  PDF
+                  Yazdır / PDF
+                </button>
+                <button
+                  className="btn bg-slate-100"
+                  onClick={() =>
+                    downloadFile(`/quotes/${q.id}/csv`, `teklif-${q.quoteNo}.csv`)
+                  }
+                >
+                  CSV
                 </button>
               </div>
             </div>

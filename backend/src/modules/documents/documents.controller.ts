@@ -13,8 +13,11 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PdfService } from './services/pdf.service';
 import { ExportService } from './services/export.service';
+import { QuoteDocumentService } from './services/quote-document.service';
 
 const PDF = 'application/pdf';
+const HTML = 'text/html; charset=utf-8';
+const CSV = 'text/csv; charset=utf-8';
 const XLSX =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -25,6 +28,7 @@ export class DocumentsController {
   constructor(
     private readonly pdf: PdfService,
     private readonly exports: ExportService,
+    private readonly quoteDocs: QuoteDocumentService,
   ) {}
 
   // ── PDF belgeler (OWNER + EMPLOYEE) ─────────────────────────────────
@@ -57,6 +61,33 @@ export class DocumentsController {
   ): Promise<StreamableFile> {
     const buf = await this.pdf.quote(id);
     return this.stream(res, buf, PDF, `teklif-${id.slice(0, 8)}.pdf`, 'inline');
+  }
+
+  // Düzenlenebilir HTML şablondan yazdırılabilir teklif (Ctrl+P ile PDF).
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Get('quotes/:id/print')
+  async quotePrint(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    res.set({ 'Content-Type': HTML });
+    return this.quoteDocs.quoteHtml(id);
+  }
+
+  // Teklif kalemlerinin CSV (tablo) çıktısı — Excel'de açılır.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Get('quotes/:id/csv')
+  async quoteCsv(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const csv = await this.quoteDocs.quoteCsv(id);
+    return this.stream(
+      res,
+      Buffer.from(csv, 'utf-8'),
+      CSV,
+      `teklif-${id.slice(0, 8)}.csv`,
+    );
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)

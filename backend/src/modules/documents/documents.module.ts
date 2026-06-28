@@ -7,6 +7,7 @@ import { ReportsModule } from '../reports/reports.module';
 import { DocumentsController } from './documents.controller';
 import { PdfService } from './services/pdf.service';
 import { ExportService } from './services/export.service';
+import { QuoteDocumentService } from './services/quote-document.service';
 
 /**
  * Belge üretimi: PDF (fatura/irsaliye/teklif/cari ekstresi) ve Excel/CSV dışa
@@ -21,6 +22,6 @@ import { ExportService } from './services/export.service';
     ReportsModule,
   ],
   controllers: [DocumentsController],
-  providers: [PdfService, ExportService],
+  providers: [PdfService, ExportService, QuoteDocumentService],
 })
 export class DocumentsModule {}

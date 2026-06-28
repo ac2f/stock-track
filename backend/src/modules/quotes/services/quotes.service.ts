@@ -306,9 +306,11 @@ export class QuotesService {
           quantity: itemDto.quantity,
           unitPrice: itemDto.unitPrice,
           lineTotal,
-          billingUnit: itemDto.billingUnit ?? null,
-          widthMm: itemDto.widthMm ?? null,
-          heightMm: itemDto.heightMm ?? null,
+          // m²/metre gösterimi ve hesabı için ölçü birimi ve ebatları (gerekirse
+          // plakadan) kaleme yansıtılır — satış kaleminde de m² görünür.
+          billingUnit: itemDto.billingUnit ?? plate.measurementType ?? null,
+          widthMm: itemDto.widthMm ?? plate.widthMm ?? null,
+          heightMm: itemDto.heightMm ?? plate.heightMm ?? null,
           lengthMeters: itemDto.lengthMeters ?? null,
           stockSource: itemDto.stockSource ?? null,
           ownerSettlement: itemDto.ownerSettlement ?? null,
@@ -343,22 +345,36 @@ export class QuotesService {
     };
   }
 
-  /** Bir teklif kaleminin satır toplamı (tahmin). */
+  /**
+   * Bir teklif kaleminin satır toplamı (tahmin). Birim fiyat ölçü birimine göre
+   * uygulanır: m² malzemede tabakanın (kalan) en×boy'undan hesaplanan m² ile,
+   * metre/adet malzemede ilgili miktar ile çarpılır. Böylece "birim 1000" girdisi
+   * tabaka değil m² (veya metre/adet) başına 1000 anlamına gelir.
+   */
   private computeLineTotal(
     item: QuoteItemDto,
-    plate: { measurementType?: MeasurementType; widthMm?: number | null; heightMm?: number | null },
+    plate: {
+      measurementType?: MeasurementType;
+      widthMm?: number | null;
+      heightMm?: number | null;
+    },
   ): number {
-    if (item.lineKind === QuoteLineKind.SALE) {
-      return lineTotalOf(item.quantity, item.unitPrice);
-    }
-    // PROCESSING: ölçü miktarı × birim ücret.
     const billingUnit =
       item.billingUnit ?? plate.measurementType ?? MeasurementType.AREA;
+    const widthMm = item.widthMm ?? plate.widthMm ?? null;
+    const heightMm = item.heightMm ?? plate.heightMm ?? null;
+    // m² seçili ama ebat yoksa adet bazına düş (güvenli geri dönüş).
+    if (
+      billingUnit === MeasurementType.AREA &&
+      (widthMm == null || heightMm == null)
+    ) {
+      return lineTotalOf(item.quantity, item.unitPrice);
+    }
     const quantityValue = computeQuantityValue({
       billingUnit,
       quantity: item.quantity,
-      widthMm: item.widthMm ?? plate.widthMm ?? null,
-      heightMm: item.heightMm ?? plate.heightMm ?? null,
+      widthMm,
+      heightMm,
       lengthMeters: item.lengthMeters,
     });
     return roundMoney(quantityValue * item.unitPrice);

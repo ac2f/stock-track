@@ -1,0 +1,106 @@
+<!--
+  TEKLİF (PROFORMA) yazdırma şablonu — SERBESTÇE DÜZENLENEBİLİR.
+  Bu dosyayı dilediğiniz gibi değiştirebilirsiniz (logo, renk, düzen, metin).
+  Çift süslü parantezli alanlar sunucu tarafından doldurulur:
+    {{businessName}} {{businessPhone}} {{businessAddress}}
+    {{quoteNo}} {{date}} {{validUntil}} {{statusLabel}}
+    {{customerName}} {{customerCompany}} {{customerPhone}}
+    {{rows}}   -> tablo satırları (otomatik üretilir)
+    {{subtotal}} {{total}} {{currency}} {{note}}
+  Görüntülerken sağ üstteki "Yazdır / PDF" ile Ctrl+P üzerinden PDF alabilirsiniz.
+-->
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teklif {{quoteNo}}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        color: #1e293b;
+        margin: 0;
+        padding: 32px;
+        font-size: 13px;
+      }
+      .sheet { max-width: 800px; margin: 0 auto; }
+      .head { display: flex; justify-content: space-between; align-items: flex-start; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      .muted { color: #64748b; }
+      .meta { text-align: right; font-size: 12px; }
+      .parties { display: flex; gap: 24px; margin: 24px 0; }
+      .parties > div { flex: 1; }
+      .label { font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: .04em; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+      th { font-size: 11px; text-transform: uppercase; color: #64748b; }
+      td.num, th.num { text-align: right; }
+      tfoot td { border: 0; padding-top: 6px; }
+      .total-row td { font-weight: 700; font-size: 16px; border-top: 2px solid #1e293b; }
+      .note { margin-top: 18px; color: #475569; white-space: pre-wrap; }
+      .print-btn {
+        position: fixed; top: 16px; right: 16px;
+        background: #2563eb; color: #fff; border: 0; border-radius: 8px;
+        padding: 8px 14px; font-size: 13px; cursor: pointer;
+      }
+      @media print { .print-btn { display: none; } body { padding: 0; } }
+    </style>
+  </head>
+  <body>
+    <button class="print-btn" onclick="window.print()">Yazdır / PDF</button>
+    <div class="sheet">
+      <div class="head">
+        <div>
+          <h1>{{businessName}}</h1>
+          <div class="muted">{{businessPhone}}</div>
+          <div class="muted">{{businessAddress}}</div>
+        </div>
+        <div class="meta">
+          <div style="font-size:16px;font-weight:700;">TEKLİF (PROFORMA)</div>
+          <div class="muted">No: {{quoteNo}}</div>
+          <div class="muted">Tarih: {{date}}</div>
+          <div class="muted">Geçerlilik: {{validUntil}}</div>
+          <div class="muted">Durum: {{statusLabel}}</div>
+        </div>
+      </div>
+
+      <div class="parties">
+        <div>
+          <div class="label">Müşteri</div>
+          <div style="font-weight:600;">{{customerName}}</div>
+          <div class="muted">{{customerCompany}}</div>
+          <div class="muted">{{customerPhone}}</div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Cins / Malzeme</th>
+            <th>Birim</th>
+            <th class="num">Miktar</th>
+            <th class="num">Birim Fiyat</th>
+            <th class="num">Tutar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{rows}}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="5" class="num muted">Ara Toplam</td>
+            <td class="num">{{subtotal}} {{currency}}</td>
+          </tr>
+          <tr class="total-row">
+            <td colspan="5" class="num">Genel Toplam</td>
+            <td class="num">{{total}} {{currency}}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="note">{{note}}</div>
+    </div>
+  </body>
+</html>
