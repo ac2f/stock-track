@@ -81,6 +81,7 @@ export class PlatesService {
         brand: dto.brand ?? template.defaultBrand,
         color: dto.color ?? template.defaultColor,
         colorCode: dto.colorCode ?? template.defaultColorCode,
+        variant: dto.variant ?? template.defaultVariant,
         widthMm,
         heightMm,
         thicknessMm,

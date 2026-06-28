@@ -19,6 +19,23 @@ export async function fetchCustomers(
   return data;
 }
 
+export interface CreateCustomerInput {
+  name: string;
+  companyName?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  taxNumber?: string;
+  openingBalance?: number;
+}
+
+export async function createCustomer(
+  input: CreateCustomerInput,
+): Promise<Customer> {
+  const { data } = await api.post<Customer>('/customers', input);
+  return data;
+}
+
 export interface CreatePaymentInput {
   amount: number;
   method: PaymentMethod;

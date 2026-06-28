@@ -31,16 +31,46 @@ export interface MaterialCategory {
   isActive: boolean;
 }
 
+export interface MaterialTemplate {
+  id: string;
+  name: string;
+  categoryId: string;
+  category?: MaterialCategory;
+  measurementType: MeasurementType;
+  defaultBrand?: string;
+  defaultColor?: string;
+  defaultColorCode?: string;
+  defaultVariant?: string;
+  defaultThicknessMm?: number;
+  defaultWidthMm?: number;
+  defaultHeightMm?: number;
+  defaultAttributes?: Record<string, unknown>;
+  description?: string;
+  isActive: boolean;
+}
+
+export interface Warehouse {
+  id: string;
+  name: string;
+  code: string;
+  isActive: boolean;
+}
+
 export interface Plate {
   id: string;
   name: string;
+  sku?: string;
   brand?: string;
   color?: string;
   colorCode?: string;
+  variant?: string;
+  measurementType: MeasurementType;
   widthMm: number;
   heightMm: number;
   thicknessMm: number;
   quantityInStock: number;
+  reorderLevel?: number;
+  templateId?: string;
   template?: { category: MaterialCategory; name: string };
 }
 

@@ -115,6 +115,7 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | default_thickness_mm | numeric (nullable) | |
 | default_color | varchar (nullable) | |
 | default_color_code | varchar (nullable) | RAL / üretici kodu |
+| default_variant | varchar (nullable) | Kategori içi alt tür (örn. Pleksi'de "Dökme"/"Çekme") |
 | default_width_mm / default_height_mm | numeric (nullable) | Standart ebat |
 | default_attributes | jsonb | Türü genişleten serbest nitelikler |
 | description | text (nullable) | |
@@ -130,6 +131,7 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | brand | varchar (nullable) | |
 | color | varchar (nullable) | |
 | color_code | varchar (nullable) | |
+| variant | varchar (nullable) | Şablondan miras, override edilebilir alt tür |
 | width_mm | numeric | En |
 | height_mm | numeric | Boy |
 | thickness_mm | numeric | Kalınlık |

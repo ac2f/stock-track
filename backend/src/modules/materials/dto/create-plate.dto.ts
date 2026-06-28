@@ -52,6 +52,10 @@ export class CreatePlateDto {
   colorCode?: string;
 
   @IsOptional()
+  @IsString()
+  variant?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   widthMm?: number;

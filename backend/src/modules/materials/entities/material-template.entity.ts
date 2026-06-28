@@ -53,6 +53,10 @@ export class MaterialTemplate extends BaseEntity {
   @Column({ name: 'default_color_code', nullable: true })
   defaultColorCode?: string;
 
+  /** Kategori içi alt tür (örn. Pleksi için "Dökme"/"Çekme") — serbest metin. */
+  @Column({ name: 'default_variant', nullable: true })
+  defaultVariant?: string;
+
   @Column({
     name: 'default_width_mm',
     type: 'numeric',

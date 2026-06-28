@@ -51,6 +51,10 @@ export class MaterialPlate extends BaseEntity {
   @Column({ name: 'color_code', nullable: true })
   colorCode?: string;
 
+  /** Kategori içi alt tür (örn. Pleksi için "Dökme"/"Çekme") — şablondan miras, override edilebilir. */
+  @Column({ nullable: true })
+  variant?: string;
+
   /** Ölçüm tipi (şablondan miras). m² hesabı yalnızca AREA'da uygulanır. */
   @Column({
     name: 'measurement_type',

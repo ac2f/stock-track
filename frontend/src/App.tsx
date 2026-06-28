@@ -4,6 +4,7 @@ import { RoleGate } from './components/RoleGate';
 import { LoginPage } from './features/auth/LoginPage';
 import { PlatesListPage } from './features/materials/PlatesListPage';
 import { MaterialCategoriesPage } from './features/materials/MaterialCategoriesPage';
+import { MaterialTemplatesPage } from './features/materials/MaterialTemplatesPage';
 import { CustomersListPage } from './features/customers/CustomersListPage';
 import { DashboardPage } from './features/reports/DashboardPage';
 import { QuotesPage } from './features/quotes/QuotesPage';
@@ -43,6 +44,14 @@ export default function App() {
           element={
             <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
               <MaterialCategoriesPage />
+            </RoleGate>
+          }
+        />
+        <Route
+          path="/material-templates"
+          element={
+            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+              <MaterialTemplatesPage />
             </RoleGate>
           }
         />

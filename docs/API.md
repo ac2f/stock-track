@@ -42,14 +42,14 @@ Kimlik doğrulama: `Authorization: Bearer <accessToken>` (login hariç tüm uçl
 ## Materials — Şablonlar
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/material-templates` | 👔 | Yeni şablon — `{ categoryId, ... }` |
+| POST | `/material-templates` | 👔 | Yeni şablon — `{ categoryId, defaultBrand?, defaultColor?, defaultColorCode?, defaultVariant?, defaultThicknessMm?, defaultWidthMm?, defaultHeightMm?, ... }`. `defaultVariant` kategori içi alt tür için (örn. Pleksi'de "Dökme"/"Çekme") |
 | GET | `/material-templates` | 👥 | `?categoryId=&search=` |
 | PATCH | `/material-templates/:id` | 👔 | |
 
 ## Materials — Plakalar (Stok)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret (alanlar miras alınır) |
+| POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, brand?, color?, colorCode?, variant?, widthMm?, heightMm?, thicknessMm?, quantityInStock?, warehouseId?, reorderLevel? }`. Verilmeyen alanlar şablonun `default*` değerlerinden miras alınır (`variant` ← `defaultVariant`) |
 | GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&search=&inStock=true&page=&limit=` |
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
 | PATCH | `/plates/:id` | 🧑‍🔧 | |

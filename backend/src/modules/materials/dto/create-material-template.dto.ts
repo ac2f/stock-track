@@ -41,6 +41,10 @@ export class CreateMaterialTemplateDto {
   defaultColorCode?: string;
 
   @IsOptional()
+  @IsString()
+  defaultVariant?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   defaultWidthMm?: number;
