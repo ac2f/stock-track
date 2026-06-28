@@ -31,3 +31,44 @@ export async function createPayment(
   );
   return data;
 }
+
+// ── Çalışan kasası / çapraz-müşteri ödeme sorgusu (#4, #5) ──
+export interface CashCollection {
+  employeeId: string;
+  employeeName: string;
+  count: number;
+  total: number;
+}
+
+export async function fetchCashCollections(): Promise<CashCollection[]> {
+  const { data } = await api.get<CashCollection[]>('/payments/cash-collections');
+  return data;
+}
+
+export async function settleEmployeeCash(
+  receivedById: string,
+): Promise<{ settledCount: number; settledTotal: number }> {
+  const { data } = await api.post<{ settledCount: number; settledTotal: number }>(
+    '/payments/settle',
+    { receivedById },
+  );
+  return data;
+}
+
+export interface PaymentQuery {
+  receivedById?: string;
+  method?: PaymentMethod;
+  from?: string;
+  to?: string;
+  settled?: boolean;
+}
+
+export async function queryPayments(
+  filters: PaymentQuery,
+): Promise<(Payment & { customer?: { name: string } })[]> {
+  const { data } = await api.get<(Payment & { customer?: { name: string } })[]>(
+    '/payments',
+    { params: filters },
+  );
+  return data;
+}

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
@@ -123,6 +123,84 @@ export class PaymentsService {
       where: { customerId },
       order: { paymentDate: 'DESC' },
     });
+  }
+
+  /**
+   * Tahsil edilmemiş (settledAt NULL) NAKİT tahsilatları çalışan bazında özetler.
+   * "Hangi çalışanın üzerinde ne kadar tahsil edilmemiş nakit var" görünümü (#4/#5).
+   */
+  async cashCollectionsByEmployee(): Promise<
+    { employeeId: string; employeeName: string; count: number; total: number }[]
+  > {
+    const rows = await this.paymentsRepo
+      .createQueryBuilder('p')
+      .innerJoin('p.receivedBy', 'u')
+      .select('u.id', 'employeeId')
+      .addSelect('u.full_name', 'employeeName')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(p.amount), 0)', 'total')
+      .where('p.method = :m', { m: PaymentMethod.CASH })
+      .andWhere('p.direction = :d', { d: PaymentDirection.INCOMING })
+      .andWhere('p.settled_at IS NULL')
+      .groupBy('u.id')
+      .addGroupBy('u.full_name')
+      .orderBy('total', 'DESC')
+      .getRawMany<{ employeeId: string; employeeName: string; count: string; total: string }>();
+    return rows.map((r) => ({
+      employeeId: r.employeeId,
+      employeeName: r.employeeName,
+      count: Number(r.count),
+      total: Number(r.total),
+    }));
+  }
+
+  /**
+   * Bir çalışanın tahsil edilmemiş nakit tahsilatlarını "işletmeye teslim edildi"
+   * (settledAt=now) olarak işaretler — böylece bir daha "bekleyen" listede çıkmaz.
+   */
+  async settleEmployeeCash(
+    receivedById: string,
+  ): Promise<{ settledCount: number; settledTotal: number }> {
+    await this.usersService.findOne(receivedById);
+    const pending = await this.paymentsRepo.find({
+      where: {
+        receivedById,
+        method: PaymentMethod.CASH,
+        direction: PaymentDirection.INCOMING,
+        settledAt: IsNull(),
+      },
+    });
+    const settledTotal = pending.reduce((s, p) => s + Number(p.amount), 0);
+    const now = new Date();
+    for (const p of pending) p.settledAt = now;
+    if (pending.length) await this.paymentsRepo.save(pending);
+    return { settledCount: pending.length, settledTotal };
+  }
+
+  /** Çapraz-müşteri ödeme sorgusu: çalışan / yöntem / tarih / tahsil durumu (#4). */
+  async query(filters: {
+    receivedById?: string;
+    method?: PaymentMethod;
+    from?: string;
+    to?: string;
+    settled?: boolean;
+  }): Promise<Payment[]> {
+    const qb = this.paymentsRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.receivedBy', 'receivedBy')
+      .leftJoinAndSelect('p.bankAccount', 'bankAccount')
+      .leftJoinAndSelect('p.customer', 'customer')
+      .orderBy('p.payment_date', 'DESC')
+      .take(200);
+    if (filters.receivedById) {
+      qb.andWhere('p.received_by_id = :rid', { rid: filters.receivedById });
+    }
+    if (filters.method) qb.andWhere('p.method = :m', { m: filters.method });
+    if (filters.from) qb.andWhere('p.payment_date >= :from', { from: filters.from });
+    if (filters.to) qb.andWhere('p.payment_date <= :to', { to: filters.to });
+    if (filters.settled === true) qb.andWhere('p.settled_at IS NOT NULL');
+    if (filters.settled === false) qb.andWhere('p.settled_at IS NULL');
+    return qb.getMany();
   }
 
   /**

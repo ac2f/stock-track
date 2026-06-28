@@ -8,6 +8,7 @@ import { CustomerLedgerEntry } from './entities/customer-ledger-entry.entity';
 import { Payment } from './entities/payment.entity';
 import { CustomersController } from './controllers/customers.controller';
 import { PaymentsController } from './controllers/payments.controller';
+import { PaymentsAdminController } from './controllers/payments-admin.controller';
 import { CustomersService } from './services/customers.service';
 import { PaymentsService } from './services/payments.service';
 import { CustomerAccountService } from './services/customer-account.service';
@@ -19,7 +20,7 @@ import { CustomerAccountService } from './services/customer-account.service';
     BankAccountsModule, // havalede banka hesabını doğrulamak için
     CurrencyModule, // yabancı para ödemeyi baz tutara çevirmek için
   ],
-  controllers: [CustomersController, PaymentsController],
+  controllers: [CustomersController, PaymentsController, PaymentsAdminController],
   providers: [CustomersService, PaymentsService, CustomerAccountService],
   // İşleme modülü, faturalandırmada CustomerAccountService kullanır.
   exports: [CustomerAccountService, CustomersService],

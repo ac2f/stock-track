@@ -9,9 +9,13 @@ import {
 } from '../../api/bank-accounts.api';
 import {
   createPayment,
+  fetchCashCollections,
   fetchPayments,
+  queryPayments,
+  settleEmployeeCash,
   type CreatePaymentInput,
 } from '../../api/payments.api';
+import { useAuth } from '../../context/AuthContext';
 import type { PaymentMethod } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' });
@@ -36,6 +40,7 @@ const EMPTY: CreatePaymentInput = {
 /** Müşteri ödemeleri (tahsilat/ödeme) girişi ve sorgulanabilir geçmişi. */
 export function PaymentsPage() {
   const qc = useQueryClient();
+  const { hasRole } = useAuth();
   const [search, setSearch] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [form, setForm] = useState<CreatePaymentInput>(EMPTY);
@@ -93,6 +98,9 @@ export function PaymentsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Ödemeler / Tahsilat</h1>
+
+      {/* #4/#5 Çalışan kasası — yalnızca İşletme Sahibi */}
+      {hasRole('owner') && <CashCollectionsPanel />}
 
       {/* #1 Müşteri arama */}
       <div className="card space-y-2">
@@ -320,6 +328,90 @@ export function PaymentsPage() {
           {!filteredPayments.length && <p className="text-slate-400">Kayıt yok.</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * #4/#5 Çalışan kasası: her çalışanın üzerindeki tahsil edilmemiş nakit toplamı.
+ * "Tahsil ettim" ile o çalışanın nakdi toplu kapatılır ve bir daha listede çıkmaz.
+ */
+function CashCollectionsPanel() {
+  const qc = useQueryClient();
+  const [detailFor, setDetailFor] = useState<string | null>(null);
+
+  const { data: collections } = useQuery({
+    queryKey: ['cash-collections'],
+    queryFn: fetchCashCollections,
+  });
+  const { data: detail } = useQuery({
+    queryKey: ['payments-detail', detailFor],
+    queryFn: () => queryPayments({ receivedById: detailFor!, method: 'cash', settled: false }),
+    enabled: !!detailFor,
+  });
+
+  const settleMut = useMutation({
+    mutationFn: settleEmployeeCash,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-collections'] });
+      qc.invalidateQueries({ queryKey: ['payments-detail'] });
+      setDetailFor(null);
+    },
+  });
+
+  if (!collections?.length) {
+    return (
+      <div className="card text-sm text-slate-500">
+        Çalışanlar üzerinde tahsil edilmemiş nakit yok.
+      </div>
+    );
+  }
+
+  return (
+    <div className="card space-y-2">
+      <h2 className="font-medium">Çalışan kasası — tahsil edilmemiş nakit</h2>
+      {collections.map((c) => (
+        <div key={c.employeeId} className="space-y-1 border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+          <div className="flex items-center justify-between gap-2">
+            <span>
+              {c.employeeName} · {c.count} tahsilat ·{' '}
+              <span className="font-semibold text-amber-700">{money.format(c.total)}</span>
+            </span>
+            <div className="flex gap-2">
+              <button
+                className="btn bg-slate-100 text-xs"
+                onClick={() => setDetailFor(detailFor === c.employeeId ? null : c.employeeId)}
+              >
+                {detailFor === c.employeeId ? 'Gizle' : 'Detay'}
+              </button>
+              <button
+                className="btn bg-emerald-600 text-white text-xs"
+                disabled={settleMut.isPending}
+                onClick={() => {
+                  if (confirm(`${c.employeeName} çalışanından ${money.format(c.total)} nakit tahsil edildi olarak işaretlensin mi?`)) {
+                    settleMut.mutate(c.employeeId);
+                  }
+                }}
+              >
+                Tahsil ettim
+              </button>
+            </div>
+          </div>
+          {detailFor === c.employeeId && (
+            <div className="space-y-1 rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+              {detail?.map((p) => (
+                <div key={p.id} className="flex justify-between">
+                  <span>
+                    {p.paymentDate?.slice(0, 10)} · {p.customer?.name ?? 'Müşteri'}
+                  </span>
+                  <span>{money.format(Number(p.amount))}</span>
+                </div>
+              ))}
+              {!detail?.length && <p className="text-slate-400">—</p>}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

@@ -80,6 +80,11 @@ export class Payment extends BaseEntity {
   @Column({ name: 'card_business_name', nullable: true })
   cardBusinessName?: string;
 
+  // Nakit tahsilatın çalışandan işletmeye teslim edildiği (toplu tahsil) an.
+  // NULL ise çalışanın üzerinde "tahsil edilmemiş nakit" olarak görünür.
+  @Column({ name: 'settled_at', type: 'timestamptz', nullable: true })
+  settledAt?: Date | null;
+
   @Column({
     name: 'balance_after',
     type: 'numeric',
