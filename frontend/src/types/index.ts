@@ -2,7 +2,74 @@
 
 export type UserRole = 'owner' | 'employee';
 
-export type PaymentMethod = 'cash' | 'bank_transfer';
+export type PaymentMethod = 'cash' | 'bank_transfer' | 'card';
+export type PaymentDirection = 'incoming' | 'outgoing';
+
+export interface Employee {
+  id: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  role: UserRole;
+  isActive: boolean;
+}
+
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  accountName?: string;
+  iban: string;
+  currency?: string;
+  isActive?: boolean;
+}
+
+export interface Payment {
+  id: string;
+  customerId: string;
+  direction: PaymentDirection;
+  amount: number;
+  currency: string;
+  paymentDate: string;
+  method: PaymentMethod;
+  receivedBy?: { id: string; fullName: string };
+  bankAccount?: { id: string; bankName: string };
+  cardBusinessName?: string;
+  referenceNo?: string;
+  note?: string;
+  balanceAfter: number;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  isRecurring: boolean;
+  isActive: boolean;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+}
+
+export interface Expense {
+  id: string;
+  categoryId: string;
+  category?: ExpenseCategory;
+  projectId?: string | null;
+  project?: Project | null;
+  amount: number;
+  currency: string;
+  expenseDate: string;
+  description?: string;
+}
+
+export interface ExpenseSummary {
+  total: number;
+  byCategory: { name: string; total: number }[];
+  byProject: { name: string; total: number }[];
+}
 export type PriceUnit = 'per_plate' | 'per_m2' | 'per_kg';
 
 export interface AuthUser {

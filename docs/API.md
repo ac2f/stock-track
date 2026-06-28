@@ -79,6 +79,23 @@ kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda d
 | POST | `/plates/:id/transfer-ownership` | 👔 | Sahipliği taraflar arasında serbestçe aktarır (işletme↔müşteri, müşteri↔müşteri) — `{ fromOwnerCustomerId?, toOwnerCustomerId?, warehouseId?, quantity? }`. Boş taraf işletmedir; miktar verilmezse kaynaktaki tümü |
 | POST | `/plates/:id/deplete` | 🧑‍🔧 | "Tamamını sat" / stoktan tamamen çıkar: tüm seviyeleri sıfırlar ve plakayı soft-delete eder (kalan m² 0 olunca düzenlemede otomatik tetiklenir) |
 
+## Expenses — Giderler (👔 yalnızca İşletme Sahibi)
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET/POST | `/expense-categories` | Gider türleri (kira/elektrik/market/personel/iş-malzeme…); `{ name, isRecurring?, isActive? }` |
+| PATCH/DELETE | `/expense-categories/:id` | Tür güncelle/sil (sürekli işaretleme dahil) |
+| GET/POST | `/projects` | İş/Proje kayıtları (ör. "Ahmet Tabela"); `{ name, description? }` |
+| PATCH/DELETE | `/projects/:id` | İş güncelle/sil |
+| GET | `/expenses` | Filtre: `?from=&to=&categoryId=&projectId=&page=&limit=` |
+| GET | `/expenses/summary` | Aynı filtrelerle toplam + tür ve iş bazlı kırılım |
+| POST | `/expenses` | `{ categoryId, projectId?, amount, currency?, expenseDate?, description? }` |
+| PATCH/DELETE | `/expenses/:id` | Gider güncelle/sil |
+
+## Ödemeler (kart yöntemi)
+`POST /customers/:customerId/payments` artık `method: card` destekler →
+`cardBusinessName` (serbest metin, kartın geçtiği işletme/POS). `cash` → `receivedById`,
+`bank_transfer` → `bankAccountId` zorunluluğu korunur.
+
 ## Materials — Piyasa Fiyatları
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|

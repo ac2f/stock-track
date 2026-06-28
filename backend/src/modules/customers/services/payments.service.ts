@@ -77,6 +77,8 @@ export class PaymentsService {
           dto.method === PaymentMethod.BANK_TRANSFER
             ? dto.bankAccountId
             : undefined,
+        cardBusinessName:
+          dto.method === PaymentMethod.CARD ? dto.cardBusinessName : undefined,
         referenceNo: dto.referenceNo,
         note: dto.note,
         balanceAfter: 0,
@@ -154,13 +156,24 @@ export class PaymentsService {
         );
       }
       await this.bankAccountsService.findOne(dto.bankAccountId);
+    } else if (dto.method === PaymentMethod.CARD) {
+      if (dto.receivedById || dto.bankAccountId) {
+        throw new BadRequestException(
+          'Kart ödemesinde çalışan veya banka hesabı belirtilemez.',
+        );
+      }
     }
   }
 
   private describe(dto: CreatePaymentDto, direction: PaymentDirection): string {
     const kind =
       direction === PaymentDirection.INCOMING ? 'tahsilat' : 'sahibe ödeme';
-    const channel = dto.method === PaymentMethod.CASH ? 'Nakit' : 'Havale/EFT';
+    const channel =
+      dto.method === PaymentMethod.CASH
+        ? 'Nakit'
+        : dto.method === PaymentMethod.CARD
+          ? `Kart${dto.cardBusinessName ? ` (${dto.cardBusinessName})` : ''}`
+          : 'Havale/EFT';
     return `${channel} ${kind}${dto.referenceNo ? ` (${dto.referenceNo})` : ''}`;
   }
 }

@@ -15,6 +15,9 @@ const NAV: NavItem[] = [
   { to: '/quotes', label: 'Teklif', icon: '📝' },
   { to: '/queue', label: 'Kuyruk', icon: '🛠️' },
   { to: '/customers', label: 'Cari', icon: '💳' },
+  { to: '/payments', label: 'Ödeme', icon: '💵' },
+  { to: '/expenses', label: 'Gider', icon: '🧾', roles: ['owner'] },
+  { to: '/employees', label: 'Personel', icon: '👥', roles: ['owner'] },
   { to: '/reports', label: 'Rapor', icon: '📊', roles: ['owner'] },
 ];
 

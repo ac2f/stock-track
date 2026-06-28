@@ -10,6 +10,9 @@ import { DashboardPage } from './features/reports/DashboardPage';
 import { QuotesPage } from './features/quotes/QuotesPage';
 import { ProcessingQueuePage } from './features/processing/ProcessingQueuePage';
 import { PortalPage } from './features/portal/PortalPage';
+import { EmployeesPage } from './features/employees/EmployeesPage';
+import { PaymentsPage } from './features/payments/PaymentsPage';
+import { ExpensesPage } from './features/expenses/ExpensesPage';
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -60,6 +63,23 @@ export default function App() {
         <Route path="/queue" element={<ProcessingQueuePage />} />
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/customers" element={<CustomersListPage />} />
+        <Route path="/payments" element={<PaymentsPage />} />
+        <Route
+          path="/employees"
+          element={
+            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+              <EmployeesPage />
+            </RoleGate>
+          }
+        />
+        <Route
+          path="/expenses"
+          element={
+            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+              <ExpensesPage />
+            </RoleGate>
+          }
+        />
         {/* Mali raporlar yalnızca İşletme Sahibi (RBAC). */}
         <Route
           path="/reports"

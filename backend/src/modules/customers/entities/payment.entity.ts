@@ -76,6 +76,10 @@ export class Payment extends BaseEntity {
   referenceNo?: string;
 
   /** Ödeme sonrası kalan borç (anlık görüntü). */
+  // Kart ile ödemede paranın geçtiği işletme/POS adı (serbest metin).
+  @Column({ name: 'card_business_name', nullable: true })
+  cardBusinessName?: string;
+
   @Column({
     name: 'balance_after',
     type: 'numeric',

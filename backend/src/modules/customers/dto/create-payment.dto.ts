@@ -46,6 +46,11 @@ export class CreatePaymentDto {
   @IsUUID()
   bankAccountId?: string;
 
+  // Kart ile ödemede işletme/POS adı (serbest metin).
+  @IsOptional()
+  @IsString()
+  cardBusinessName?: string;
+
   @IsOptional()
   @IsString()
   referenceNo?: string;
