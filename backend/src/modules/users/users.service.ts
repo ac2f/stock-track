@@ -50,6 +50,11 @@ export class UsersService {
     return user;
   }
 
+  /** Kimlik doğrulama için: bulunamazsa hata fırlatmaz, null döner. */
+  findById(id: string): Promise<User | null> {
+    return this.usersRepo.findOne({ where: { id } });
+  }
+
   /** Parolayı da içerecek şekilde getirir (yalnızca kimlik doğrulama için). */
   findByEmailWithPassword(email: string): Promise<User | null> {
     return this.usersRepo

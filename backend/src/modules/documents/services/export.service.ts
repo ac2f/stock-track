@@ -3,6 +3,22 @@ import { Workbook } from 'exceljs';
 import { FinancialReportsService } from '../../reports/services/financial-reports.service';
 import { InventoryReportsService } from '../../reports/services/inventory-reports.service';
 import { CustomersService } from '../../customers/services/customers.service';
+import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
+
+/** Cari hareket kaynağının Türkçe etiketleri (ekstre çıktılarında). */
+const LEDGER_SOURCE_LABELS: Record<string, string> = {
+  [LedgerSourceType.OPENING]: 'Açılış',
+  [LedgerSourceType.PROCESSING]: 'İşleme',
+  [LedgerSourceType.SALE]: 'Satış',
+  [LedgerSourceType.PAYMENT]: 'Ödeme',
+  [LedgerSourceType.MANUAL_ADJUSTMENT]: 'Manuel',
+};
+
+/** CSV hücresini kaçışlar (noktalı virgül/çift tırnak/satır sonu içerirse). */
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 
 /**
  * Rapor ve cari dökümlerini gerçek .xlsx çalışma kitabına aktarır.
@@ -108,6 +124,32 @@ export class ExportService {
     });
     this.styleHeader(ws);
     return this.toBuffer(wb);
+  }
+
+  /**
+   * Cari ekstreyi CSV (Excel'de açılabilir, noktalı virgülle ayrılmış) üretir.
+   * UTF-8 BOM eklenir ki Excel Türkçe karakterleri doğru göstersin.
+   */
+  async customerLedgerCsv(customerId: string): Promise<string> {
+    const customer = await this.customersService.findOne(customerId);
+    const ledger = await this.customersService.getLedger(customerId);
+    const header = ['Tarih', 'Açıklama', 'Borç', 'Alacak', 'Bakiye'];
+    const rows: (string | number)[][] = [...ledger].reverse().map((e) => {
+      const label = LEDGER_SOURCE_LABELS[e.sourceType] ?? e.sourceType;
+      const desc = e.description ? `${label} · ${e.description}` : label;
+      return [
+        new Date(e.occurredAt).toLocaleDateString('tr-TR'),
+        desc,
+        e.entryType === 'debit' ? Number(e.amount) : '',
+        e.entryType === 'credit' ? Number(e.amount) : '',
+        Number(e.balanceAfter),
+      ];
+    });
+    rows.push(['', `${customer.name} — Güncel bakiye`, '', '', Number(customer.currentBalance)]);
+    return (
+      '﻿' +
+      [header, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n')
+    );
   }
 
   // ── Yardımcılar ─────────────────────────────────────────────────────

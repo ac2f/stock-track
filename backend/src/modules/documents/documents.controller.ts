@@ -100,6 +100,22 @@ export class DocumentsController {
     return this.stream(res, buf, PDF, `ekstre-${id.slice(0, 8)}.pdf`, 'inline');
   }
 
+  // Cari ekstrenin CSV (tablo) çıktısı — Excel'de açılır.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Get('customers/:id/statement.csv')
+  async statementCsv(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const csv = await this.exports.customerLedgerCsv(id);
+    return this.stream(
+      res,
+      Buffer.from(csv, 'utf-8'),
+      CSV,
+      `ekstre-${id.slice(0, 8)}.csv`,
+    );
+  }
+
   // ── Excel dışa aktarım (OWNER) ──────────────────────────────────────
 
   @Roles(UserRole.OWNER)

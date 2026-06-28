@@ -8,6 +8,7 @@ import {
   type CreateCustomerInput,
   type CustomerFilters,
 } from '../../api/customers.api';
+import { downloadFile, openPdf } from '../../api/documents.api';
 import type { Customer } from '../../types';
 
 const currency = new Intl.NumberFormat('tr-TR', {
@@ -246,7 +247,9 @@ function CustomerRow({ customer }: { customer: Customer }) {
           </button>
         </div>
       </div>
-      {openStatement && <CustomerStatement customerId={customer.id} />}
+      {openStatement && (
+        <CustomerStatement customerId={customer.id} customerName={customer.name} />
+      )}
     </div>
   );
 }
@@ -263,7 +266,13 @@ const SOURCE_LABELS: Record<string, string> = {
  * #8b Cari ekstre: hareketler tarihe göre kronolojik; yürüyen bakiye yeniden
  * hesaplanır. Geçmiş tarihli borç/ödeme eklenebilir (description ödeme yerini taşır).
  */
-function CustomerStatement({ customerId }: { customerId: string }) {
+function CustomerStatement({
+  customerId,
+  customerName,
+}: {
+  customerId: string;
+  customerName: string;
+}) {
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
   const [entryType, setEntryType] = useState<'debit' | 'credit'>('debit');
@@ -301,8 +310,30 @@ function CustomerStatement({ customerId }: { customerId: string }) {
     return { ...e, running };
   });
 
+  const fileSlug =
+    customerName
+      .toLocaleLowerCase('tr')
+      .replace(/[^a-z0-9çğıöşü]+/gi, '-')
+      .replace(/^-+|-+$/g, '') || customerId.slice(0, 8);
+
   return (
     <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2">
+      <div className="flex justify-end gap-2">
+        <button
+          className="btn bg-slate-100 text-xs"
+          onClick={() =>
+            downloadFile(`/customers/${customerId}/statement.csv`, `ekstre-${fileSlug}.csv`)
+          }
+        >
+          CSV
+        </button>
+        <button
+          className="btn bg-slate-100 text-xs"
+          onClick={() => openPdf(`/customers/${customerId}/statement.pdf`)}
+        >
+          PDF
+        </button>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="text-left text-slate-500">

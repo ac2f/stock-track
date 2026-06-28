@@ -19,20 +19,29 @@ export interface ApiResponse<T> {
  *   { success, data, timestamp }
  * Böylece frontend tüm uçlarda aynı şekli tüketir.
  *
- * İSTİSNA: İkili (binary) yanıtlar — PDF/Excel gibi StreamableFile — sarmalanmaz,
- * olduğu gibi geçirilir; aksi halde dosya bozulur.
+ * İSTİSNALAR (olduğu gibi, sarmalanmadan geçirilir; aksi halde içerik bozulur):
+ *  - İkili (binary) yanıtlar — PDF/Excel gibi StreamableFile.
+ *  - Controller'ın Content-Type'ı JSON dışı (örn. text/html, text/csv) olarak
+ *    elle ayarladığı ham yanıtlar — örn. yazdırılabilir teklif HTML'i. Aksi
+ *    halde HTML, JSON zarfına gömülür ve tarayıcıda ham metin olarak görünür.
  */
 @Injectable()
 export class TransformInterceptor<T>
   implements NestInterceptor<T, ApiResponse<T> | StreamableFile>
 {
   intercept(
-    _context: ExecutionContext,
+    context: ExecutionContext,
     next: CallHandler,
   ): Observable<ApiResponse<T> | StreamableFile> {
+    const res = context.switchToHttp().getResponse<{
+      getHeader(name: string): unknown;
+    }>();
     return next.handle().pipe(
       map((data) => {
-        if (data instanceof StreamableFile) {
+        const contentType = String(res.getHeader('Content-Type') ?? '');
+        const isRaw =
+          contentType !== '' && !contentType.includes('application/json');
+        if (data instanceof StreamableFile || isRaw) {
           return data;
         }
         return {
