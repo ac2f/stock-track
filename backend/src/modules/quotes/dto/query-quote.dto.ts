@@ -16,6 +16,11 @@ export class QueryQuoteDto extends PaginationDto {
   @IsUUID()
   plateId?: string;
 
+  // Malzeme TÜRÜ (kategori: pleksi, alüminyum kompozit…) içeren teklifler.
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
   // Oluşturulma tarihi aralığı. Hiçbir filtre verilmezse son 1 hafta gösterilir.
   @IsOptional()
   @IsDateString()

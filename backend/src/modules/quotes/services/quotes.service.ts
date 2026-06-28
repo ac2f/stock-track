@@ -97,11 +97,10 @@ export class QuotesService {
    * göre yeni→eski. Hiçbir filtre verilmezse son 1 haftalık kayıtlar gösterilir.
    */
   async findAll(query: QueryQuoteDto): Promise<PaginatedResult<Quote>> {
-    // ManyToOne (buyerCustomer) join'i sayfalamayı bozmaz; items koleksiyonunu
-    // ayrı yükleyip sırayı koruyoruz (koleksiyon join'i skip/take'i şişirir).
-    const qb = this.quotesRepo
-      .createQueryBuilder('quote')
-      .leftJoinAndSelect('quote.buyerCustomer', 'buyerCustomer');
+    // Sayfalama+sıralama yalnızca temel `quotes` tablosunda (join yok) yapılır —
+    // ham CASE sıralaması join'lerle çakışmasın diye. İlişkiler (buyerCustomer,
+    // items) ikinci adımda eager yüklenip sıra korunur.
+    const qb = this.quotesRepo.createQueryBuilder('quote');
 
     if (query.buyerCustomerId) {
       qb.andWhere('quote.buyer_customer_id = :buyerCustomerId', {
@@ -119,6 +118,17 @@ export class QuotesService {
         { plateId: query.plateId },
       );
     }
+    if (query.categoryId) {
+      // Malzemeyi TÜR (kategori) olarak sorgula: kalemin plakası→şablon→kategori.
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM quote_items qi
+                   JOIN material_plates mp ON mp.id = qi.plate_id
+                   JOIN material_templates mt ON mt.id = mp.template_id
+                  WHERE qi.quote_id = quote.id AND mt.category_id = :categoryId
+                    AND qi.deleted_at IS NULL)`,
+        { categoryId: query.categoryId },
+      );
+    }
     if (query.from) qb.andWhere('quote.created_at >= :from', { from: query.from });
     if (query.to) qb.andWhere('quote.created_at <= :to', { to: query.to });
 
@@ -126,6 +136,7 @@ export class QuotesService {
       query.buyerCustomerId ||
       query.status ||
       query.plateId ||
+      query.categoryId ||
       query.from ||
       query.to
     );

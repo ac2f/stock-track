@@ -9,7 +9,11 @@ import {
   type QuoteFilters,
 } from '../../api/quotes.api';
 import { fetchCustomers } from '../../api/customers.api';
-import { comparePrices, fetchPlates } from '../../api/materials.api';
+import {
+  comparePrices,
+  fetchMaterialCategories,
+  fetchPlates,
+} from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import type { QuoteItemInput, QuoteStatus } from '../../types';
 
@@ -36,14 +40,14 @@ export function QuotesPage() {
     queryKey: ['quotes', filters],
     queryFn: () => fetchQuotes(filters),
   });
-  // Filtre açılır listeleri için müşteri ve malzeme listeleri.
+  // Filtre açılır listeleri için müşteri ve tür (kategori) listeleri.
   const { data: customers } = useQuery({
     queryKey: ['customers', 'all'],
     queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
   });
-  const { data: plates } = useQuery({
-    queryKey: ['plates', 'all'],
-    queryFn: () => fetchPlates({ page: 1, limit: 100 }),
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: fetchMaterialCategories,
   });
 
   const setFilter = (patch: Partial<QuoteFilters>) =>
@@ -51,7 +55,7 @@ export function QuotesPage() {
   const hasFilter = !!(
     filters.buyerCustomerId ||
     filters.status ||
-    filters.plateId ||
+    filters.categoryId ||
     filters.from ||
     filters.to
   );
@@ -115,16 +119,16 @@ export function QuotesPage() {
             </select>
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Malzeme</span>
+            <span className="mb-1 block text-xs text-slate-500">Malzeme türü</span>
             <select
               className="input"
-              value={filters.plateId ?? ''}
-              onChange={(e) => setFilter({ plateId: e.target.value || undefined })}
+              value={filters.categoryId ?? ''}
+              onChange={(e) => setFilter({ categoryId: e.target.value || undefined })}
             >
               <option value="">Tümü</option>
-              {plates?.items.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+              {categories?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </select>

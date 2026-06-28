@@ -5,6 +5,7 @@ export interface QuoteFilters {
   buyerCustomerId?: string;
   status?: QuoteStatus;
   plateId?: string;
+  categoryId?: string; // malzeme türü (pleksi, alüminyum kompozit…)
   from?: string; // ISO tarih (YYYY-MM-DD)
   to?: string;
   page?: number;
