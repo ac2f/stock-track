@@ -89,24 +89,49 @@ async function seed(): Promise<void> {
   // ── Malzeme türleri (örnek; OWNER düzenleyebilir/silebilir) ──
   const categoriesRepo = dataSource.getRepository(MaterialCategoryEntity);
   let createdCategories = 0;
+  let restoredCategories = 0;
   for (const c of DEFAULT_MATERIAL_CATEGORIES) {
-    if (!(await categoriesRepo.findOne({ where: { code: c.code } }))) {
+    // withDeleted: soft-delete edilmiş kayıtlar da unique index'i tuttuğundan,
+    // mevcut kaydı (silinmiş dahil) bulup duruma göre davranırız.
+    const existing = await categoriesRepo.findOne({
+      where: { code: c.code },
+      withDeleted: true,
+    });
+    if (!existing) {
       await categoriesRepo.save(categoriesRepo.create({ ...c, isActive: true }));
       createdCategories += 1;
+    } else if (existing.deletedAt) {
+      // Daha önce silinmiş varsayılan kategoriyi geri yükle (baseline yeniden kurulur).
+      existing.deletedAt = null;
+      existing.isActive = true;
+      await categoriesRepo.save(existing);
+      restoredCategories += 1;
     }
   }
   if (createdCategories > 0) {
     console.log(`✓ ${createdCategories} malzeme türü (örnek) oluşturuldu.`);
   }
+  if (restoredCategories > 0) {
+    console.log(`✓ ${restoredCategories} silinmiş malzeme türü geri yüklendi.`);
+  }
 
   // ── Merkez Depo + stok backfill ──
   const warehousesRepo = dataSource.getRepository(Warehouse);
-  let warehouse = await warehousesRepo.findOne({ where: { code: warehouseCode } });
+  let warehouse = await warehousesRepo.findOne({
+    where: { code: warehouseCode },
+    withDeleted: true,
+  });
   if (!warehouse) {
     warehouse = await warehousesRepo.save(
       warehousesRepo.create({ name: 'Merkez Depo', code: warehouseCode, isActive: true }),
     );
     console.log(`✓ "${warehouse.name}" (${warehouseCode}) oluşturuldu.`);
+  } else if (warehouse.deletedAt) {
+    // Silinmiş varsayılan depoyu geri yükle ki backfill aktif depoya yazsın.
+    warehouse.deletedAt = null;
+    warehouse.isActive = true;
+    warehouse = await warehousesRepo.save(warehouse);
+    console.log(`✓ "${warehouse.name}" (${warehouseCode}) geri yüklendi.`);
   }
 
   const platesRepo = dataSource.getRepository(MaterialPlate);
