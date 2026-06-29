@@ -16,6 +16,7 @@ import {
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { plateLabel } from '../../lib/plateLabel';
+import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import type { QuoteItemInput, QuoteStatus } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', {
@@ -349,6 +350,15 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
   const canSubmit =
     buyerCustomerId && items.length > 0 && items.every((i) => i.plateId);
 
+  // Teklif henüz oluşturulmadan satır tutarları + genel toplam (canlı tahmin).
+  const grandTotal = items.reduce(
+    (sum, it) =>
+      sum +
+      quoteLinePreview(it, plates?.items.find((p) => p.id === it.plateId))
+        .lineTotal,
+    0,
+  );
+
   return (
     <div className="card space-y-3">
       <Field label="Alıcı müşteri">
@@ -366,7 +376,10 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
         </select>
       </Field>
 
-      {items.map((item, i) => (
+      {items.map((item, i) => {
+        const plate = plates?.items.find((p) => p.id === item.plateId);
+        const preview = quoteLinePreview(item, plate);
+        return (
         <div key={i} className="rounded-xl border border-slate-200 p-2 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>
@@ -538,8 +551,21 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
               )}
             </div>
           )}
+
+          {/* Satır tutarı önizleme (teklif oluşturulmadan) */}
+          <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
+            <span className="text-slate-500">
+              {preview.measure != null
+                ? `${preview.measure.toLocaleString('tr-TR', {
+                    maximumFractionDigits: 2,
+                  })} ${UNIT_LABEL[preview.unit]} × ${money.format(item.unitPrice || 0)}`
+                : 'Tutar için ebat/fiyat girin'}
+            </span>
+            <span className="font-semibold">{money.format(preview.lineTotal)}</span>
+          </div>
         </div>
-      ))}
+        );
+      })}
 
       <div className="flex flex-wrap gap-2">
         <button className="btn bg-slate-100" onClick={() => addItem('sale')}>
@@ -549,6 +575,14 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
           + İşleme kalemi
         </button>
       </div>
+
+      {/* Genel toplam önizleme */}
+      {items.length > 0 && (
+        <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+          <span className="text-sm font-medium text-slate-600">Genel Toplam (tahmini)</span>
+          <span className="text-lg font-bold">{money.format(grandTotal)}</span>
+        </div>
+      )}
 
       <button
         className="btn-primary w-full"

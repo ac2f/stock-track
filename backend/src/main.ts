@@ -2,8 +2,10 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { runSeed } from './database/seed';
 import { AppConfig } from './config/configuration';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -49,6 +51,18 @@ async function bootstrap(): Promise<void> {
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup(`${appConfig.globalPrefix}/docs`, app, document);
+
+  // Açılışta otomatik (idempotent) tohumlama: OWNER + varsayılanlar. Şema bu
+  // noktada (TypeORM synchronize) hazırdır. Böylece üretimde ayrı bir seed
+  // komutu çalıştırmaya gerek kalmadan ilk girişin yapılabileceği hesap oluşur.
+  // SEED_ON_BOOT=false ile kapatılabilir.
+  if (process.env.SEED_ON_BOOT !== 'false') {
+    try {
+      await runSeed(app.get(DataSource));
+    } catch (err) {
+      console.error('Açılış tohumlaması başarısız (uygulama yine de başlıyor):', err);
+    }
+  }
 
   // Tüm ağ arayüzlerinden (0.0.0.0) dinle → yerel ağdaki diğer cihazlar
   // (telefon/tablet/başka bilgisayar) http://<sunucu-ip>:<port> ile bağlanabilir.

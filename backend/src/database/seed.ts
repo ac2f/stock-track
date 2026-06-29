@@ -1,6 +1,6 @@
 import { config as loadEnv } from 'dotenv';
 import * as bcrypt from 'bcrypt';
-import { IsNull } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import dataSource from '../config/typeorm.config';
 import { User } from '../modules/users/entities/user.entity';
 import { UserRole } from '../common/enums/user-role.enum';
@@ -34,19 +34,19 @@ const DEFAULT_MATERIAL_CATEGORIES: {
  *  - Varsayılan m² ve metre (kutu harf) işleme tarifeleri.
  *  - Varsayılan "Merkez Depo" + mevcut stoğun StockLevel'a backfill'i.
  *
- * Çalıştırma:  npm run seed
+ * Çalıştırma:  npm run seed  (CLI)  ·  veya açılışta otomatik (SEED_ON_BOOT).
+ *
+ * `runSeed` verilen (zaten initialize edilmiş) DataSource üzerinde çalışır ve onu
+ * KAPATMAZ — hem CLI hem de uygulama açılışı (app'in DataSource'u) ile çağrılabilir.
  */
-async function seed(): Promise<void> {
-  loadEnv();
-  await dataSource.initialize();
-
+export async function runSeed(ds: DataSource): Promise<void> {
   const email = process.env.SEED_OWNER_EMAIL ?? 'owner@stocktrack.local';
   const password = process.env.SEED_OWNER_PASSWORD ?? 'Owner123!';
   const currency = process.env.DEFAULT_CURRENCY ?? 'TRY';
   const warehouseCode = process.env.DEFAULT_WAREHOUSE_CODE ?? 'MERKEZ';
 
   // ── OWNER ──
-  const usersRepo = dataSource.getRepository(User);
+  const usersRepo = ds.getRepository(User);
   if (!(await usersRepo.findOne({ where: { email } }))) {
     await usersRepo.save(
       usersRepo.create({
@@ -63,7 +63,7 @@ async function seed(): Promise<void> {
   }
 
   // ── İşleme tarifeleri (m² ve metre) ──
-  const ratesRepo = dataSource.getRepository(ProcessingRate);
+  const ratesRepo = ds.getRepository(ProcessingRate);
   if (!(await ratesRepo.findOne({ where: { isDefault: true } }))) {
     await ratesRepo.save([
       ratesRepo.create({
@@ -87,7 +87,7 @@ async function seed(): Promise<void> {
   }
 
   // ── Malzeme türleri (örnek; OWNER düzenleyebilir/silebilir) ──
-  const categoriesRepo = dataSource.getRepository(MaterialCategoryEntity);
+  const categoriesRepo = ds.getRepository(MaterialCategoryEntity);
   let createdCategories = 0;
   let restoredCategories = 0;
   for (const c of DEFAULT_MATERIAL_CATEGORIES) {
@@ -116,7 +116,7 @@ async function seed(): Promise<void> {
   }
 
   // ── Merkez Depo + stok backfill ──
-  const warehousesRepo = dataSource.getRepository(Warehouse);
+  const warehousesRepo = ds.getRepository(Warehouse);
   let warehouse = await warehousesRepo.findOne({
     where: { code: warehouseCode },
     withDeleted: true,
@@ -134,8 +134,8 @@ async function seed(): Promise<void> {
     console.log(`✓ "${warehouse.name}" (${warehouseCode}) geri yüklendi.`);
   }
 
-  const platesRepo = dataSource.getRepository(MaterialPlate);
-  const stockRepo = dataSource.getRepository(StockLevel);
+  const platesRepo = ds.getRepository(MaterialPlate);
+  const stockRepo = ds.getRepository(StockLevel);
   const plates = await platesRepo.find();
   let backfilled = 0;
   for (const plate of plates) {
@@ -160,11 +160,24 @@ async function seed(): Promise<void> {
     console.log(`✓ ${backfilled} kalemin stoğu Merkez Depo'ya taşındı (backfill).`);
   }
 
-  await dataSource.destroy();
   console.log('Tohumlama tamamlandı.');
 }
 
-seed().catch((err) => {
-  console.error('Tohumlama hatası:', err);
-  process.exit(1);
-});
+/** CLI: bağımsız DataSource'u açar, tohumlar ve kapatır (npm run seed). */
+async function seedCli(): Promise<void> {
+  loadEnv();
+  await dataSource.initialize();
+  try {
+    await runSeed(dataSource);
+  } finally {
+    await dataSource.destroy();
+  }
+}
+
+// Yalnızca doğrudan çalıştırıldığında CLI'yi tetikle (import edildiğinde DEĞİL).
+if (require.main === module) {
+  seedCli().catch((err) => {
+    console.error('Tohumlama hatası:', err);
+    process.exit(1);
+  });
+}

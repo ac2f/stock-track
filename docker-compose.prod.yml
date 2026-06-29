@@ -5,8 +5,9 @@
 #   1) cp backend/.env.example backend/.env   ve değerleri düzenleyin
 #      (güçlü JWT secret'ları, DB parolası; DB_SYNCHRONIZE=true — migration yoksa).
 #   2) docker compose -f docker-compose.prod.yml up -d --build
-#   3) İlk kurulum tohumlaması (yalnızca BİR kez — OWNER + varsayılanlar):
-#        docker compose -f docker-compose.prod.yml run --rm api node dist/database/seed.js
+#      → OWNER hesabı + varsayılanlar API açılışında OTOMATİK oluşturulur
+#        (idempotent). Giriş: SEED_OWNER_EMAIL / SEED_OWNER_PASSWORD (.env).
+#        Kapatmak için SEED_ON_BOOT=false. Elle: run --rm api node dist/database/seed.js
 #
 # Erişim (yerel ağ):  Web → http://<sunucu-ip>/    API → http://<sunucu-ip>:3000/api
 # ───────────────────────────────────────────────────────────────────────────
