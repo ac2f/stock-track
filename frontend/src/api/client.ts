@@ -6,16 +6,20 @@ import axios, {
 import type { ApiEnvelope } from '../types';
 
 /**
- * API taban adresi. Öncelik: VITE_API_URL (derleme zamanı). Tanımsızsa, arayüze
- * hangi host üzerinden erişiliyorsa backend de o host'ta (3000) varsayılır —
- * böylece yerel ağdaki bir telefon http://192.168.x.x:5173 ile açtığında API
- * çağrıları otomatik http://192.168.x.x:3000'e gider (localhost'a sabitlenmez).
+ * API taban adresi.
+ *  - VITE_API_URL doluysa o kullanılır (derleme zamanı; boş string YOK SAYILIR).
+ *  - Üretimde (nginx) GÖRELİ '/api/v1' kullanılır: arayüz ve API aynı origin'den
+ *    sunulur (nginx '/api' isteklerini backend'e proxy'ler). Böylece port/CORS
+ *    sorunu olmaz; yerel ağdaki her cihaz http://<sunucu-ip>/ ile sorunsuz çalışır.
+ *  - Geliştirmede (vite dev) backend ayrı portta olduğundan localhost:3000 varsayılır.
+ *
+ * NOT: Burada `??` DEĞİL `||` kullanılır — üretim imajına VITE_API_URL boş string
+ * olarak gömülebildiğinden (`??` boş string'i yakalamaz) login isteği yanlışlıkla
+ * nginx'e gidip 405 verebiliyordu.
  */
 const API_URL =
-  import.meta.env.VITE_API_URL ??
-  (typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:3000/api/v1`
-    : 'http://localhost:3000/api/v1');
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:3000/api/v1' : '/api/v1');
 
 const ACCESS_KEY = 'st_access';
 const REFRESH_KEY = 'st_refresh';

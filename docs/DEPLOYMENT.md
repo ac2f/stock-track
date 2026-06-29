@@ -110,17 +110,19 @@ açık olmalı; klasör önceden var olmalı.)
 
 ## 4) Yerel ağ (LAN) erişimi
 
-- Backend tüm arayüzlerden dinler (`0.0.0.0`), CORS varsayılanı `*`'tır.
-- Aynı ağdaki telefon/tablet/bilgisayar, sunucunun IP'siyle bağlanır:
-  - Arayüz: `http://192.168.x.x/` (üretim) veya `http://192.168.x.x:5173/` (dev)
-  - Arayüz, API adresini **otomatik** olarak aynı host'un `:3000` portu varsayar
-    (`VITE_API_URL` tanımlı değilse). Yani ayrı yapılandırma gerekmez.
-- Sabit bir API adresi gerekiyorsa derlemede `VITE_API_URL` verin:
-  ```bash
-  VITE_API_URL=http://192.168.1.50:3000/api/v1 \
-    docker compose -f docker-compose.prod.yml up -d --build web
-  ```
-- Sunucunun güvenlik duvarında 80 (web) ve 3000 (API) portlarına izin verin.
+Üretimde **arayüz ve API aynı origin'den** sunulur: nginx (port 80) hem arayüzü
+verir hem de `/api/...` isteklerini backend konteynerine (api:3000) **proxy'ler**.
+Bu sayede port/CORS ayarı GEREKMEZ ve her cihaz tek adresle çalışır.
+
+- Aynı ağdaki telefon/tablet/bilgisayar yalnızca şununla bağlanır:
+  - **Arayüz + API: `http://<sunucu-ip>/`** (örn. `http://192.168.1.50/`)
+- Yalnızca **80** portunu (web) güvenlik duvarında açmanız yeterlidir.
+  (API ayrıca `:3000`'de doğrudan erişilebilir — Swagger/hata ayıklama için
+  opsiyonel; arayüz bunu kullanmaz.)
+- Geliştirmede (vite dev) arayüz `:5173`, backend `:3000`'dedir; arayüz dev'de
+  otomatik `localhost:3000` API'sini kullanır.
+- Farklı bir API adresi şart ise derlemede `VITE_API_URL` verebilirsiniz, ama
+  normal kurulumda gerekmez.
 
 ## 5) İşletme/proje kimliği (ad, adres, logo)
 
