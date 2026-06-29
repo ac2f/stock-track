@@ -3,6 +3,24 @@
 Bu belge; geliştirme, üretim, kalıcı veritabanı, yerel ağ erişimi ve ilk kurulum
 adımlarını özetler.
 
+## 0) Tek komutla otomatik kurulum (en kolay)
+
+Tek ön koşul: **Docker** (Windows'ta Docker Desktop) kurulu ve çalışıyor olması.
+
+- **Windows:** `install.bat` dosyasına **çift tıklayın**.
+- **Linux / macOS:** depo kökünde `./install.sh` çalıştırın.
+
+Script şunları otomatik yapar: `backend/.env` + kök `.env` üretir, güçlü JWT
+secret'ları ve DB parolası atar, Postgres + API + Web servislerini derleyip
+başlatır. İlk **OWNER** hesabı API açılışında otomatik oluşur. Bitince ekrana
+erişim adresi ve giriş bilgileri yazılır.
+
+> Mevcut bir `backend/.env` varsa script onu **korur** (parolanız/secret'larınız
+> değişmez), yalnızca eksik kök `.env`'i yazar ve servisleri yeniden başlatır.
+> Güncelleme: `git pull` ardından tekrar script.
+
+Aşağıdaki bölümler, adımları elle yapmak isteyenler içindir.
+
 ## 1) Geliştirme (sadece veritabanı Docker'da)
 
 ```bash

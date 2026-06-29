@@ -126,6 +126,26 @@ uygulanır. Örnek için `modules/customers/customers.controller.ts`.
 
 ## Kurulum
 
+### ⚡ Tek komutla otomatik kurulum (önerilen)
+
+Tek ön koşul: **Docker** (Windows'ta Docker Desktop) kurulu ve çalışır olması.
+Script; `.env` dosyalarını üretir, güçlü secret'ları atar, tüm servisleri
+(Postgres + API + Web) derleyip başlatır ve ilk giriş hesabını otomatik oluşturur.
+
+**Windows:** `install.bat` dosyasına çift tıklayın.
+
+**Linux / macOS:**
+
+```bash
+./install.sh
+```
+
+Bitince ekrana arayüz adresi (`http://<ip>/`) ve giriş bilgileri yazılır.
+Güncellemek için: `git pull && ./install.sh` (Windows'ta tekrar `install.bat`).
+Ayrıntılı dağıtım/üretim notları: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+### Manuel (geliştirme) kurulum
+
 ```bash
 # 1) Bağımlılıklar
 cd backend && npm install
