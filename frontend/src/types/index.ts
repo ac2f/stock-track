@@ -280,6 +280,10 @@ export interface QuoteItemInput {
   heightMm?: number;
   lengthMeters?: number;
   stockSource?: 'business' | 'consignment_tracked' | 'third_party_untracked';
+  // Konsinye (sahibin malı) satışında sahip payı yöntemi.
+  ownerSettlement?: 'manual_amount' | 'commission_percent';
+  ownerAmount?: number;
+  commissionPercent?: number;
 }
 
 export interface QuoteItem extends QuoteItemInput {

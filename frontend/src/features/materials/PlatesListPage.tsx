@@ -133,8 +133,16 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
       (form.heightMm != null && form.heightMm > std.heightMm));
   const m2 = isArea ? areaM2(form.widthMm, form.heightMm) : null;
 
+  // #4 Tekli giriş kolaylığı: aynı özellikte N AYRI plaka kaydı (her biri 1 adet)
+  // tek seferde oluşturulur; listede toplu/grupla görüntülenebilir.
+  const [copies, setCopies] = useState(1);
   const createMut = useMutation({
-    mutationFn: createPlate,
+    mutationFn: async (input: CreatePlateInput) => {
+      const n = Math.max(1, Math.floor(copies) || 1);
+      for (let k = 0; k < n; k++) {
+        await createPlate({ ...input, quantityInStock: input.quantityInStock ?? 1 });
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plates'] });
       onClose();
@@ -375,9 +383,24 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         </>
       )}
 
+      {tpl && (
+        <Field
+          label="Kaç ayrı plaka oluşturulsun?"
+          hint="Her biri ayrı kayıt (kendi kalan ebadıyla) olarak oluşturulur; listede toplu/grupla görüntülenir."
+        >
+          <input
+            className="input w-28"
+            type="number"
+            min={1}
+            value={copies}
+            onChange={(e) => setCopies(Math.max(1, Number(e.target.value) || 1))}
+          />
+        </Field>
+      )}
+
       <div className="flex gap-2">
         <button className="btn-primary" disabled={!canSubmit} onClick={() => createMut.mutate(form)}>
-          Kaydet
+          {copies > 1 ? `${copies} plaka oluştur` : 'Kaydet'}
         </button>
         <button className="btn" onClick={onClose}>
           İptal

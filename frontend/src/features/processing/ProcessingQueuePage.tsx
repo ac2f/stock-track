@@ -6,8 +6,79 @@ import {
   setProcessingStatus,
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
+import { fetchSales, type Sale } from '../../api/sales.api';
 import { plateRemainingLabel } from '../../lib/plateLabel';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
+
+/** Bir satış kaleminin ölçüsü: tabaka ise m², değilse adet. */
+function saleItemMeasure(it: {
+  widthMm?: number | null;
+  heightMm?: number | null;
+  quantity: number;
+}): string {
+  const w = Number(it.widthMm);
+  const h = Number(it.heightMm);
+  if (w && h) {
+    const m2 = (w / 1000) * (h / 1000) * Number(it.quantity);
+    return `${m2.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} m²`;
+  }
+  return `${it.quantity} adet`;
+}
+
+/**
+ * #2 Malzeme satışları — üretim kuyruğu ekranında işleme işlerinin yanında
+ * malzeme satışları da görünür. Son 30 gün; her satış için fiş (yazdır) düğmesi.
+ */
+function RecentSales() {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const { data } = useQuery({
+    queryKey: ['sales', monthAgo, today],
+    queryFn: () => fetchSales({ from: monthAgo, to: today, page: 1, limit: 100 }),
+  });
+  const sales: Sale[] = data?.items ?? [];
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-semibold text-slate-500">
+        🧾 Malzeme satışları (son 30 gün)
+      </h2>
+      {sales.map((s) => (
+        <div key={s.id} className="card space-y-1">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">{s.buyerCustomer?.name ?? '—'}</p>
+              <p className="text-xs text-slate-500">{s.saleDate?.slice(0, 10)}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold">
+                {money.format(Number(s.saleTotal))}
+              </span>
+              <button
+                className="btn bg-slate-100 text-xs"
+                onClick={() => openPdf(`/sales/${s.id}/print`)}
+              >
+                Fiş
+              </button>
+            </div>
+          </div>
+          <ul className="text-xs text-slate-600">
+            {s.items.map((it, idx) => (
+              <li key={idx} className="flex justify-between">
+                <span>
+                  {it.plate?.name ?? '—'} · {saleItemMeasure(it)}
+                </span>
+                <span>{money.format(Number(it.lineTotal))}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {!sales.length && (
+        <p className="text-slate-400">Son 30 günde malzeme satışı yok.</p>
+      )}
+    </div>
+  );
+}
 
 const money = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -160,6 +231,8 @@ export function ProcessingQueuePage() {
           ))}
         </div>
       ))}
+
+      <RecentSales />
 
       <ProcessingHistory />
     </div>

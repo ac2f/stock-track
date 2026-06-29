@@ -27,6 +27,13 @@ export class SaleItem extends BaseEntity {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   quantity: number;
 
+  // Tabaka (AREA) satışında satılan ebat (mm) — fiş/raporda m² göstermek için.
+  @Column({ name: 'width_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  widthMm?: number | null;
+
+  @Column({ name: 'height_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  heightMm?: number | null;
+
   @Column({ name: 'unit_price', type: 'numeric', precision: 14, scale: 2 })
   unitPrice: number;
 

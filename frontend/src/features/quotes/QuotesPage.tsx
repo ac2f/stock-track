@@ -17,6 +17,7 @@ import {
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { plateLabel } from '../../lib/plateLabel';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
+import { CustomerPicker } from '../../components/CustomerPicker';
 import type { QuoteItemInput, QuoteStatus } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', {
@@ -301,14 +302,13 @@ function Field({
 
 function NewQuoteForm({ onDone }: { onDone: () => void }) {
   const [buyerCustomerId, setBuyer] = useState('');
+  // #3 Konsinye: satılan malzeme bir müşteriye aitse sahibi + komisyon %.
+  const [ownerCustomerId, setOwner] = useState('');
+  const [ownerCommission, setOwnerCommission] = useState('0');
   const [items, setItems] = useState<QuoteItemInput[]>([]);
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
 
-  const { data: customers } = useQuery({
-    queryKey: ['customers', 'all'],
-    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
-  });
   const { data: plates } = useQuery({
     queryKey: ['plates', 'all'],
     queryFn: () => fetchPlates({ page: 1, limit: 100 }),
@@ -361,20 +361,39 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="card space-y-3">
-      <Field label="Alıcı müşteri">
-        <select
-          className="input"
-          value={buyerCustomerId}
-          onChange={(e) => setBuyer(e.target.value)}
-        >
-          <option value="">Müşteri seçin…</option>
-          {customers?.items.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+      <Field label="Alıcı müşteri (ara)">
+        <CustomerPicker onChange={(id) => setBuyer(id)} />
       </Field>
+
+      {/* #3 Konsinye satış: malzeme bir müşteriye aitse, satış tutarı kadar onun
+          borcundan düşülür (komisyon % işletmede kalır). Boş = işletme stoğu. */}
+      <div className="rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+        <Field label="Malzeme sahibi — konsinye satış (opsiyonel)">
+          <CustomerPicker
+            placeholder="Sahibin malını satıyorsanız müşteriyi arayın…"
+            onChange={(id) => setOwner(id)}
+          />
+        </Field>
+        {ownerCustomerId && (
+          <div className="mt-2 flex items-end gap-2">
+            <Field label="İşletme komisyonu %" className="w-40">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                value={ownerCommission}
+                onChange={(e) => setOwnerCommission(e.target.value)}
+              />
+            </Field>
+            <p className="pb-2 text-xs text-slate-500">
+              Satış tutarının %{ownerCommission || 0} kadarı işletmede kalır,
+              kalanı sahibin borcundan düşülür. Ekstresinde "Malzeme satış payı"
+              görünür.
+            </p>
+          </div>
+        )}
+      </div>
 
       {items.map((item, i) => {
         const plate = plates?.items.find((p) => p.id === item.plateId);
@@ -587,12 +606,35 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
       <button
         className="btn-primary w-full"
         disabled={!canSubmit || createMut.isPending}
-        onClick={() => createMut.mutate({ buyerCustomerId, currency: 'TRY', items })}
+        onClick={() => {
+          // Konsinye sahibi seçiliyse SATIŞ kalemleri sahibin malı kabul edilir:
+          // tutar sahibe (komisyon hariç) yansır, borcundan düşülür.
+          const comm = Math.min(100, Math.max(0, Number(ownerCommission) || 0));
+          const mapped: QuoteItemInput[] = items.map((it) =>
+            it.lineKind === 'sale' && ownerCustomerId
+              ? {
+                  ...it,
+                  stockSource: 'consignment_tracked',
+                  ownerSettlement: 'commission_percent',
+                  commissionPercent: comm,
+                }
+              : it,
+          );
+          createMut.mutate({
+            buyerCustomerId,
+            ownerCustomerId: ownerCustomerId || undefined,
+            currency: 'TRY',
+            items: mapped,
+          });
+        }}
       >
         Teklif Oluştur
       </button>
       {createMut.isError && (
-        <p className="text-sm text-red-600">Teklif oluşturulamadı.</p>
+        <p className="text-sm text-red-600">
+          {(createMut.error as { response?: { data?: { message?: string } } })
+            ?.response?.data?.message ?? 'Teklif oluşturulamadı.'}
+        </p>
       )}
     </div>
   );

@@ -437,6 +437,8 @@ export class PlatesService {
     warehouseId: string;
     quantity: number;
     consumedHeightMm?: number | null;
+    /** Düşülecek m² (boy verilmediyse: kesim boyu = m²×1e6 / kalan en). */
+    areaM2?: number | null;
     ownerCustomerId?: string | null;
     manager: EntityManager;
     allowNegative?: boolean;
@@ -453,21 +455,27 @@ export class PlatesService {
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
     });
-    const cutHeight =
-      opts.consumedHeightMm != null
-        ? Number(opts.consumedHeightMm) * (quantity || 1)
-        : 0;
 
-    // Tabaka + geçerli kesim boyu → ebat (boy) düşür.
-    if (
-      plate &&
-      plate.measurementType === MeasurementType.AREA &&
-      cutHeight > 0
-    ) {
+    // TABAKA (AREA): stok DAİMA ebattan (m²) düşülür — adet yoluna hiç düşmez,
+    // böylece "Yetersiz stok (adet)" hatası AREA malzemede oluşamaz. Kesim boyu:
+    //  1) verilen kesim boyu × adet, yoksa
+    //  2) m² × 1e6 / kalan en, yoksa
+    //  3) kalan boyun tamamı (parça tüm tabakayı tüketir).
+    if (plate && plate.measurementType === MeasurementType.AREA) {
+      const width = Number(plate.widthMm) || 0;
+      let cutHeight = 0;
+      if (opts.consumedHeightMm != null && Number(opts.consumedHeightMm) > 0) {
+        cutHeight = Number(opts.consumedHeightMm) * (quantity || 1);
+      } else if (opts.areaM2 != null && Number(opts.areaM2) > 0 && width > 0) {
+        cutHeight = (Number(opts.areaM2) * 1_000_000) / width;
+      } else {
+        cutHeight = Number(plate.heightMm) || 0;
+      }
+      if (cutHeight <= 0) return 0; // düşülecek bir şey yok (hata verme)
       return this.reduceSheetHeight(plate, cutHeight, manager, allowNegative);
     }
 
-    // Diğer tüm durumlar: klasik adet düşüşü.
+    // AREA dışı: klasik adet düşüşü.
     await this.adjustStock(
       plateId,
       warehouseId,

@@ -181,6 +181,7 @@ export class ProcessingService {
         quantity,
         consumedHeightMm:
           billingUnit === MeasurementType.AREA ? heightMm : null,
+        areaM2: billingUnit === MeasurementType.AREA ? quantityValue : null,
         manager,
       });
       if (cut > 0) {
@@ -243,14 +244,19 @@ export class ProcessingService {
           job.exchangeRate = conv.rate;
         }
         if (!job.stockConsumed && job.warehouseId) {
-          if (job.billingUnit === MeasurementType.AREA) {
-            // Tabaka: kalan boy, işlenen parçanın boyu kadar düşülür (tam
-            // genişlikte şerit). Düşülen boy iptal için saklanır.
+          // Karar PLAKA tipine göre (job.billingUnit'e değil): TABAKA (AREA)
+          // malzemede stok her zaman m²/ebattan düşülür → "Yetersiz stok (adet)"
+          // hatası oluşmaz. AREA dışı malzemede mevcut kadar adet düşülür.
+          const plate = await manager.findOne(MaterialPlate, {
+            where: { id: job.plateId },
+          });
+          if (plate?.measurementType === MeasurementType.AREA) {
             const cut = await this.platesService.consume({
               plateId: job.plateId,
               warehouseId: job.warehouseId,
               quantity: Number(job.quantity),
               consumedHeightMm: job.heightMm != null ? Number(job.heightMm) : null,
+              areaM2: job.quantityValue != null ? Number(job.quantityValue) : null,
               manager,
             });
             job.consumedHeightMm = cut || null;
@@ -258,9 +264,6 @@ export class ProcessingService {
           } else {
             // İşletme stoğundan mevcut kadarını düş — yetersizse tamamlamayı
             // engelleme (örn. konsinye plakada işletme stoğu 0 olabilir).
-            const plate = await manager.findOne(MaterialPlate, {
-              where: { id: job.plateId },
-            });
             const available = plate
               ? Math.max(0, Number(plate.quantityInStock))
               : 0;

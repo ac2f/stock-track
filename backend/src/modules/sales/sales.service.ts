@@ -18,10 +18,11 @@ import {
   buildPaginatedResult,
   PaginatedResult,
 } from '../../common/dto/paginated-result';
-import { roundMoney } from '../../common/utils/area.util';
+import { roundMoney, totalAreaM2 } from '../../common/utils/area.util';
+import { MeasurementType } from '../../common/enums/measurement-type.enum';
+import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import {
   businessMarginOf,
-  lineTotalOf,
   ownerShareCommission,
   ownerShareManual,
 } from './sale-calc.util';
@@ -115,9 +116,17 @@ export class SalesService {
     const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
     const saleDate = dto.saleDate ? new Date(dto.saleDate) : new Date();
 
+    // Kalemlerin plakalarını yükle (m² bazlı fiyatlama ölçüm tipine göre yapılır).
+    const plateById = new Map<string, MaterialPlate>();
+    for (const it of dto.items) {
+      if (!plateById.has(it.plateId)) {
+        plateById.set(it.plateId, await this.platesService.findOne(it.plateId));
+      }
+    }
+
     // Kalem hesapları (işlem para biriminde).
     const computedItems = dto.items.map((item) =>
-      this.computeItem(item, !!dto.ownerCustomerId),
+      this.computeItem(item, !!dto.ownerCustomerId, plateById.get(item.plateId)),
     );
     const saleTotal = roundMoney(
       computedItems.reduce((s, i) => s + i.lineTotal, 0),
@@ -157,18 +166,22 @@ export class SalesService {
           )
       : null;
 
-    const items: SaleItem[] = dto.items.map((item, idx) =>
-      manager.create(SaleItem, {
+    const items: SaleItem[] = dto.items.map((item, idx) => {
+      const plate = plateById.get(item.plateId);
+      return manager.create(SaleItem, {
         plateId: item.plateId,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
+        // Tabaka satışında satılan ebadı kalemde sakla (fiş/raporda m² göstermek için).
+        widthMm: item.widthMm ?? plate?.widthMm ?? null,
+        heightMm: item.heightMm ?? plate?.heightMm ?? null,
         lineTotal: computedItems[idx].lineTotal,
         stockSource: item.stockSource,
         ownerSettlement: item.ownerSettlement ?? null,
         commissionPercent: item.commissionPercent ?? null,
         ownerAmount: computedItems[idx].ownerAmount,
-      }),
-    );
+      });
+    });
 
     const sale = manager.create(Sale, {
       buyerCustomerId: dto.buyerCustomerId,
@@ -269,12 +282,17 @@ export class SalesService {
     return sale;
   }
 
-  /** Bir kalemin satır toplamını ve (varsa) sahip payını hesaplar. */
+  /**
+   * Bir kalemin satır toplamını ve (varsa) sahip payını hesaplar. Tabaka (AREA)
+   * malzemede birim fiyat m² başına uygulanır: satır = (en×boy×adet m²) × birim fiyat.
+   * Böylece 1.000 TL/m²'den 1,5 m² satışta satır 1.500 TL olur (1.000 değil).
+   */
   private computeItem(
     item: SaleItemDto,
     hasOwner: boolean,
+    plate?: MaterialPlate,
   ): { lineTotal: number; ownerAmount: number } {
-    const lineTotal = lineTotalOf(item.quantity, item.unitPrice);
+    const lineTotal = this.lineTotalFor(item, plate);
 
     if (item.stockSource === SaleStockSource.BUSINESS) {
       return { lineTotal, ownerAmount: 0 };
@@ -310,5 +328,22 @@ export class SalesService {
       lineTotal,
       ownerAmount: ownerShareCommission(lineTotal, item.commissionPercent),
     };
+  }
+
+  /**
+   * Satır toplamı: tabaka (AREA) malzemede birim fiyat m² başına uygulanır;
+   * diğerlerinde (adet/metre/kg) doğrudan adet ile çarpılır. Satılan ebat kalemde
+   * verilmemişse plakanın (kalan) ebadı kullanılır. m² için ebat yoksa adet bazına
+   * güvenli geri dönüş yapılır.
+   */
+  private lineTotalFor(item: SaleItemDto, plate?: MaterialPlate): number {
+    const unit = plate?.measurementType ?? MeasurementType.PIECE;
+    const widthMm = item.widthMm ?? plate?.widthMm ?? null;
+    const heightMm = item.heightMm ?? plate?.heightMm ?? null;
+    if (unit === MeasurementType.AREA && widthMm && heightMm) {
+      const m2 = totalAreaM2(Number(widthMm), Number(heightMm), item.quantity);
+      return roundMoney(m2 * item.unitPrice);
+    }
+    return roundMoney(item.quantity * item.unitPrice);
   }
 }
