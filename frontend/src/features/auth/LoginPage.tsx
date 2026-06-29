@@ -17,8 +17,18 @@ export function LoginPage() {
     try {
       await login(email, password);
       navigate('/plates');
-    } catch {
-      setError('E-posta veya parola hatalı.');
+    } catch (err) {
+      const e = err as { response?: { status?: number } };
+      if (!e.response) {
+        // Yanıt yok → sunucuya/ağa ulaşılamadı (yanlış parola DEĞİL).
+        setError(
+          'Sunucuya (API) ulaşılamıyor. Backend çalışıyor mu / adres doğru mu kontrol edin.',
+        );
+      } else if (e.response.status === 401) {
+        setError('E-posta veya parola hatalı.');
+      } else {
+        setError(`Giriş başarısız (sunucu hatası ${e.response.status}).`);
+      }
     } finally {
       setBusy(false);
     }

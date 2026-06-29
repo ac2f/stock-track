@@ -21,6 +21,20 @@ erişim adresi ve giriş bilgileri yazılır.
 
 Aşağıdaki bölümler, adımları elle yapmak isteyenler içindir.
 
+### Sorun giderme: ".env'deki hesapla giriş yapılamıyor"
+
+Genellikle nedeni, **eski bir veritabanı volume'ünün** yeni kurulumla parola/şema
+uyuşmazlığıdır (örn. daha önce farklı bir parolayla kurulup volume silinmeden
+yeniden kurulması). Belirti: giriş ekranı "ulaşılamıyor" ya da "parola hatalı"
+der. Temiz başlangıç için (veritabanı SİLİNİR):
+
+```bash
+./install.sh --reset           # Windows: install.bat --reset
+```
+
+Script artık API hazır olana kadar bekler ve ilk hesabı görünür biçimde
+(idempotent) oluşturur; sorun varsa son API kayıtlarını ekrana basar.
+
 ## 1) Geliştirme (sadece veritabanı Docker'da)
 
 ```bash

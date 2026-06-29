@@ -1,19 +1,21 @@
 # ───────────────────────────────────────────────────────────────────────────
 # StockTrack ERP — TEK KOMUTLA otomatik kurulum (Windows / PowerShell)
 #
-#   Çift tıkla:  install.bat
-#   veya:        powershell -ExecutionPolicy Bypass -File install.ps1
+#   Çift tıkla:  install.bat                (normal kurulum/güncelleme)
+#   Sıfırlama :  install.bat --reset        (veritabanını SİLER, baştan kurar)
+#   veya:        powershell -ExecutionPolicy Bypass -File install.ps1 [-Reset]
 #
-# Docker Desktop kurulu ve ÇALIŞIR olmalıdır. Geri kalan her şeyi script halleder.
+# Docker Desktop kurulu ve ÇALIŞIR olmalıdır. Gerisini script halleder.
 # ───────────────────────────────────────────────────────────────────────────
+param([switch]$Reset)
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
 
 function Say($m) { Write-Host $m -ForegroundColor Cyan }
 function Ok($m)  { Write-Host "[OK] $m" -ForegroundColor Green }
+function Warn($m){ Write-Host "[!] $m" -ForegroundColor Yellow }
 function Fail($m){ Write-Host "[HATA] $m" -ForegroundColor Red }
 
-# UTF-8 (BOM'suz) dosya yazımı — Türkçe karakterler ve .env uyumu için.
 function Write-Utf8NoBom($path, $lines) {
   $enc = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllLines($path, $lines, $enc)
@@ -30,7 +32,7 @@ function Set-EnvValue($file, $key, $val) {
     if ($l -match "^$([regex]::Escape($key))=") { "$key=$val"; $done = $true } else { $l }
   }
   if (-not $done) { $out += "$key=$val" }
-  Write-Utf8NoBom $file $out
+  Write-Utf8NoBom $file @($out)
 }
 function Get-EnvValue($file, $key) {
   if (-not (Test-Path $file)) { return '' }
@@ -40,9 +42,12 @@ function Get-EnvValue($file, $key) {
   return ''
 }
 
+# --reset argümanı (bat üzerinden gelebilir)
+if ($args -contains '--reset') { $Reset = $true }
+
 Say 'StockTrack ERP - otomatik kurulum basliyor...'
 
-# 1) Docker kontrolu ────────────────────────────────────────────────────────
+# 1) Docker
 try { docker version | Out-Null } catch {
   Fail 'Docker bulunamadi. Docker Desktop kurun: https://www.docker.com/products/docker-desktop/'
   Read-Host 'Cikmak icin Enter'; exit 1
@@ -52,21 +57,28 @@ try { docker info | Out-Null } catch {
   Read-Host 'Cikmak icin Enter'; exit 1
 }
 Ok 'Docker hazir.'
+$prod = @('compose', '-f', 'docker-compose.prod.yml')
 
-# 2) backend/.env ───────────────────────────────────────────────────────────
+# 2) --reset
+if ($Reset) {
+  Warn '--reset: mevcut veritabani (volume) ve container''lar siliniyor...'
+  docker @prod down -v --remove-orphans 2>$null | Out-Null
+  Ok 'Eski durum temizlendi.'
+}
+
+# 3) backend/.env  (Postgres host'a acik degil → DB parolasi sabit; JWT rastgele)
 if (-not (Test-Path 'backend/.env')) {
   Copy-Item 'backend/.env.example' 'backend/.env'
   Set-EnvValue 'backend/.env' 'NODE_ENV' 'production'
   Set-EnvValue 'backend/.env' 'DB_SYNCHRONIZE' 'true'
   Set-EnvValue 'backend/.env' 'JWT_ACCESS_SECRET' (New-Secret)
   Set-EnvValue 'backend/.env' 'JWT_REFRESH_SECRET' (New-Secret)
-  Set-EnvValue 'backend/.env' 'DB_PASSWORD' (New-Secret 12)
-  Ok 'backend/.env uretildi (guclu secretlar atandi).'
+  Ok 'backend/.env uretildi (guclu JWT secretlari atandi).'
 } else {
   Ok 'backend/.env zaten var - korunuyor.'
 }
 
-# 3) Kok .env (compose Postgres parolasi = backend/.env) ─────────────────────
+# 4) Kok .env
 $dbPass = Get-EnvValue 'backend/.env' 'DB_PASSWORD'; if (-not $dbPass) { $dbPass = 'stocktrack' }
 $dbUser = Get-EnvValue 'backend/.env' 'DB_USERNAME'; if (-not $dbUser) { $dbUser = 'stocktrack' }
 $dbName = Get-EnvValue 'backend/.env' 'DB_NAME';     if (-not $dbName) { $dbName = 'stocktrack' }
@@ -78,19 +90,43 @@ Write-Utf8NoBom '.env' @(
 )
 Ok 'Kok .env yazildi.'
 
-# 4) Derle + baslat ─────────────────────────────────────────────────────────
+# 5) Derle + baslat
 Say 'Imajlar derleniyor ve servisler baslatiliyor (ilk sefer birkac dakika surebilir)...'
-docker compose -f docker-compose.prod.yml up -d --build
+docker @prod up -d --build
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose basarisiz oldu.'; Read-Host 'Cikmak icin Enter'; exit 1 }
-Ok 'Servisler ayakta.'
+Ok 'Container''lar baslatildi.'
 
-# 5) Erisim bilgisi ─────────────────────────────────────────────────────────
+# 6) API hazir olana kadar bekle
+Say "API'nin hazir olmasi bekleniyor..."
+$ready = $false
+for ($i = 0; $i -lt 60; $i++) {
+  try {
+    $r = Invoke-WebRequest -Uri 'http://localhost:3000/api/v1/health' -UseBasicParsing -TimeoutSec 3
+    if ($r.StatusCode -eq 200) { $ready = $true; break }
+  } catch { Start-Sleep -Seconds 2 }
+}
+
 $ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
   Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
   Sort-Object InterfaceMetric | Select-Object -First 1).IPAddress
 if (-not $ip) { $ip = 'localhost' }
 $oEmail = Get-EnvValue 'backend/.env' 'SEED_OWNER_EMAIL';    if (-not $oEmail) { $oEmail = 'owner@stocktrack.local' }
 $oPass  = Get-EnvValue 'backend/.env' 'SEED_OWNER_PASSWORD'; if (-not $oPass)  { $oPass  = 'Owner123!' }
+
+if (-not $ready) {
+  Fail 'API beklenen surede yanit vermedi. Son API kayitlari:'
+  docker @prod logs --tail 40 api
+  Write-Host ''
+  Write-Host 'Ipucu: DB parolasi eski bir volume ile uyusmuyorsa, SIFIRLAYIP yeniden kurun:' -ForegroundColor Yellow
+  Write-Host '  install.bat --reset      (veritabanini siler)' -ForegroundColor Yellow
+  Read-Host 'Cikmak icin Enter'; exit 1
+}
+Ok 'API hazir.'
+
+# 7b) Ilk hesap/varsayilanlari kesinlestir (idempotent + gorunur)
+Say 'Ilk kullanici ve varsayilanlar kontrol ediliyor...'
+docker @prod run --rm api node dist/database/seed.js
+if ($LASTEXITCODE -ne 0) { Warn 'Tohumlama adimi uyari verdi - yukaridaki kayitlara bakin.' }
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
@@ -100,6 +136,6 @@ Write-Host " API    : http://$ip`:3000/api"
 Write-Host " Giris  : $oEmail  /  $oPass"
 Write-Host '------------------------------------------------------------' -ForegroundColor Green
 Write-Host ' Durdur : docker compose -f docker-compose.prod.yml down'
-Write-Host ' Baslat : docker compose -f docker-compose.prod.yml up -d'
+Write-Host ' Sifirla: install.bat --reset   (veritabanini siler)'
 Write-Host '============================================================' -ForegroundColor Green
 Read-Host 'Kapatmak icin Enter'
