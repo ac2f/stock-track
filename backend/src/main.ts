@@ -50,7 +50,9 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup(`${appConfig.globalPrefix}/docs`, app, document);
 
-  await app.listen(appConfig.port);
+  // Tüm ağ arayüzlerinden (0.0.0.0) dinle → yerel ağdaki diğer cihazlar
+  // (telefon/tablet/başka bilgisayar) http://<sunucu-ip>:<port> ile bağlanabilir.
+  await app.listen(appConfig.port, '0.0.0.0');
 }
 
 void bootstrap();

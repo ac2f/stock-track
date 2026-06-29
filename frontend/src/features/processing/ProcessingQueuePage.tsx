@@ -7,7 +7,7 @@ import {
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
 import { plateRemainingLabel } from '../../lib/plateLabel';
-import type { ProcessingStatus } from '../../types';
+import type { ProcessingJob, ProcessingStatus } from '../../types';
 
 const money = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -108,11 +108,20 @@ export function ProcessingQueuePage() {
   });
 
   const mut = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: ProcessingStatus }) =>
-      setProcessingStatus(id, status),
+    mutationFn: ({
+      id,
+      status,
+      finalAmount,
+    }: {
+      id: string;
+      status: ProcessingStatus;
+      finalAmount?: number;
+    }) => setProcessingStatus(id, status, finalAmount),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['queue'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
+      // İptalde tabaka kalan ebadı, tamamlamada stok değişir → stok listesi tazelensin.
+      qc.invalidateQueries({ queryKey: ['plates'] });
     },
   });
 
@@ -140,74 +149,115 @@ export function ProcessingQueuePage() {
             🛠️ {group.machineName}
           </h2>
           {group.jobs.map((job) => (
-            <div key={job.id} className="card space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{job.plate?.name ?? '—'}</p>
-                  <p className="text-sm text-slate-500">
-                    {job.customer?.name ?? 'Müşterisiz'} ·{' '}
-                    {job.quantityValue} {unitLabel[job.billingUnit] ?? ''}
-                  </p>
-                  {job.plate && plateRemainingLabel(job.plate) && (
-                    <p className="text-xs text-slate-400">
-                      {plateRemainingLabel(job.plate)}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-xs ${
-                      job.status === 'in_progress'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-amber-100 text-amber-700'
-                    }`}
-                  >
-                    {job.status === 'in_progress' ? 'İşleniyor' : 'Bekliyor'}
-                  </span>
-                  <p className="mt-1 font-semibold">
-                    {money.format(job.totalCost)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {job.status === 'pending' && (
-                  <button
-                    className="btn bg-blue-600 text-white"
-                    disabled={mut.isPending}
-                    onClick={() =>
-                      mut.mutate({ id: job.id, status: 'in_progress' })
-                    }
-                  >
-                    Başlat
-                  </button>
-                )}
-                <button
-                  className="btn bg-emerald-600 text-white"
-                  disabled={mut.isPending}
-                  onClick={() => mut.mutate({ id: job.id, status: 'completed' })}
-                >
-                  Tamamla
-                </button>
-                <button
-                  className="btn bg-slate-100"
-                  disabled={mut.isPending}
-                  onClick={() => mut.mutate({ id: job.id, status: 'cancelled' })}
-                >
-                  İptal
-                </button>
-                <button
-                  className="btn bg-slate-100"
-                  onClick={() => openPdf(`/processing/${job.id}/print`)}
-                >
-                  Fiş
-                </button>
-              </div>
-            </div>
+            <QueueJobCard
+              key={job.id}
+              job={job}
+              pending={mut.isPending}
+              onAction={(status, finalAmount) =>
+                mut.mutate({ id: job.id, status, finalAmount })
+              }
+            />
           ))}
         </div>
       ))}
 
       <ProcessingHistory />
+    </div>
+  );
+}
+
+/**
+ * Kuyruktaki tek iş kartı. "Tamamla"da iş bitiminde müşteriyle pazarlık edilen
+ * NİHAİ fiyat girilebilir; girilirse faturalama o tutar üzerinden yapılır ve işin
+ * güncel ücreti olarak görünür. Boş bırakılırsa hesaplanan ücret kullanılır.
+ */
+function QueueJobCard({
+  job,
+  pending,
+  onAction,
+}: {
+  job: ProcessingJob;
+  pending: boolean;
+  onAction: (status: ProcessingStatus, finalAmount?: number) => void;
+}) {
+  const [finalPrice, setFinalPrice] = useState('');
+  const remaining = job.plate && plateRemainingLabel(job.plate);
+  return (
+    <div className="card space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-medium">{job.plate?.name ?? '—'}</p>
+          <p className="text-sm text-slate-500">
+            {job.customer?.name ?? 'Müşterisiz'} · {job.quantityValue}{' '}
+            {unitLabel[job.billingUnit] ?? ''}
+          </p>
+          {remaining && <p className="text-xs text-slate-400">{remaining}</p>}
+        </div>
+        <div className="text-right">
+          <span
+            className={`inline-block rounded-full px-2 py-0.5 text-xs ${
+              job.status === 'in_progress'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-amber-100 text-amber-700'
+            }`}
+          >
+            {job.status === 'in_progress' ? 'İşleniyor' : 'Bekliyor'}
+          </span>
+          <p className="mt-1 font-semibold">{money.format(job.totalCost)}</p>
+        </div>
+      </div>
+
+      {/* İş bitimi pazarlık fiyatı (opsiyonel) */}
+      <div className="flex items-center gap-2">
+        <input
+          className="input w-40"
+          type="number"
+          min={0}
+          placeholder={`Nihai fiyat (ops.) ${money.format(job.totalCost)}`}
+          value={finalPrice}
+          onChange={(e) => setFinalPrice(e.target.value)}
+        />
+        <span className="text-xs text-slate-400">
+          Boş = hesaplanan ücret
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {job.status === 'pending' && (
+          <button
+            className="btn bg-blue-600 text-white"
+            disabled={pending}
+            onClick={() => onAction('in_progress')}
+          >
+            Başlat
+          </button>
+        )}
+        <button
+          className="btn bg-emerald-600 text-white"
+          disabled={pending}
+          onClick={() =>
+            onAction(
+              'completed',
+              finalPrice !== '' ? Number(finalPrice) : undefined,
+            )
+          }
+        >
+          Tamamla
+        </button>
+        <button
+          className="btn bg-slate-100"
+          disabled={pending}
+          onClick={() => onAction('cancelled')}
+        >
+          İptal
+        </button>
+        <button
+          className="btn bg-slate-100"
+          onClick={() => openPdf(`/processing/${job.id}/print`)}
+        >
+          Fiş
+        </button>
+      </div>
     </div>
   );
 }

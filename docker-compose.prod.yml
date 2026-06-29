@@ -1,0 +1,62 @@
+# ───────────────────────────────────────────────────────────────────────────
+# ÜRETİM (production) bileşimi: PostgreSQL + API (NestJS) + Web (statik, nginx).
+#
+# Çalıştırma:
+#   1) cp backend/.env.example backend/.env   ve değerleri düzenleyin
+#      (güçlü JWT secret'ları, DB parolası; DB_SYNCHRONIZE=true — migration yoksa).
+#   2) docker compose -f docker-compose.prod.yml up -d --build
+#   3) İlk kurulum tohumlaması (yalnızca BİR kez — OWNER + varsayılanlar):
+#        docker compose -f docker-compose.prod.yml run --rm api node dist/database/seed.js
+#
+# Erişim (yerel ağ):  Web → http://<sunucu-ip>/    API → http://<sunucu-ip>:3000/api
+# ───────────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stocktrack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-stocktrack}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-stocktrack}
+      POSTGRES_DB: ${DB_NAME:-stocktrack}
+    volumes:
+      # KALICI veritabanı (named volume). Windows'ta klasör bağlamak için
+      # docker-compose.yml içindeki örneğe bakın.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-stocktrack}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: stocktrack-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+    ports:
+      - '3000:3000'
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Boş → istemci API'yi window host'unun 3000 portunda varsayar (LAN için
+        # pratik). Sabit adres için: VITE_API_URL=http://sunucu-ip:3000/api/v1
+        VITE_API_URL: ${VITE_API_URL:-}
+    container_name: stocktrack-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '80:80'
+
+volumes:
+  pgdata:

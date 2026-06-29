@@ -1,6 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
+import { fetchBusinessSettings } from '../api/settings.api';
+import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
 import type { UserRole } from '../types';
 
 interface NavItem {
@@ -19,7 +22,27 @@ const NAV: NavItem[] = [
   { to: '/expenses', label: 'Gider', icon: '🧾', roles: ['owner'] },
   { to: '/employees', label: 'Personel', icon: '👥', roles: ['owner'] },
   { to: '/reports', label: 'Rapor', icon: '📊', roles: ['owner'] },
+  { to: '/settings', label: 'Ayarlar', icon: '⚙️', roles: ['owner'] },
 ];
+
+/** Açık/karanlık tema düğmesi (seçim localStorage'da tutulur). */
+function ThemeToggle({ className = '' }: { className?: string }) {
+  const [theme, setTheme] = useState<Theme>(() => resolveInitialTheme());
+  const toggle = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    setTheme(next);
+  };
+  return (
+    <button
+      onClick={toggle}
+      title={theme === 'dark' ? 'Açık temaya geç' : 'Karanlık temaya geç'}
+      className={`btn bg-slate-100 ${className}`}
+    >
+      {theme === 'dark' ? '☀️ Açık' : '🌙 Karanlık'}
+    </button>
+  );
+}
 
 /**
  * Mobil öncelikli kabuk:
@@ -31,29 +54,46 @@ export function ResponsiveLayout() {
   const { user, hasRole, logout } = useAuth();
   const visible = NAV.filter((n) => !n.roles || hasRole(...n.roles));
 
+  // İşletme adı → marka + sekme başlığı (Ayarlar ekranından düzenlenir).
+  const { data: business } = useQuery({
+    queryKey: ['settings', 'business'],
+    queryFn: fetchBusinessSettings,
+    staleTime: 5 * 60_000,
+  });
+  const brandName = business?.name || 'StockTrack';
+  useEffect(() => {
+    document.title = `${brandName} ERP`;
+  }, [brandName]);
+
   return (
     <div className="flex min-h-full flex-col md:flex-row">
       {/* Masaüstü sidebar */}
       <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white p-4 md:block">
-        <Brand />
+        <Brand name={brandName} />
         <nav className="mt-6 space-y-1">
           {visible.map((item) => (
             <SideLink key={item.to} item={item} />
           ))}
         </nav>
-        <button
-          onClick={logout}
-          className="btn mt-6 w-full text-slate-500 hover:text-slate-900"
-        >
-          Çıkış
-        </button>
+        <div className="mt-6 space-y-2">
+          <ThemeToggle className="w-full" />
+          <button
+            onClick={logout}
+            className="btn w-full text-slate-500 hover:text-slate-900"
+          >
+            Çıkış
+          </button>
+        </div>
       </aside>
 
       {/* İçerik */}
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-          <Brand />
-          <span className="text-xs text-slate-500">{user?.fullName}</span>
+          <Brand name={brandName} />
+          <div className="flex items-center gap-2">
+            <ThemeToggle className="px-2 text-xs" />
+            <span className="text-xs text-slate-500">{user?.fullName}</span>
+          </div>
         </header>
 
         <main className="flex-1 p-4 pb-24 md:pb-4">
@@ -62,7 +102,7 @@ export function ResponsiveLayout() {
       </div>
 
       {/* Mobil bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t border-slate-200 bg-white pb-safe-bottom md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-10 flex overflow-x-auto border-t border-slate-200 bg-white pb-safe-bottom md:hidden">
         {visible.map((item) => (
           <BottomLink key={item.to} item={item} />
         ))}
@@ -71,10 +111,10 @@ export function ResponsiveLayout() {
   );
 }
 
-function Brand() {
+function Brand({ name }: { name: string }) {
   return (
     <div className="text-lg font-bold tracking-tight text-slate-900">
-      Stock<span className="text-slate-400">Track</span>
+      {name}
     </div>
   );
 }
@@ -102,7 +142,7 @@ function BottomLink({ item }: { item: NavItem }) {
     <NavLink
       to={item.to}
       className={({ isActive }) =>
-        `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${
+        `flex min-w-[64px] flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${
           isActive ? 'text-slate-900' : 'text-slate-400'
         }`
       }

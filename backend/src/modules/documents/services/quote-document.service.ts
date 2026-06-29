@@ -1,9 +1,8 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BusinessConfig } from '../../../config/configuration';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import { SettingsService } from '../../settings/settings.service';
 import { QuoteLineKind, QuoteStatus } from '../../../common/enums/quote-status.enum';
 import { computeQuantityValue } from '../../processing/processing-calc.util';
 import { QuotesService } from '../../quotes/services/quotes.service';
@@ -32,14 +31,12 @@ const UNIT_LABELS: Record<MeasurementType, string> = {
  */
 @Injectable()
 export class QuoteDocumentService {
-  private readonly business: BusinessConfig;
   private readonly money: Intl.NumberFormat;
 
   constructor(
     private readonly quotesService: QuotesService,
-    configService: ConfigService,
+    private readonly settings: SettingsService,
   ) {
-    this.business = configService.get<BusinessConfig>('business')!;
     this.money = new Intl.NumberFormat('tr-TR', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -48,6 +45,7 @@ export class QuoteDocumentService {
 
   /** Teklifin düzenlenebilir şablondan üretilmiş yazdırılabilir HTML'i. */
   async quoteHtml(quoteId: string): Promise<string> {
+    const business = await this.settings.getBusiness();
     const q = await this.quotesService.findOne(quoteId);
     const tpl = this.loadTemplate();
     const c = q.buyerCustomer;
@@ -57,9 +55,9 @@ export class QuoteDocumentService {
       .join('\n');
 
     const map: Record<string, string> = {
-      businessName: esc(this.business.name || 'StockTrack'),
-      businessPhone: esc(this.business.phone || ''),
-      businessAddress: esc(this.business.address || ''),
+      businessName: esc(business.name || 'StockTrack'),
+      businessPhone: esc(business.phone || ''),
+      businessAddress: esc(business.address || ''),
       quoteNo: esc(q.quoteNo),
       date: this.date(q.createdAt),
       validUntil: q.validUntil ? this.date(q.validUntil) : '—',

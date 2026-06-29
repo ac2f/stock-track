@@ -36,9 +36,11 @@ export async function fetchProcessingHistory(
 export async function setProcessingStatus(
   id: string,
   status: ProcessingStatus,
+  finalAmount?: number,
 ): Promise<ProcessingJob> {
   const { data } = await api.patch<ProcessingJob>(`/processing/${id}/status`, {
     status,
+    ...(finalAmount != null ? { finalAmount } : {}),
   });
   return data;
 }

@@ -5,6 +5,7 @@ import { QuotesModule } from '../quotes/quotes.module';
 import { CustomersModule } from '../customers/customers.module';
 import { ReportsModule } from '../reports/reports.module';
 import { ExpensesModule } from '../expenses/expenses.module';
+import { SettingsModule } from '../settings/settings.module';
 import { DocumentsController } from './documents.controller';
 import { ExportService } from './services/export.service';
 import { QuoteDocumentService } from './services/quote-document.service';
@@ -23,6 +24,7 @@ import { DocumentHtmlService } from './services/document-html.service';
     CustomersModule,
     ReportsModule,
     ExpensesModule,
+    SettingsModule,
   ],
   controllers: [DocumentsController],
   providers: [ExportService, QuoteDocumentService, DocumentHtmlService],

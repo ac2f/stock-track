@@ -9,7 +9,7 @@
     height: 100%;
   }
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
   }
 }
 
@@ -19,12 +19,69 @@
     @apply inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-sm font-medium transition active:scale-[0.98];
   }
   .btn-primary {
-    @apply btn bg-slate-900 text-white hover:bg-slate-800;
+    @apply btn bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500;
   }
   .card {
-    @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm;
+    @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800;
   }
   .input {
-    @apply min-h-[44px] w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-slate-900;
+    @apply min-h-[44px] w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-blue-500;
   }
+}
+
+/*
+ * Karanlık tema: bileşenlerin çoğu doğrudan Tailwind nötr renklerini (bg-white,
+ * text-slate-900, border-slate-200 …) kullandığından, her bileşeni elle
+ * düzenlemek yerine bu yaygın YÜZEY/METİN/KENARLIK utility'leri .dark kapsamında
+ * yeniden eşlenir. Renkli rozetler (emerald/blue/amber…) bilinçli olarak
+ * dokunulmadan bırakılır; açık renk rozetler koyu zeminde de okunur kalır.
+ */
+.dark .bg-white {
+  background-color: #1e293b;
+}
+.dark .bg-slate-50 {
+  background-color: #0f172a;
+}
+.dark .bg-slate-100 {
+  background-color: #334155;
+}
+.dark .bg-slate-200 {
+  background-color: #334155;
+}
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155;
+}
+.dark .hover\:bg-slate-800:hover {
+  background-color: #0f172a;
+}
+
+.dark .text-slate-900 {
+  color: #e2e8f0;
+}
+.dark .text-slate-800 {
+  color: #e2e8f0;
+}
+.dark .text-slate-700 {
+  color: #cbd5e1;
+}
+.dark .text-slate-600 {
+  color: #cbd5e1;
+}
+.dark .text-slate-500 {
+  color: #94a3b8;
+}
+.dark .text-slate-400 {
+  color: #64748b;
+}
+.dark .hover\:text-slate-900:hover {
+  color: #e2e8f0;
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #334155;
+}
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155;
 }

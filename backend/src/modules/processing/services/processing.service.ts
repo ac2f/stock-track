@@ -209,7 +209,11 @@ export class ProcessingService {
    *    (billOnCompletion) cariye DEBIT olarak yazar; completedAt damgalar.
    *  - CANCELLED → tüketilen stoğu iade eder; yazılmış borcu CREDIT ile geri alır.
    */
-  async setStatus(id: string, status: ProcessingStatus): Promise<ProcessingJob> {
+  async setStatus(
+    id: string,
+    status: ProcessingStatus,
+    opts: { finalAmount?: number } = {},
+  ): Promise<ProcessingJob> {
     return this.dataSource.transaction(async (manager) => {
       const job = await manager.findOne(ProcessingJob, {
         where: { id },
@@ -221,6 +225,23 @@ export class ProcessingService {
       }
 
       if (status === ProcessingStatus.COMPLETED) {
+        // İş bitiminde pazarlıkla belirlenen nihai tutar verildiyse, işin
+        // ücretini güncelle; faturalama bu yeni tutar üzerinden yapılır.
+        if (opts.finalAmount != null) {
+          const final = roundMoney(opts.finalAmount);
+          job.totalCost = final;
+          job.laborCost = roundMoney(
+            Math.max(0, final - Number(job.extraCost)),
+          );
+          const conv = await this.currencyService.convert(
+            final,
+            job.currency,
+            this.currencyService.baseCurrency,
+            new Date(),
+          );
+          job.baseTotalCost = conv.amount;
+          job.exchangeRate = conv.rate;
+        }
         if (!job.stockConsumed && job.warehouseId) {
           if (job.billingUnit === MeasurementType.AREA) {
             // Tabaka: kalan boy, işlenen parçanın boyu kadar düşülür (tam

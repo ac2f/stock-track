@@ -10,7 +10,22 @@ services:
     ports:
       - '5432:5432'
     volumes:
+      # Veritabanı KALICI: 'pgdata' adlı Docker volume'ünde tutulur; container
+      # silinse bile veriler korunur (yalnızca `docker compose down -v` siler).
       - pgdata:/var/lib/postgresql/data
+      #
+      # ── Windows'ta belirli bir klasörü volume olarak kullanmak ──
+      # Yukarıdaki satırı yoruma alıp aşağıdakilerden BİRİNİ açın. Böylece
+      # veritabanı dosyaları seçtiğiniz klasörde fiziksel olarak durur:
+      #
+      #   - 'C:/stocktrack/pgdata:/var/lib/postgresql/data'
+      # veya (PowerShell mutlak yol):
+      #   - '//c/Users/Kullanici/stocktrack/pgdata:/var/lib/postgresql/data'
+      #
+      # Notlar:
+      #   * Docker Desktop > Settings > Resources > File Sharing içinde ilgili
+      #     sürücü/dizin paylaşıma açık olmalı.
+      #   * Klasör önceden var olmalı; yol ileri eğik çizgi (/) ile yazılmalı.
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-stocktrack}']
       interval: 10s
@@ -34,4 +49,6 @@ services:
     # Stateless olduğu için her replika bağımsızdır.
 
 volumes:
+  # Adlandırılmış kalıcı volume (Docker yönetir). Windows'ta klasör bağlamak
+  # isterseniz yukarıdaki postgres > volumes yorumlarına bakın.
   pgdata:

@@ -13,6 +13,7 @@ import { PortalPage } from './features/portal/PortalPage';
 import { EmployeesPage } from './features/employees/EmployeesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
+import { SettingsPage } from './features/settings/SettingsPage';
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -89,6 +90,15 @@ export default function App() {
               fallback={<Placeholder title="Yetkisiz" />}
             >
               <DashboardPage />
+            </RoleGate>
+          }
+        />
+        {/* Ayarlar (işletme/proje kimliği) yalnızca İşletme Sahibi. */}
+        <Route
+          path="/settings"
+          element={
+            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+              <SettingsPage />
             </RoleGate>
           }
         />

@@ -56,6 +56,8 @@ export class ProcessingController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateProcessingStatusDto,
   ) {
-    return this.processingService.setStatus(id, dto.status);
+    return this.processingService.setStatus(id, dto.status, {
+      finalAmount: dto.finalAmount,
+    });
   }
 }

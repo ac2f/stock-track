@@ -1,6 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BusinessConfig } from '../../../config/configuration';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { SalesService } from '../../sales/sales.service';
@@ -9,6 +7,10 @@ import { CustomersService } from '../../customers/services/customers.service';
 import { ExpensesService } from '../../expenses/expenses.service';
 import { FinancialReportsService } from '../../reports/services/financial-reports.service';
 import { QueryExpenseDto } from '../../expenses/dto/expense.dto';
+import {
+  ResolvedBusiness,
+  SettingsService,
+} from '../../settings/settings.service';
 
 const LEDGER_SOURCE_LABELS: Record<string, string> = {
   [LedgerSourceType.OPENING]: 'Açılış',
@@ -49,7 +51,6 @@ interface Section {
  */
 @Injectable()
 export class DocumentHtmlService {
-  private readonly business: BusinessConfig;
   private readonly money: Intl.NumberFormat;
 
   constructor(
@@ -58,9 +59,8 @@ export class DocumentHtmlService {
     private readonly customersService: CustomersService,
     private readonly expensesService: ExpensesService,
     private readonly financialReports: FinancialReportsService,
-    configService: ConfigService,
+    private readonly settings: SettingsService,
   ) {
-    this.business = configService.get<BusinessConfig>('business')!;
     this.money = new Intl.NumberFormat('tr-TR', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -69,6 +69,7 @@ export class DocumentHtmlService {
 
   // ── Satış faturası ──────────────────────────────────────────────────
   async saleHtml(saleId: string): Promise<string> {
+    const business = await this.settings.getBusiness();
     const sale = await this.salesService.findOne(saleId);
     const rows = (sale.items ?? []).map((it) => [
       it.plate?.name ?? it.plateId.slice(0, 8),
@@ -91,6 +92,7 @@ export class DocumentHtmlService {
     ]);
 
     return this.layout({
+      business,
       docTitle: 'SATIŞ FATURASI',
       pageTitle: `Satış ${sale.id.slice(0, 8)}`,
       meta: [
@@ -111,6 +113,7 @@ export class DocumentHtmlService {
 
   // ── İşleme fişi ─────────────────────────────────────────────────────
   async processingHtml(jobId: string): Promise<string> {
+    const business = await this.settings.getBusiness();
     const job = await this.processingService.findOne(jobId);
     const customer = job.customerId
       ? await this.customersService.findOne(job.customerId)
@@ -125,6 +128,7 @@ export class DocumentHtmlService {
     foot.push(['Genel toplam', this.cur(Number(job.totalCost), job.currency)]);
 
     return this.layout({
+      business,
       docTitle: 'İŞLEME FİŞİ',
       pageTitle: `İşleme ${job.id.slice(0, 8)}`,
       meta: [
@@ -152,6 +156,7 @@ export class DocumentHtmlService {
 
   // ── Cari hesap ekstresi ─────────────────────────────────────────────
   async customerStatementHtml(customerId: string): Promise<string> {
+    const business = await this.settings.getBusiness();
     const customer = await this.customersService.findOne(customerId);
     const ledger = await this.customersService.getLedger(customerId);
     const rows = [...ledger].reverse().map((e) => {
@@ -167,6 +172,7 @@ export class DocumentHtmlService {
     });
 
     return this.layout({
+      business,
       docTitle: 'CARİ HESAP EKSTRESİ',
       pageTitle: `Ekstre ${customer.name}`,
       meta: [['Tarih', this.date(new Date())]],
@@ -181,7 +187,7 @@ export class DocumentHtmlService {
               'Güncel bakiye',
               this.cur(
                 Number(customer.currentBalance),
-                this.business.defaultCurrency,
+                business.defaultCurrency,
               ),
             ],
           ],
@@ -192,6 +198,7 @@ export class DocumentHtmlService {
 
   // ── Gider raporu ────────────────────────────────────────────────────
   async expensesReportHtml(query: QueryExpenseDto): Promise<string> {
+    const business = await this.settings.getBusiness();
     const list = await this.expensesService.findExpenses({
       ...query,
       page: 1,
@@ -212,9 +219,7 @@ export class DocumentHtmlService {
         headers: ['Tarih', 'Tür', 'İş / Proje', 'Açıklama', 'Tutar'],
         aligns: ['left', 'left', 'left', 'left', 'right'],
         rows,
-        foot: [
-          ['Toplam', this.cur(summary.total, this.business.defaultCurrency)],
-        ],
+        foot: [['Toplam', this.cur(summary.total, business.defaultCurrency)]],
       },
     ];
     if (summary.byCategory.length) {
@@ -230,6 +235,7 @@ export class DocumentHtmlService {
     }
 
     return this.layout({
+      business,
       docTitle: 'GİDER RAPORU',
       pageTitle: 'Gider Raporu',
       meta: [['Dönem', this.period(query.from, query.to)]],
@@ -240,11 +246,12 @@ export class DocumentHtmlService {
 
   // ── Mali rapor (kâr/zarar + yaşlandırma) ────────────────────────────
   async financialReportHtml(from?: string, to?: string): Promise<string> {
+    const business = await this.settings.getBusiness();
     const fromDate = from ? new Date(from) : undefined;
     const toDate = to ? new Date(to) : undefined;
     const pl = await this.financialReports.profitLoss(fromDate, toDate);
     const aging = await this.financialReports.aging(undefined, toDate);
-    const cur = this.business.defaultCurrency;
+    const cur = business.defaultCurrency;
 
     const plRows: [string, number][] = [
       ['İşleme geliri', pl.processingRevenue],
@@ -293,6 +300,7 @@ export class DocumentHtmlService {
     }
 
     return this.layout({
+      business,
       docTitle: 'MALİ RAPOR',
       pageTitle: 'Mali Rapor',
       meta: [['Dönem', this.period(from, to)]],
@@ -303,6 +311,7 @@ export class DocumentHtmlService {
 
   // ── Ortak HTML düzeni ───────────────────────────────────────────────
   private layout(opts: {
+    business: ResolvedBusiness;
     docTitle: string;
     pageTitle: string;
     meta: [string, string][];
@@ -371,9 +380,9 @@ export class DocumentHtmlService {
     <div class="sheet">
       <div class="head">
         <div>
-          <h1>${esc(this.business.name || 'StockTrack')}</h1>
-          <div class="muted">${esc(this.business.phone || '')}</div>
-          <div class="muted">${esc(this.business.address || '')}</div>
+          <h1>${esc(opts.business.name || 'StockTrack')}</h1>
+          <div class="muted">${esc(opts.business.phone || '')}</div>
+          <div class="muted">${esc(opts.business.address || '')}</div>
         </div>
         <div class="meta">
           <div style="font-size:16px;font-weight:700;">${esc(opts.docTitle)}</div>

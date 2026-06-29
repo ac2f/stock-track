@@ -5,7 +5,17 @@ import axios, {
 } from 'axios';
 import type { ApiEnvelope } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
+/**
+ * API taban adresi. Öncelik: VITE_API_URL (derleme zamanı). Tanımsızsa, arayüze
+ * hangi host üzerinden erişiliyorsa backend de o host'ta (3000) varsayılır —
+ * böylece yerel ağdaki bir telefon http://192.168.x.x:5173 ile açtığında API
+ * çağrıları otomatik http://192.168.x.x:3000'e gider (localhost'a sabitlenmez).
+ */
+const API_URL =
+  import.meta.env.VITE_API_URL ??
+  (typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:3000/api/v1`
+    : 'http://localhost:3000/api/v1');
 
 const ACCESS_KEY = 'st_access';
 const REFRESH_KEY = 'st_refresh';
