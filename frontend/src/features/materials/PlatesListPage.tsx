@@ -43,18 +43,23 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
+/**
+ * Tür Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik
+ * kısımlar "—" ile gösterilir. Başa malzeme türü (Pleksi, Dekota…) eklenir.
+ */
 function buildCatalogName(
+  type: string | undefined,
   brand: { name: string } | undefined,
   color: { name: string; code?: string } | undefined,
   size: { widthMm: number; heightMm: number } | undefined,
   thickness: { valueMm: number } | undefined,
 ): string {
+  const typePart = type?.trim() ? `${type.trim()} ` : '';
   const brandPart = brand?.name ?? '—';
   const colorPart = color ? (color.code ? `${color.name} ${color.code}` : color.name) : '—';
   const thicknessPart = thickness?.valueMm ?? '—';
   const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
-  return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
+  return `${typePart}${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
 }
 
 /** Stok kodu önizlemesi: tür + marka + renk(+kod) + kalınlık + tabaka ebatı. */
@@ -127,14 +132,20 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   // Böylece kataloğa yeni marka/renk/ebat eklenip şablon güncellenince ad da
   // yeniden seçim gerekmeden tazelenir.
   const suggestedName = tpl
-    ? buildCatalogName(tpl.defaultBrand, tpl.defaultColor, tpl.defaultSize, tpl.defaultThickness)
+    ? buildCatalogName(
+        tpl.category?.name,
+        tpl.defaultBrand,
+        tpl.defaultColor,
+        tpl.defaultSize,
+        tpl.defaultThickness,
+      )
     : '';
 
   const overSheet =
     isArea &&
     !!std &&
-    ((form.widthMm != null && form.widthMm > std.widthMm) ||
-      (form.heightMm != null && form.heightMm > std.heightMm));
+    ((form.widthMm != null && Number(form.widthMm) > Number(std.widthMm)) ||
+      (form.heightMm != null && Number(form.heightMm) > Number(std.heightMm)));
   const m2 = isArea ? areaM2(form.widthMm, form.heightMm) : null;
 
   // #4 Tekli giriş kolaylığı: aynı özellikte N AYRI plaka kaydı (her biri 1 adet)
@@ -380,7 +391,19 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
       )}
 
       <div className="flex gap-2">
-        <button className="btn-primary" disabled={!canSubmit} onClick={() => createMut.mutate(form)}>
+        <button
+          className="btn-primary"
+          disabled={!canSubmit}
+          onClick={() =>
+            // Ad/SKU'ya dokunulmadıysa otomatik (tür önekli) değerleri KALICI
+            // gönder — böylece stoğa eklenen ürünün başına türü otomatik eklenir.
+            createMut.mutate({
+              ...form,
+              name: (nameTouched ? form.name : suggestedName) || undefined,
+              sku: (skuTouched ? form.sku : suggestedSku) || undefined,
+            })
+          }
+        >
           {copies > 1 ? `${copies} plaka oluştur` : 'Kaydet'}
         </button>
         <button className="btn" onClick={onClose}>
@@ -423,8 +446,8 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
   const overSheet =
     isArea &&
     !!std &&
-    ((form.widthMm != null && form.widthMm > std.widthMm) ||
-      (form.heightMm != null && form.heightMm > std.heightMm));
+    ((form.widthMm != null && Number(form.widthMm) > Number(std.widthMm)) ||
+      (form.heightMm != null && Number(form.heightMm) > Number(std.heightMm)));
 
   const [targets, setTargets] = useState<Record<string, string>>({});
 
