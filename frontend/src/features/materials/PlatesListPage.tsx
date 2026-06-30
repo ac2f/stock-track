@@ -395,12 +395,15 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           className="btn-primary"
           disabled={!canSubmit}
           onClick={() =>
-            // Ad/SKU'ya dokunulmadıysa otomatik (tür önekli) değerleri KALICI
-            // gönder — böylece stoğa eklenen ürünün başına türü otomatik eklenir.
+            // Ad'a dokunulmadıysa otomatik (tür önekli) adı KALICI gönder —
+            // böylece stoğa eklenen ürünün başına türü otomatik eklenir.
+            // SKU OTOMATİK DOLDURULMAZ: benzersiz olmak zorunda (aynı türden
+            // birden çok plakada/kopyada çakışıp hata veriyordu); yalnızca elle
+            // girilirse gönderilir, boşsa null kalır.
             createMut.mutate({
               ...form,
               name: (nameTouched ? form.name : suggestedName) || undefined,
-              sku: (skuTouched ? form.sku : suggestedSku) || undefined,
+              sku: skuTouched ? form.sku : undefined,
             })
           }
         >

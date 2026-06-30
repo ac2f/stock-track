@@ -161,7 +161,8 @@ export class QuotesService {
     // items eager olsa da QueryBuilder otomatik yüklemez; sırayı koruyarak ekle.
     const ids = rows.map((r) => r.id);
     const full = ids.length
-      ? await this.quotesRepo.find({ where: { id: In(ids) } })
+      ? // Tükenip soft-delete olmuş plakanın adı listede de görünsün.
+        await this.quotesRepo.find({ where: { id: In(ids) }, withDeleted: true })
       : [];
     const byId = new Map(full.map((q) => [q.id, q]));
     const ordered = rows.map((r) => byId.get(r.id) ?? r);
@@ -170,7 +171,12 @@ export class QuotesService {
   }
 
   async findOne(id: string): Promise<Quote> {
-    const quote = await this.quotesRepo.findOne({ where: { id } });
+    const quote = await this.quotesRepo.findOne({
+      where: { id },
+      // Kalemdeki plaka tükenip soft-delete olsa bile adı teklifte/PDF'te
+      // görünsün (aksi halde ürün adı "—" oluyordu).
+      withDeleted: true,
+    });
     if (!quote) {
       throw new NotFoundException('Teklif bulunamadı.');
     }
