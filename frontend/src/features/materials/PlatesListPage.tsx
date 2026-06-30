@@ -107,6 +107,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     addedAt: todayISO(),
   }));
   const [skuTouched, setSkuTouched] = useState(false);
+  const [nameTouched, setNameTouched] = useState(false);
   const [owner, setOwner] = useState<'business' | 'customer'>('business');
 
   const { data: templates } = useQuery({
@@ -122,6 +123,12 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const std = tpl?.defaultSize;
   const isArea = (form.measurementType ?? tpl?.measurementType) === 'area';
   const suggestedSku = tpl ? buildSku(tpl) : '';
+  // Otomatik ad: şablonun GÜNCEL özelliklerinden CANLI türetilir (SKU gibi).
+  // Böylece kataloğa yeni marka/renk/ebat eklenip şablon güncellenince ad da
+  // yeniden seçim gerekmeden tazelenir.
+  const suggestedName = tpl
+    ? buildCatalogName(tpl.defaultBrand, tpl.defaultColor, tpl.defaultSize, tpl.defaultThickness)
+    : '';
 
   const overSheet =
     isArea &&
@@ -146,10 +153,12 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     },
   });
 
-  // Ürün türü seçilince özellikler (ad/varyant/standart ebat) türden miras alınır.
+  // Ürün türü seçilince özellikler (varyant/standart ebat) türden miras alınır.
+  // Ad ve SKU canlı türetildiği için burada SABİTLENMEZ (yeniden seçim gerekmez).
   const applyTemplateDefaults = (templateId: string) => {
     const t = templates?.find((x) => x.id === templateId);
     setSkuTouched(false);
+    setNameTouched(false);
     setForm((f) => ({
       ...f,
       templateId,
@@ -157,9 +166,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
       variant: t?.defaultVariant,
       widthMm: t?.defaultSize?.widthMm,
       heightMm: t?.defaultSize?.heightMm,
-      name: t
-        ? buildCatalogName(t.defaultBrand, t.defaultColor, t.defaultSize, t.defaultThickness)
-        : undefined,
+      name: undefined,
     }));
   };
 
@@ -212,8 +219,11 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             <input
               className="input"
               placeholder="Otomatik oluşturulur"
-              value={form.name ?? ''}
-              onChange={(e) => setForm({ ...form, name: e.target.value || undefined })}
+              value={nameTouched ? form.name ?? '' : suggestedName}
+              onChange={(e) => {
+                setNameTouched(true);
+                setForm({ ...form, name: e.target.value || undefined });
+              }}
             />
           </Field>
 

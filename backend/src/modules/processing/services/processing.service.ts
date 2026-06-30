@@ -374,6 +374,8 @@ export class ProcessingService {
       order: { processedAt: 'DESC' },
       skip: query.skip,
       take: query.limit,
+      // Tükenip soft-delete olmuş plakanın adı geçmişte de görünsün.
+      withDeleted: true,
     });
     return buildPaginatedResult(items, total, query.page, query.limit);
   }
@@ -389,10 +391,14 @@ export class ProcessingService {
 
     const qb = this.jobsRepo
       .createQueryBuilder('j')
+      // withDeleted: tabaka tükenip soft-delete olsa bile plaka adı görünsün
+      // (aksi halde tamamlanan/bekleyen işin adı "—" oluyordu).
+      .withDeleted()
       .leftJoinAndSelect('j.machine', 'machine')
       .leftJoinAndSelect('j.plate', 'plate')
       .leftJoinAndSelect('j.customer', 'customer')
       .where('j.status IN (:...statuses)', { statuses })
+      .andWhere('j.deleted_at IS NULL')
       .orderBy('j.processed_at', 'ASC');
     if (query.machineId) {
       qb.andWhere('j.machine_id = :machineId', { machineId: query.machineId });
@@ -415,7 +421,10 @@ export class ProcessingService {
   }
 
   async findOne(id: string): Promise<ProcessingJob> {
-    const job = await this.jobsRepo.findOne({ where: { id } });
+    const job = await this.jobsRepo.findOne({
+      where: { id },
+      withDeleted: true, // tükenmiş plakanın adı fiş/PDF'te de görünsün
+    });
     if (!job) {
       throw new NotFoundException('İşleme kaydı bulunamadı.');
     }

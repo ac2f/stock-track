@@ -355,6 +355,7 @@ function Field({
 
 function NewQuoteForm({ onDone }: { onDone: () => void }) {
   const [buyerCustomerId, setBuyer] = useState('');
+  const [quoteNote, setQuoteNote] = useState('');
   const [items, setItems] = useState<FormItem[]>([]);
   // Seçilen plakaların önbelleği (sahibe göre filtreli dropdown'lardan gelenler de
   // dahil) — canlı tutar/m² önizlemesi ve AREA ebat alanları için.
@@ -581,6 +582,15 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
               />
             </Field>
           </div>
+          {/* #2 Kalem notu — cari ekstrede satış açıklamasına eklenir. */}
+          <Field label="Kalem notu (ekstrede görünür, opsiyonel)">
+            <input
+              className="input"
+              placeholder="Örn. özel kesim / iskonto sebebi…"
+              value={item.description ?? ''}
+              onChange={(e) => patch(i, { description: e.target.value || undefined })}
+            />
+          </Field>
           {item.lineKind === 'sale' && item.plateId && (
             <AveragePriceNote plateId={item.plateId} />
           )}
@@ -718,6 +728,16 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
         </button>
       </div>
 
+      {/* #2 Teklif (tümü) notu — cari ekstrede satış açıklamasına eklenir. */}
+      <Field label="Teklif notu (ekstrede görünür, opsiyonel)">
+        <textarea
+          className="input min-h-[60px] py-2"
+          placeholder="Tüm teklif için not… (örn. teslim koşulu, anlaşma)"
+          value={quoteNote}
+          onChange={(e) => setQuoteNote(e.target.value)}
+        />
+      </Field>
+
       {/* Genel toplam + tahmini kâr önizleme */}
       {items.length > 0 && (
         <div className="space-y-1 rounded-xl bg-slate-50 px-3 py-2">
@@ -763,6 +783,7 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
             buyerCustomerId,
             ownerCustomerId: ownerCustomerId || undefined,
             currency: 'TRY',
+            note: quoteNote.trim() || undefined,
             items: mapped,
           });
         }}

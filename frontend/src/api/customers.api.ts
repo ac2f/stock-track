@@ -43,6 +43,20 @@ export async function createCustomer(
   return data;
 }
 
+export type UpdateCustomerInput = Partial<Omit<CreateCustomerInput, 'openingBalance'>>;
+
+export async function updateCustomer(
+  id: string,
+  input: UpdateCustomerInput,
+): Promise<Customer> {
+  const { data } = await api.patch<Customer>(`/customers/${id}`, input);
+  return data;
+}
+
+export async function deleteCustomer(id: string): Promise<void> {
+  await api.delete(`/customers/${id}`);
+}
+
 // ── #8b Cari ekstre + geçmiş tarihli borç/alacak ──
 export async function fetchCustomerLedger(
   id: string,

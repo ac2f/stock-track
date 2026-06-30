@@ -225,11 +225,16 @@ export class QuotesService {
           ownerCustomerId: quote.ownerCustomerId ?? undefined,
           warehouseId: quote.warehouseId ?? undefined,
           currency: quote.currency,
-          note: `Teklif ${quote.quoteNo} → satış`,
+          // Teklif (tümü) notu cari ekstre açıklamasına yansır.
+          note: quote.note?.trim()
+            ? `Teklif ${quote.quoteNo}: ${quote.note.trim()}`
+            : `Teklif ${quote.quoteNo} → satış`,
           items: saleLines.map((l) => ({
             plateId: l.plateId,
             quantity: Number(l.quantity),
             unitPrice: Number(l.unitPrice),
+            // Kalem notu → cari ekstrede satış açıklamasına eklenir.
+            description: l.description ?? undefined,
             // Tabaka satışında kesilen ebat → kalan boy otomatik düşülsün.
             widthMm: l.widthMm != null ? Number(l.widthMm) : undefined,
             heightMm: l.heightMm != null ? Number(l.heightMm) : undefined,

@@ -232,6 +232,9 @@ export interface Customer {
   name: string;
   companyName?: string;
   phone?: string;
+  email?: string;
+  address?: string;
+  taxNumber?: string;
   currentBalance: number;
 }
 

@@ -229,7 +229,7 @@ export class SalesService {
       amount: baseSaleTotal,
       sourceType: LedgerSourceType.SALE,
       sourceId: savedSale.id,
-      description: this.saleDescription(dto.items, plateById, currency),
+      description: this.saleDescription(dto.items, plateById, currency, dto.note),
       occurredAt: saleDate,
     });
 
@@ -271,12 +271,16 @@ export class SalesService {
       order: { saleDate: 'DESC' },
       skip: query.skip,
       take: query.limit,
+      withDeleted: true, // tükenmiş plakaların adı satış listesinde görünsün
     });
     return buildPaginatedResult(items, total, query.page, query.limit);
   }
 
   async findOne(id: string): Promise<Sale> {
-    const sale = await this.salesRepo.findOne({ where: { id } });
+    const sale = await this.salesRepo.findOne({
+      where: { id },
+      withDeleted: true, // tükenmiş plakaların adı fatura/fişte görünsün
+    });
     if (!sale) {
       throw new NotFoundException('Satış kaydı bulunamadı.');
     }
@@ -339,6 +343,7 @@ export class SalesService {
     items: SaleItemDto[],
     plateById: Map<string, MaterialPlate>,
     currency: string,
+    note?: string,
   ): string {
     const fmt = new Intl.NumberFormat('tr-TR', {
       minimumFractionDigits: 0,
@@ -350,13 +355,16 @@ export class SalesService {
       const unit = plate?.measurementType ?? MeasurementType.PIECE;
       const widthMm = item.widthMm ?? plate?.widthMm ?? null;
       const heightMm = item.heightMm ?? plate?.heightMm ?? null;
+      // Kalem notu (varsa) açıklamaya eklenir → cari ekstrede görünür.
+      const note = item.description?.trim() ? ` — ${item.description.trim()}` : '';
       if (unit === MeasurementType.AREA && widthMm && heightMm) {
         const m2 = totalAreaM2(Number(widthMm), Number(heightMm), item.quantity);
-        return `${name} ${fmt.format(m2)} m² × ${fmt.format(item.unitPrice)} ${currency}/m²`;
+        return `${name} ${fmt.format(m2)} m² × ${fmt.format(item.unitPrice)} ${currency}/m²${note}`;
       }
-      return `${name} ${fmt.format(item.quantity)} adet × ${fmt.format(item.unitPrice)} ${currency}`;
+      return `${name} ${fmt.format(item.quantity)} adet × ${fmt.format(item.unitPrice)} ${currency}${note}`;
     });
-    return `Satış: ${parts.join('; ')}`;
+    const head = note?.trim() ? `Satış (${note.trim()}): ` : 'Satış: ';
+    return `${head}${parts.join('; ')}`;
   }
 
   /**

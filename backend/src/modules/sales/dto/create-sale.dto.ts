@@ -33,6 +33,11 @@ export class SaleItemDto {
   @IsEnum(SaleStockSource)
   stockSource: SaleStockSource;
 
+  // Kalem notu — cari ekstrede satış açıklamasına eklenir.
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   // Tabaka (AREA) malzemede satılan parçanın ebadı (mm). Stoktan kalan boy
   // bu parçanın boyu kadar (tam genişlikte şerit) otomatik düşülür.
   @IsOptional()

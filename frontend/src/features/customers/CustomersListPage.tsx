@@ -3,11 +3,14 @@ import { useState } from 'react';
 import {
   addCustomerLedgerEntry,
   createCustomer,
+  deleteCustomer,
   fetchCustomerLedger,
   fetchCustomers,
   settleCustomerDebt,
+  updateCustomer,
   type CreateCustomerInput,
   type CustomerFilters,
+  type UpdateCustomerInput,
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import type { Customer } from '../../types';
@@ -223,9 +226,82 @@ export function CustomersListPage() {
   );
 }
 
-/** Tek cari satırı: bakiye + ekstre (geçmiş tarihli borç/ödeme) açılır. */
+/** Cari bilgilerini düzenleme (ad, firma, telefon, e-posta, adres, VKN). */
+function EditCustomerForm({
+  customer,
+  onDone,
+}: {
+  customer: Customer;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState<UpdateCustomerInput>({
+    name: customer.name,
+    companyName: customer.companyName,
+    phone: customer.phone,
+    email: customer.email,
+    address: customer.address,
+    taxNumber: customer.taxNumber,
+  });
+  const mut = useMutation({
+    mutationFn: () => updateCustomer(customer.id, form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      onDone();
+    },
+  });
+  const set = (k: keyof UpdateCustomerInput, v: string) =>
+    setForm((f) => ({ ...f, [k]: v || undefined }));
+  const field = (label: string, k: keyof UpdateCustomerInput) => (
+    <label className="block text-xs">
+      <span className="mb-1 block text-slate-500">{label}</span>
+      <input
+        className="input"
+        value={(form[k] as string) ?? ''}
+        onChange={(e) => set(k, e.target.value)}
+      />
+    </label>
+  );
+  return (
+    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2">
+      <div className="grid grid-cols-2 gap-2">
+        {field('Ad / Ünvan', 'name')}
+        {field('Firma', 'companyName')}
+        {field('Telefon', 'phone')}
+        {field('E-posta', 'email')}
+        {field('Vergi No', 'taxNumber')}
+        {field('Adres', 'address')}
+      </div>
+      {mut.isError && (
+        <p className="text-xs text-red-600">Güncellenemedi.</p>
+      )}
+      <div className="flex gap-2">
+        <button
+          className="btn-primary"
+          disabled={!form.name || mut.isPending}
+          onClick={() => mut.mutate()}
+        >
+          Kaydet
+        </button>
+        <button className="btn" onClick={onDone}>
+          Vazgeç
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Tek cari satırı: bakiye + ekstre + düzenle/sil. */
 function CustomerRow({ customer }: { customer: Customer }) {
+  const qc = useQueryClient();
   const [openStatement, setOpenStatement] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const deleteMut = useMutation({
+    mutationFn: () => deleteCustomer(customer.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
+  });
+
   return (
     <div className="card">
       <div className="flex items-center justify-between">
@@ -235,7 +311,7 @@ function CustomerRow({ customer }: { customer: Customer }) {
             {customer.companyName ?? customer.phone ?? '—'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span
             className={`text-sm font-semibold ${
               customer.currentBalance > 0 ? 'text-red-600' : 'text-emerald-600'
@@ -246,8 +322,35 @@ function CustomerRow({ customer }: { customer: Customer }) {
           <button className="btn bg-slate-100 text-xs" onClick={() => setOpenStatement((o) => !o)}>
             {openStatement ? 'Kapat' : 'Ekstre'}
           </button>
+          <button className="btn bg-slate-100 text-xs" onClick={() => setEditing((e) => !e)}>
+            {editing ? 'Vazgeç' : 'Düzenle'}
+          </button>
+          <button
+            className="btn bg-red-600 text-xs text-white"
+            disabled={deleteMut.isPending}
+            onClick={() => {
+              if (
+                confirm(
+                  `"${customer.name}" carisini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
+                )
+              ) {
+                deleteMut.mutate();
+              }
+            }}
+          >
+            Sil
+          </button>
         </div>
       </div>
+      {deleteMut.isError && (
+        <p className="mt-1 text-xs text-red-600">
+          {(deleteMut.error as { response?: { data?: { message?: string } } })
+            ?.response?.data?.message ?? 'Silinemedi (bağlı kayıtlar olabilir).'}
+        </p>
+      )}
+      {editing && (
+        <EditCustomerForm customer={customer} onDone={() => setEditing(false)} />
+      )}
       {openStatement && (
         <CustomerStatement customerId={customer.id} customerName={customer.name} />
       )}
