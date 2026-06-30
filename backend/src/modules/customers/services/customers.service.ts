@@ -17,6 +17,7 @@ import { Customer } from '../entities/customer.entity';
 import { CustomerLedgerEntry } from '../entities/customer-ledger-entry.entity';
 import { Sale } from '../../sales/entities/sale.entity';
 import { Quote } from '../../quotes/entities/quote.entity';
+import { ProcessingJob } from '../../processing/entities/processing-job.entity';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
@@ -158,6 +159,11 @@ export class CustomersService {
       }
 
       await manager.delete(Quote, { buyerCustomerId: id });
+
+      // Müşteriye ait işleme işlerini de sil — aksi halde customer_id SET NULL
+      // olup kuyrukta/geçmişte "Müşterisiz" öksüz iş olarak kalıyordu. (Bunların
+      // cari hareketleri zaten müşteriyle birlikte CASCADE silinir.)
+      await manager.delete(ProcessingJob, { customerId: id });
 
       await manager.delete(Customer, { id });
 

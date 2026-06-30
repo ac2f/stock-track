@@ -374,6 +374,9 @@ export class ProcessingService {
       order: { processedAt: 'DESC' },
       skip: query.skip,
       take: query.limit,
+      // Müşteri ilişkisi eager değil → geçmiş listesinde adın "Müşterisiz"
+      // görünmemesi için açıkça yüklenir.
+      relations: { customer: true },
       // Tükenip soft-delete olmuş plakanın adı geçmişte de görünsün.
       withDeleted: true,
     });
@@ -505,33 +508,16 @@ export class ProcessingService {
   }
 
   /**
-   * Bir işin stok ve cari etkilerini geri alır (silme/teklif iptali için ortak).
-   * Cari bakiyeyi YENİDEN HESAPLAMAZ — çağıran toplu halde yapmalı.
+   * Bir işin cari etkisini geri alır (silme/teklif iptali için ortak).
+   * STOK İADE EDİLMEZ: silinen iş, tüketilmiş malzemeyi stoğa geri eklemez
+   * (kullanıcı talebi) — aksi halde geri eklenen miktarın sahipliği işletmeye
+   * geçip konsinye takibini bozuyordu. Yalnızca cari hareket defterden kaldırılır
+   * → borç ekstreden düşer. Cari bakiyeyi YENİDEN HESAPLAMAZ — çağıran yapar.
    */
   private async reverseJobEffects(
     manager: EntityManager,
     job: ProcessingJob,
   ): Promise<void> {
-    if (job.stockConsumed && job.warehouseId) {
-      if (job.consumedHeightMm && Number(job.consumedHeightMm) > 0) {
-        await this.platesService.restoreSheetHeight(
-          job.plateId,
-          Number(job.consumedHeightMm),
-          manager,
-        );
-      } else {
-        const refund = Number(job.consumedQuantity) || Number(job.quantity);
-        if (refund > 0) {
-          await this.platesService.adjustStock(
-            job.plateId,
-            job.warehouseId,
-            refund,
-            null,
-            manager,
-          );
-        }
-      }
-    }
     if (job.customerId) {
       await this.accountService.removeBySource(
         manager,

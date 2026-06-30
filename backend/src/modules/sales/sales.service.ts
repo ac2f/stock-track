@@ -260,10 +260,11 @@ export class SalesService {
   }
 
   /**
-   * #2 Bir satışı TÜMÜYLE geri alır (teklif silinirken çağrılır):
-   *  - takipli stoğu iade eder (tabaka boyu / adet, konsinye sahibine),
+   * #2 Bir satışı geri alır (teklif silinirken çağrılır):
    *  - alıcı borcu (DEBIT) ve sahip payı (CREDIT) defter hareketlerini kaldırır,
    *  - satışı fiziksel siler (kalemler CASCADE).
+   * STOK İADE EDİLMEZ: satılan/tüketilen malzeme stoğa geri eklenmez (kullanıcı
+   * talebi) — aksi halde geri eklenen miktarın sahipliği işletmeye geçiyordu.
    * Bakiyeyi YENİDEN HESAPLAMAZ — etkilenen müşteri id'lerini döner; çağıran toplu
    * halde recomputeBalances çağırmalıdır.
    */
@@ -273,35 +274,6 @@ export class SalesService {
       withDeleted: true,
     });
     if (!sale) return [];
-
-    if (sale.warehouseId) {
-      for (const item of sale.items ?? []) {
-        if (item.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) continue;
-        const plate = await manager.findOne(MaterialPlate, {
-          where: { id: item.plateId },
-          withDeleted: true,
-        });
-        const owner =
-          item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
-            ? sale.ownerCustomerId ?? null
-            : null;
-        if (plate?.measurementType === MeasurementType.AREA && item.heightMm) {
-          await this.platesService.restoreSheetHeight(
-            item.plateId,
-            Number(item.heightMm),
-            manager,
-          );
-        } else {
-          await this.platesService.adjustStock(
-            item.plateId,
-            sale.warehouseId,
-            Number(item.quantity),
-            owner,
-            manager,
-          );
-        }
-      }
-    }
 
     await this.accountService.removeBySource(
       manager,
