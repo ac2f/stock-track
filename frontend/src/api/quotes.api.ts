@@ -52,3 +52,11 @@ export async function convertQuote(
   }>(`/quotes/${id}/convert`);
   return data;
 }
+
+/**
+ * Teklifi sil: teklife ait tüm kuyruk (işleme) işlerini ve (dönüştürülmüşse)
+ * satışı geri alır → ilgili borçlar cari ekstreden düşer.
+ */
+export async function deleteQuote(id: string): Promise<void> {
+  await api.delete(`/quotes/${id}`);
+}

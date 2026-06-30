@@ -439,17 +439,129 @@ export class ProcessingService {
     id: string,
     dto: { processedAt?: string; completedAt?: string; note?: string },
   ): Promise<ProcessingJob> {
-    const job = await this.findOne(id);
-    if (dto.processedAt !== undefined) {
-      job.processedAt = new Date(dto.processedAt);
+    return this.dataSource.transaction(async (manager) => {
+      const job = await manager.findOne(ProcessingJob, {
+        where: { id },
+        withDeleted: true,
+        loadEagerRelations: false,
+      });
+      if (!job) {
+        throw new NotFoundException('İşleme kaydı bulunamadı.');
+      }
+      if (dto.processedAt !== undefined) {
+        job.processedAt = new Date(dto.processedAt);
+      }
+      if (dto.completedAt !== undefined) {
+        job.completedAt = dto.completedAt ? new Date(dto.completedAt) : null;
+      }
+      if (dto.note !== undefined) {
+        job.note = dto.note;
+      }
+      const saved = await manager.save(job);
+
+      // #1 Ekstre yansıması: işleme faturalanmışsa, bağlı cari hareketin
+      // tarihini (ve sırasını) düzenlenen tarihe taşı; bakiyeleri yeniden
+      // hesapla ki ekstre geçmiş işlemeyi güncel göster
+      if (job.isBilled && job.customerId) {
+        const ledgerDate = job.completedAt ?? job.processedAt;
+        await this.accountService.updateBySource(
+          manager,
+          LedgerSourceType.PROCESSING,
+          job.id,
+          { occurredAt: ledgerDate },
+        );
+        await this.accountService.recomputeBalances(manager, job.customerId);
+      }
+      return saved;
+    });
+  }
+
+  /**
+   * #2 Geçmiş bir işleme kaydını TAMAMEN siler:
+   *  - tüketilen stoğu iade eder (tabaka boyu / adet),
+   *  - bağlı cari hareketini defterden kaldırır (ekstreden düşer),
+   *  - müşteri bakiyesini yeniden hesaplar,
+   *  - işi fiziksel olarak siler (hard delete) — geçmişte de görünmez.
+   */
+  async remove(id: string): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const job = await manager.findOne(ProcessingJob, {
+        where: { id },
+        withDeleted: true,
+        loadEagerRelations: false,
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!job) {
+        throw new NotFoundException('İşleme kaydı bulunamadı.');
+      }
+      const customerId = job.customerId;
+      await this.reverseJobEffects(manager, job);
+      await manager.delete(ProcessingJob, { id: job.id });
+      // Cari hareketi kaldırıldıysa bakiyeyi yeniden hesapla (ekstreden düşsün).
+      if (customerId) {
+        await this.accountService.recomputeBalances(manager, customerId);
+      }
+    });
+  }
+
+  /**
+   * Bir işin stok ve cari etkilerini geri alır (silme/teklif iptali için ortak).
+   * Cari bakiyeyi YENİDEN HESAPLAMAZ — çağıran toplu halde yapmalı.
+   */
+  private async reverseJobEffects(
+    manager: EntityManager,
+    job: ProcessingJob,
+  ): Promise<void> {
+    if (job.stockConsumed && job.warehouseId) {
+      if (job.consumedHeightMm && Number(job.consumedHeightMm) > 0) {
+        await this.platesService.restoreSheetHeight(
+          job.plateId,
+          Number(job.consumedHeightMm),
+          manager,
+        );
+      } else {
+        const refund = Number(job.consumedQuantity) || Number(job.quantity);
+        if (refund > 0) {
+          await this.platesService.adjustStock(
+            job.plateId,
+            job.warehouseId,
+            refund,
+            null,
+            manager,
+          );
+        }
+      }
     }
-    if (dto.completedAt !== undefined) {
-      job.completedAt = dto.completedAt ? new Date(dto.completedAt) : null;
+    if (job.customerId) {
+      await this.accountService.removeBySource(
+        manager,
+        LedgerSourceType.PROCESSING,
+        job.id,
+      );
     }
-    if (dto.note !== undefined) {
-      job.note = dto.note;
+  }
+
+  /**
+   * #2 Bir teklife ait tüm işleme kayıtlarını siler (teklif silinirken çağrılır).
+   * Stok iade + cari hareket kaldırma + bakiye yeniden hesaplama içerir.
+   */
+  async removeByQuote(manager: EntityManager, quoteId: string): Promise<void> {
+    const jobs = await manager.find(ProcessingJob, {
+      where: { quoteId },
+      withDeleted: true,
+      loadEagerRelations: false,
+    });
+    const affectedCustomers = new Set<string>();
+    for (const job of jobs) {
+      await this.reverseJobEffects(manager, job);
+      if (job.customerId) affectedCustomers.add(job.customerId);
     }
-    return this.jobsRepo.save(job);
+    if (jobs.length > 0) {
+      await manager.delete(ProcessingJob, { id: In(jobs.map((j) => j.id)) });
+    }
+    for (const customerId of affectedCustomers) {
+      await this.accountService.recomputeBalances(manager, customerId);
+    }
   }
 
   /**

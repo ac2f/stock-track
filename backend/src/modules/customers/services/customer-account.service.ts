@@ -122,6 +122,83 @@ export class CustomerAccountService {
     return balance;
   }
 
+  /**
+   * Bir kaynağa (örn. işleme/satış) bağlı defter hareketlerini siler.
+   * Silinen hareket sayısını döner. Çağıran, ardından recomputeBalances
+   * çağırmalıdır.
+   */
+  async removeBySource(
+    manager: EntityManager,
+    sourceType: LedgerSourceType,
+    sourceId: string,
+  ): Promise<number> {
+    const result = await manager
+      .getRepository(CustomerLedgerEntry)
+      .delete({ sourceType, sourceId });
+    return result.affected ?? 0;
+  }
+
+  /**
+   * Bir kaynağa bağlı defter hareket(ler)ini günceller (tarih/açıklama/tutar).
+   * Kuyruk işlemi düzenlendiğinde ekstrenin de yansıması için kullanılır.
+   */
+  async updateBySource(
+    manager: EntityManager,
+    sourceType: LedgerSourceType,
+    sourceId: string,
+    patch: { occurredAt?: Date; description?: string; amount?: number },
+  ): Promise<void> {
+    const repo = manager.getRepository(CustomerLedgerEntry);
+    const entries = await repo.find({ where: { sourceType, sourceId } });
+    for (const entry of entries) {
+      if (patch.occurredAt !== undefined) entry.occurredAt = patch.occurredAt;
+      if (patch.description !== undefined) entry.description = patch.description;
+      if (patch.amount !== undefined) entry.amount = roundMoney(patch.amount);
+      await repo.save(entry);
+    }
+  }
+
+  /**
+   * Defteri kronolojik sırada yeniden yürüterek her hareketin balance_after
+   * değerini ve müşterinin current_balance'ını yeniden hesaplar. Hareket
+   * silindikten/güncellendikten sonra ekstrenin tutarlı kalması için.
+   */
+  async recomputeBalances(
+    manager: EntityManager,
+    customerId: string,
+  ): Promise<number> {
+    const customer = await manager.findOne(Customer, {
+      where: { id: customerId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!customer) {
+      throw new NotFoundException('Müşteri bulunamadı.');
+    }
+
+    const repo = manager.getRepository(CustomerLedgerEntry);
+    const entries = await repo.find({
+      where: { customerId },
+      order: { occurredAt: 'ASC', createdAt: 'ASC' },
+    });
+
+    let running = 0;
+    for (const entry of entries) {
+      const amount = roundMoney(Number(entry.amount));
+      running = roundMoney(
+        running +
+          (entry.entryType === LedgerEntryType.DEBIT ? amount : -amount),
+      );
+      if (Number(entry.balanceAfter) !== running) {
+        entry.balanceAfter = running;
+        await repo.save(entry);
+      }
+    }
+
+    customer.currentBalance = running;
+    await manager.save(customer);
+    return running;
+  }
+
   /** Müşterinin cari defter dökümü (geçmişe dönük izlenebilirlik). */
   listLedger(customerId: string): Promise<CustomerLedgerEntry[]> {
     return this.ledgerRepo.find({

@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -62,5 +64,13 @@ export class QuotesController {
     @CurrentUser('id') userId: string,
   ) {
     return this.quotesService.convert(id, userId);
+  }
+
+  // Teklifi sil: kuyruk işlerini + (varsa) dönüşen satışı geri alır, ekstreden düşer.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.quotesService.remove(id);
   }
 }

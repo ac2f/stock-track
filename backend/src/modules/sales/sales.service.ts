@@ -259,6 +259,63 @@ export class SalesService {
     };
   }
 
+  /**
+   * #2 Bir satışı TÜMÜYLE geri alır (teklif silinirken çağrılır):
+   *  - takipli stoğu iade eder (tabaka boyu / adet, konsinye sahibine),
+   *  - alıcı borcu (DEBIT) ve sahip payı (CREDIT) defter hareketlerini kaldırır,
+   *  - satışı fiziksel siler (kalemler CASCADE).
+   * Bakiyeyi YENİDEN HESAPLAMAZ — etkilenen müşteri id'lerini döner; çağıran toplu
+   * halde recomputeBalances çağırmalıdır.
+   */
+  async reverseSale(manager: EntityManager, saleId: string): Promise<string[]> {
+    const sale = await manager.findOne(Sale, {
+      where: { id: saleId },
+      withDeleted: true,
+    });
+    if (!sale) return [];
+
+    if (sale.warehouseId) {
+      for (const item of sale.items ?? []) {
+        if (item.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) continue;
+        const plate = await manager.findOne(MaterialPlate, {
+          where: { id: item.plateId },
+          withDeleted: true,
+        });
+        const owner =
+          item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
+            ? sale.ownerCustomerId ?? null
+            : null;
+        if (plate?.measurementType === MeasurementType.AREA && item.heightMm) {
+          await this.platesService.restoreSheetHeight(
+            item.plateId,
+            Number(item.heightMm),
+            manager,
+          );
+        } else {
+          await this.platesService.adjustStock(
+            item.plateId,
+            sale.warehouseId,
+            Number(item.quantity),
+            owner,
+            manager,
+          );
+        }
+      }
+    }
+
+    await this.accountService.removeBySource(
+      manager,
+      LedgerSourceType.SALE,
+      sale.id,
+    );
+    const affected = new Set<string>();
+    if (sale.buyerCustomerId) affected.add(sale.buyerCustomerId);
+    if (sale.ownerCustomerId) affected.add(sale.ownerCustomerId);
+
+    await manager.delete(Sale, { id: sale.id });
+    return Array.from(affected);
+  }
+
   async findAll(query: QuerySaleDto): Promise<PaginatedResult<Sale>> {
     const where: FindOptionsWhere<Sale> = {};
     if (query.buyerCustomerId) where.buyerCustomerId = query.buyerCustomerId;

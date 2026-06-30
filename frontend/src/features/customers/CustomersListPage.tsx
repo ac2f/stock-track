@@ -250,6 +250,33 @@ function EditCustomerForm({
       onDone();
     },
   });
+  const delMut = useMutation({
+    mutationFn: () => deleteCustomer(customer.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      onDone();
+    },
+  });
+
+  // #3 Silme kolay olmasın: düzenle sekmesinin içinde, iki kez onay sorar.
+  function handleDelete() {
+    if (
+      !window.confirm(
+        `"${customer.name}" carisini KALICI olarak silmek üzeresiniz. Müşterinin tüm borç/alacak geçmişi, ödemeleri, teklifleri ve satışları silinir ve raporlarda artık görünmez. Devam edilsin mi?`,
+      )
+    ) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Son onay: "${customer.name}" ve tüm kayıtları geri alınamaz biçimde silinecek. Emin misiniz?`,
+      )
+    ) {
+      return;
+    }
+    delMut.mutate();
+  }
+
   const set = (k: keyof UpdateCustomerInput, v: string) =>
     setForm((f) => ({ ...f, [k]: v || undefined }));
   const field = (label: string, k: keyof UpdateCustomerInput) => (
@@ -287,20 +314,36 @@ function EditCustomerForm({
           Vazgeç
         </button>
       </div>
+
+      {/* #3 Tehlikeli bölge: müşteriyi kalıcı sil (iki onay). */}
+      <div className="mt-2 space-y-1 rounded-lg border border-red-200 bg-red-50 p-2">
+        <p className="text-xs font-semibold text-red-700">Tehlikeli bölge</p>
+        <p className="text-xs text-red-600">
+          Müşteriyi kalıcı siler; borç/alacak geçmişi, ödemeleri, teklif ve
+          satışları tamamen kaldırılır ve raporlarda görünmez.
+        </p>
+        {delMut.isError && (
+          <p className="text-xs text-red-700">
+            {(delMut.error as { response?: { data?: { message?: string } } })
+              ?.response?.data?.message ?? 'Silinemedi. Tekrar deneyin.'}
+          </p>
+        )}
+        <button
+          className="btn bg-red-600 text-xs text-white"
+          disabled={delMut.isPending}
+          onClick={handleDelete}
+        >
+          {delMut.isPending ? 'Siliniyor…' : 'Müşteriyi kalıcı sil'}
+        </button>
+      </div>
     </div>
   );
 }
 
 /** Tek cari satırı: bakiye + ekstre + düzenle/sil. */
 function CustomerRow({ customer }: { customer: Customer }) {
-  const qc = useQueryClient();
   const [openStatement, setOpenStatement] = useState(false);
   const [editing, setEditing] = useState(false);
-
-  const deleteMut = useMutation({
-    mutationFn: () => deleteCustomer(customer.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
-  });
 
   return (
     <div className="card">
@@ -325,29 +368,8 @@ function CustomerRow({ customer }: { customer: Customer }) {
           <button className="btn bg-slate-100 text-xs" onClick={() => setEditing((e) => !e)}>
             {editing ? 'Vazgeç' : 'Düzenle'}
           </button>
-          <button
-            className="btn bg-red-600 text-xs text-white"
-            disabled={deleteMut.isPending}
-            onClick={() => {
-              if (
-                confirm(
-                  `"${customer.name}" carisini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
-                )
-              ) {
-                deleteMut.mutate();
-              }
-            }}
-          >
-            Sil
-          </button>
         </div>
       </div>
-      {deleteMut.isError && (
-        <p className="mt-1 text-xs text-red-600">
-          {(deleteMut.error as { response?: { data?: { message?: string } } })
-            ?.response?.data?.message ?? 'Silinemedi (bağlı kayıtlar olabilir).'}
-        </p>
-      )}
       {editing && (
         <EditCustomerForm customer={customer} onDone={() => setEditing(false)} />
       )}

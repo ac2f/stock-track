@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -70,5 +72,13 @@ export class ProcessingController {
     @Body() dto: UpdateProcessingJobDto,
   ) {
     return this.processingService.update(id, dto);
+  }
+
+  // Geçmiş işi sil: stoğu iade eder + cari hareketi ekstreden düşer.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.processingService.remove(id);
   }
 }

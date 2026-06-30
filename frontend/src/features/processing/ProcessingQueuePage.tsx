@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
+  deleteProcessingJob,
   fetchProcessingHistory,
   fetchQueue,
   setProcessingStatus,
@@ -189,9 +190,32 @@ function HistoryJobCard({ job }: { job: ProcessingJob }) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['processing-history'] });
+      // Tarih/not değişimi ekstreye yansır → cari listesi tazelensin.
+      qc.invalidateQueries({ queryKey: ['customers'] });
       setEditing(false);
     },
   });
+
+  const del = useMutation({
+    mutationFn: () => deleteProcessingJob(job.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
+      qc.invalidateQueries({ queryKey: ['queue'] });
+      // Silme stoğu iade eder + borcu ekstreden düşer.
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['plates'] });
+    },
+  });
+
+  function handleDelete() {
+    if (
+      window.confirm(
+        'Bu işi silmek istiyor musunuz? Tüketilen stok iade edilir ve borç cari ekstreden düşülür.',
+      )
+    ) {
+      del.mutate();
+    }
+  }
 
   return (
     <div className="card space-y-2">
@@ -219,8 +243,18 @@ function HistoryJobCard({ job }: { job: ProcessingJob }) {
           >
             {editing ? 'Kapat' : 'Düzenle'}
           </button>
+          <button
+            className="btn bg-red-50 text-xs text-red-600"
+            disabled={del.isPending}
+            onClick={handleDelete}
+          >
+            Sil
+          </button>
         </div>
       </div>
+      {del.isError && (
+        <p className="text-xs text-red-600">Silinemedi. Tekrar deneyin.</p>
+      )}
 
       {editing && (
         <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">

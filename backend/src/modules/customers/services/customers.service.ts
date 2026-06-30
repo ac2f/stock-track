@@ -14,6 +14,9 @@ import {
   PaginatedResult,
 } from '../../../common/dto/paginated-result';
 import { Customer } from '../entities/customer.entity';
+import { CustomerLedgerEntry } from '../entities/customer-ledger-entry.entity';
+import { Sale } from '../../sales/entities/sale.entity';
+import { Quote } from '../../quotes/entities/quote.entity';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
@@ -122,9 +125,48 @@ export class CustomersService {
     return this.customersRepo.save(customer);
   }
 
+  /**
+   * #3 Müşteriyi TAMAMEN siler (kalıcı). Soft-delete değil — silinen müşterinin
+   * borçları raporlarda/alınacak ödemelerde hiç görünmez. Tek transaction içinde:
+   *  - müşterinin ALICI olduğu satışları kaldırır (RESTRICT FK'yi açar); bu
+   *    satışların sahip (owner) payı başka carilere CREDIT yazmış olabileceği için
+   *    o defter hareketlerini de kaldırıp ilgili carileri yeniden hesaplar,
+   *  - müşterinin ALICI olduğu teklifleri kaldırır (kalemler CASCADE),
+   *  - müşteriyi fiziksel siler → kendi defter hareketleri + ödemeleri CASCADE;
+   *    sahip olduğu malzeme satış/teklifleri ve işleme işleri SET NULL ile boşalır.
+   */
   async remove(id: string): Promise<void> {
-    const customer = await this.findOne(id);
-    await this.customersRepo.softRemove(customer);
+    await this.findOne(id); // yoksa 404
+    await this.dataSource.transaction(async (manager) => {
+      const buyerSales = await manager.find(Sale, {
+        where: { buyerCustomerId: id },
+        withDeleted: true,
+      });
+      const affectedOwners = new Set<string>();
+      for (const sale of buyerSales) {
+        const entries = await manager.find(CustomerLedgerEntry, {
+          where: { sourceType: LedgerSourceType.SALE, sourceId: sale.id },
+        });
+        for (const e of entries) {
+          if (e.customerId !== id) affectedOwners.add(e.customerId);
+        }
+        await manager.delete(CustomerLedgerEntry, {
+          sourceType: LedgerSourceType.SALE,
+          sourceId: sale.id,
+        });
+        await manager.delete(Sale, { id: sale.id });
+      }
+
+      await manager.delete(Quote, { buyerCustomerId: id });
+
+      await manager.delete(Customer, { id });
+
+      for (const ownerId of affectedOwners) {
+        if (ownerId !== id) {
+          await this.accountService.recomputeBalances(manager, ownerId);
+        }
+      }
+    });
   }
 
   /** Cari defter dökümü. */

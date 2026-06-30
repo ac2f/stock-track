@@ -23,6 +23,7 @@ import { computeQuantityValue } from '../../processing/processing-calc.util';
 import { PlatesService } from '../../materials/services/plates.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { CustomersService } from '../../customers/services/customers.service';
+import { CustomerAccountService } from '../../customers/services/customer-account.service';
 import { SalesService } from '../../sales/sales.service';
 import { ProcessingService } from '../../processing/services/processing.service';
 import { CreateSaleDto } from '../../sales/dto/create-sale.dto';
@@ -50,6 +51,7 @@ export class QuotesService {
     private readonly platesService: PlatesService,
     private readonly currencyService: CurrencyService,
     private readonly customersService: CustomersService,
+    private readonly accountService: CustomerAccountService,
     private readonly salesService: SalesService,
     private readonly processingService: ProcessingService,
     private readonly eventEmitter: EventEmitter2,
@@ -306,6 +308,36 @@ export class QuotesService {
       saleId: outcome.saleId,
       processingJobIds: outcome.processingJobIds,
     };
+  }
+
+  /**
+   * #2 Teklifi siler ve ekstreyi temizler. Tek transaction içinde:
+   *  - teklife ait TÜM kuyruk (işleme) işlerini siler → stok iade + cari hareket
+   *    kaldırma + bakiye yeniden hesaplama,
+   *  - teklif satışa dönüştürülmüşse ilgili satışı geri alır (stok + cari),
+   *  - teklif kalemlerini ve teklifi fiziksel olarak siler.
+   * Böylece teklife ait borçlar ekstreden tamamen düşer.
+   */
+  async remove(id: string): Promise<void> {
+    const quote = await this.findOne(id);
+    await this.dataSource.transaction(async (manager) => {
+      // Teklife ait kuyruk işleri (stok + cari geri alınır, bakiye yeniden hesaplanır).
+      await this.processingService.removeByQuote(manager, quote.id);
+
+      // Dönüştürülmüş satış varsa onu da geri al.
+      if (quote.convertedSaleId) {
+        const affected = await this.salesService.reverseSale(
+          manager,
+          quote.convertedSaleId,
+        );
+        for (const customerId of affected) {
+          await this.accountService.recomputeBalances(manager, customerId);
+        }
+      }
+
+      await manager.delete(QuoteItem, { quoteId: quote.id });
+      await manager.delete(Quote, { id: quote.id });
+    });
   }
 
   /** Teklif kalemlerini ve toplamlarını (işlem + baz para) hazırlar. */

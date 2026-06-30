@@ -59,3 +59,8 @@ export async function updateProcessingJob(
   const { data } = await api.patch<ProcessingJob>(`/processing/${id}`, input);
   return data;
 }
+
+/** Geçmiş işi sil: stoğu iade eder + cari hareketini ekstreden düşer. */
+export async function deleteProcessingJob(id: string): Promise<void> {
+  await api.delete(`/processing/${id}`);
+}

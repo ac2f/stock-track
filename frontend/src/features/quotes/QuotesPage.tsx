@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import {
   convertQuote,
   createQuote,
+  deleteQuote,
   fetchQuotes,
   setQuoteStatus,
   type CreateQuoteInput,
@@ -121,6 +122,29 @@ export function QuotesPage() {
       setQuoteStatus(id, status),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
   });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteQuote(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quotes'] });
+      qc.invalidateQueries({ queryKey: ['queue'] });
+      // Teklif silme kuyruk işlerini + (varsa) satışı geri alır → ekstre/stok değişir.
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
+      qc.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+
+  function handleDeleteQuote(id: string, quoteNo: string) {
+    if (
+      window.confirm(
+        `${quoteNo} teklifini silmek istiyor musunuz? Teklife ait tüm kuyruk işleri ve (varsa) satış geri alınır; ilgili borçlar cari ekstreden düşülür.`,
+      )
+    ) {
+      deleteMut.mutate(id);
+    }
+  }
+
   const [convertMsg, setConvertMsg] = useState<string | null>(null);
   const convertMut = useMutation({
     mutationFn: (id: string) => convertQuote(id),
@@ -308,6 +332,13 @@ export function QuotesPage() {
                   }
                 >
                   CSV
+                </button>
+                <button
+                  className="btn bg-red-50 text-red-600"
+                  disabled={deleteMut.isPending}
+                  onClick={() => handleDeleteQuote(q.id, q.quoteNo)}
+                >
+                  Sil
                 </button>
               </div>
             </div>
