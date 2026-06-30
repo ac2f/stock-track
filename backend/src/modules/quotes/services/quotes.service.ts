@@ -276,7 +276,16 @@ export class QuotesService {
           // Dönüşen işler kuyruğa PENDING girer, tamamlanınca faturalanır.
           billOnCompletion: true,
           quoteId: quote.id,
-          note: `Teklif ${quote.quoteNo} → işleme`,
+          // Teklif notu (tümü) ve kalem notu → işleme tamamlanınca cari ekstre
+          // açıklamasına yansır.
+          note: [
+            quote.note?.trim()
+              ? `Teklif ${quote.quoteNo}: ${quote.note.trim()}`
+              : `Teklif ${quote.quoteNo}`,
+            l.description?.trim() || null,
+          ]
+            .filter(Boolean)
+            .join(' — '),
         };
         const job = await this.processingService.persist(
           manager,

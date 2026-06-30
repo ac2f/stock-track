@@ -380,7 +380,10 @@ export class SalesService {
     });
     const parts = items.map((item) => {
       const plate = plateById.get(item.plateId);
-      const name = plate?.name ?? 'Malzeme';
+      const baseName = plate?.name ?? 'Malzeme';
+      // Malzeme TÜRÜ (Pleksi/Kompozit…) ekstrede görünsün.
+      const type = plate?.template?.category?.name;
+      const name = type ? `${type} ${baseName}` : baseName;
       const unit = plate?.measurementType ?? MeasurementType.PIECE;
       const widthMm = item.widthMm ?? plate?.widthMm ?? null;
       const heightMm = item.heightMm ?? plate?.heightMm ?? null;

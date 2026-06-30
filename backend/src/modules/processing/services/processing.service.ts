@@ -197,7 +197,12 @@ export class ProcessingService {
         amount: baseTotalCost,
         sourceType: LedgerSourceType.PROCESSING,
         sourceId: saved.id,
-        description: `İşleme: ${plate.name} (${quantityValue} ${this.unitLabel(billingUnit)})`,
+        description: this.processingDescription(
+          plate,
+          quantityValue,
+          billingUnit,
+          dto.note,
+        ),
         occurredAt: saved.processedAt,
       });
     }
@@ -227,6 +232,11 @@ export class ProcessingService {
       }
 
       if (status === ProcessingStatus.COMPLETED) {
+        // Plaka (malzeme türü + ad) ekstre açıklaması için yüklenir.
+        const plate = await manager.findOne(MaterialPlate, {
+          where: { id: job.plateId },
+          withDeleted: true,
+        });
         // İş bitiminde pazarlıkla belirlenen nihai tutar verildiyse, işin
         // ücretini güncelle; faturalama bu yeni tutar üzerinden yapılır.
         if (opts.finalAmount != null) {
@@ -248,9 +258,6 @@ export class ProcessingService {
           // Karar PLAKA tipine göre (job.billingUnit'e değil): TABAKA (AREA)
           // malzemede stok her zaman m²/ebattan düşülür → "Yetersiz stok (adet)"
           // hatası oluşmaz. AREA dışı malzemede mevcut kadar adet düşülür.
-          const plate = await manager.findOne(MaterialPlate, {
-            where: { id: job.plateId },
-          });
           if (plate?.measurementType === MeasurementType.AREA) {
             const cut = await this.platesService.consume({
               plateId: job.plateId,
@@ -293,7 +300,12 @@ export class ProcessingService {
             amount: Number(job.baseTotalCost),
             sourceType: LedgerSourceType.PROCESSING,
             sourceId: job.id,
-            description: `İşleme tamamlandı #${job.id.slice(0, 8)}`,
+            description: this.processingDescription(
+              plate,
+              Number(job.quantityValue),
+              job.billingUnit,
+              job.note,
+            ),
             occurredAt: new Date(),
           });
           job.isBilled = true;
@@ -601,6 +613,25 @@ export class ProcessingService {
     return fallback
       ? Number(fallback.ratePerUnit)
       : this.business.defaultRatePerM2;
+  }
+
+  /**
+   * Cari ekstre için işleme açıklaması: malzeme TÜRÜ (Pleksi/Kompozit…) + plaka
+   * adı + ölçü, varsa not (teklif notu dahil). Örn.
+   * "İşleme (Pleksi): Şeffaf Levha 1,5 m² — Teklif TKF-2026-0001: ivedi".
+   */
+  private processingDescription(
+    plate: { name?: string; template?: { category?: { name?: string } } } | null,
+    quantityValue: number,
+    billingUnit: MeasurementType,
+    note?: string | null,
+  ): string {
+    const type = plate?.template?.category?.name;
+    const head = type ? `İşleme (${type}): ` : 'İşleme: ';
+    const name = plate?.name ?? 'Malzeme';
+    const fmt = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
+    const noteStr = note?.trim() ? ` — ${note.trim()}` : '';
+    return `${head}${name} ${fmt.format(quantityValue)} ${this.unitLabel(billingUnit)}${noteStr}`;
   }
 
   private unitLabel(unit: MeasurementType): string {
