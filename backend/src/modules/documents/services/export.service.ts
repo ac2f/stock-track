@@ -11,6 +11,7 @@ const LEDGER_SOURCE_LABELS: Record<string, string> = {
   [LedgerSourceType.PROCESSING]: 'İşleme',
   [LedgerSourceType.SALE]: 'Satış',
   [LedgerSourceType.PAYMENT]: 'Ödeme',
+  [LedgerSourceType.DISCOUNT]: 'İndirim',
   [LedgerSourceType.MANUAL_ADJUSTMENT]: 'Manuel',
 };
 

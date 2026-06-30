@@ -66,6 +66,35 @@ export async function addCustomerLedgerEntry(
   return data;
 }
 
+export interface DiscountInput {
+  amount: number;
+  description?: string;
+  occurredAt?: string;
+}
+
+/** #5 İndirim (borç kapatma/yuvarlama) — ekstrede "İndirim" olarak görünür. */
+export async function applyCustomerDiscount(
+  id: string,
+  input: DiscountInput,
+): Promise<Customer> {
+  const { data } = await api.post<Customer>(`/customers/${id}/discount`, input);
+  return data;
+}
+
+/**
+ * #5 Borcu kapat: tahsil edilen tutar TAHSİLAT, kalan fark İNDİRİM olarak tek
+ * işlemde işlenir; borç sıfırlanır. İkisi de ekstrede ayrı satır görünür.
+ */
+export async function settleCustomerDebt(
+  id: string,
+  paidAmount: number,
+): Promise<Customer> {
+  const { data } = await api.post<Customer>(`/customers/${id}/settle`, {
+    paidAmount,
+  });
+  return data;
+}
+
 export interface CreatePaymentInput {
   amount: number;
   method: PaymentMethod;

@@ -18,7 +18,52 @@ import { downloadFile, openPdf } from '../../api/documents.api';
 import { plateLabel } from '../../lib/plateLabel';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
-import type { QuoteItemInput, QuoteStatus } from '../../types';
+import type { Plate, QuoteItemInput, QuoteStatus } from '../../types';
+
+/** Form içi kalem: backend QuoteItemInput + UI-içi sahip (konsinye) seçimi. */
+type FormItem = QuoteItemInput & { ownerCustomerId?: string };
+
+/**
+ * Plaka seçici (gerekirse sahibe göre filtreli). Sahip verilirse yalnızca o
+ * müşterinin malzemeleri listelenir (#1). Seçilen plaka nesnesi yukarı bildirilir.
+ */
+function PlatePicker({
+  ownerCustomerId,
+  value,
+  onPick,
+}: {
+  ownerCustomerId?: string;
+  value: string;
+  onPick: (plateId: string, plate?: Plate) => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ['plates', 'pick', ownerCustomerId ?? 'all'],
+    queryFn: () =>
+      fetchPlates({
+        ownerCustomerId: ownerCustomerId || undefined,
+        page: 1,
+        limit: 200,
+      }),
+  });
+  return (
+    <select
+      className="input"
+      value={value}
+      onChange={(e) =>
+        onPick(e.target.value, data?.items.find((p) => p.id === e.target.value))
+      }
+    >
+      <option value="">
+        {ownerCustomerId ? 'Sahibin malzemesini seçin…' : 'Malzeme/plaka seçin…'}
+      </option>
+      {data?.items.map((p) => (
+        <option key={p.id} value={p.id}>
+          {plateLabel(p)}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 const money = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -302,17 +347,16 @@ function Field({
 
 function NewQuoteForm({ onDone }: { onDone: () => void }) {
   const [buyerCustomerId, setBuyer] = useState('');
-  // #3 Konsinye: satılan malzeme bir müşteriye aitse sahibi + komisyon %.
-  const [ownerCustomerId, setOwner] = useState('');
-  const [ownerCommission, setOwnerCommission] = useState('0');
-  const [items, setItems] = useState<QuoteItemInput[]>([]);
+  const [items, setItems] = useState<FormItem[]>([]);
+  // Seçilen plakaların önbelleği (sahibe göre filtreli dropdown'lardan gelenler de
+  // dahil) — canlı tutar/m² önizlemesi ve AREA ebat alanları için.
+  const [plateCache, setPlateCache] = useState<Record<string, Plate>>({});
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
 
-  const { data: plates } = useQuery({
-    queryKey: ['plates', 'all'],
-    queryFn: () => fetchPlates({ page: 1, limit: 100 }),
-  });
+  const cachePlate = (p?: Plate) =>
+    p && setPlateCache((c) => (c[p.id] ? c : { ...c, [p.id]: p }));
+  const getPlate = (id: string): Plate | undefined => plateCache[id];
 
   const createMut = useMutation({
     mutationFn: (input: CreateQuoteInput) => createQuote(input),
@@ -334,27 +378,44 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
       { lineKind: 'processing', plateId, quantity: 1, unitPrice: 0, billingUnit: 'area' },
     ]);
 
-  const patch = (i: number, p: Partial<QuoteItemInput>) =>
+  const patch = (i: number, p: Partial<FormItem>) =>
     setItems((it) => it.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
   const remove = (i: number) =>
     setItems((it) => it.filter((_, idx) => idx !== i));
 
-  // Satış kaleminde malzeme seçimi: seçilince işleme-kalemi sorusunu tetikle.
-  const onSalePlateChange = (i: number, lineKind: QuoteItemInput['lineKind'], plateId: string) => {
+  // Plaka seçimi (sahibe göre filtreli olabilir): seçilen plakayı önbelleğe al,
+  // satış kaleminde işleme-kalemi sorusunu tetikle.
+  const onPlatePick = (i: number, lineKind: FormItem['lineKind'], plateId: string, plate?: Plate) => {
+    cachePlate(plate);
     patch(i, { plateId });
     if (lineKind === 'sale') {
       setAskFor(plateId ? { index: i, plateId } : null);
     }
   };
 
+  // #1 Sahip (konsinye) değişince o kalemin plakasını sıfırla (sahibin malzemeleri yeniden listelenir).
+  const onOwnerPick = (i: number, ownerId: string) =>
+    patch(i, { ownerCustomerId: ownerId || undefined, plateId: '' });
+
+  // Tek teklifte tek malzeme sahibi (satış modeli gereği).
+  const distinctOwners = [
+    ...new Set(
+      items
+        .filter((it) => it.lineKind === 'sale' && it.ownerCustomerId)
+        .map((it) => it.ownerCustomerId as string),
+    ),
+  ];
+  const ownerConflict = distinctOwners.length > 1;
+
   const canSubmit =
-    buyerCustomerId && items.length > 0 && items.every((i) => i.plateId);
+    buyerCustomerId &&
+    items.length > 0 &&
+    items.every((i) => i.plateId) &&
+    !ownerConflict;
 
   // Teklif henüz oluşturulmadan satır tutarları + genel toplam (canlı tahmin).
   const grandTotal = items.reduce(
-    (sum, it) =>
-      sum +
-      quoteLinePreview(it, plates?.items.find((p) => p.id === it.plateId))
+    (sum, it) => sum + quoteLinePreview(it, getPlate(it.plateId))
         .lineTotal,
     0,
   );
@@ -365,41 +426,18 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
         <CustomerPicker onChange={(id) => setBuyer(id)} />
       </Field>
 
-      {/* #3 Konsinye satış: malzeme bir müşteriye aitse, satış tutarı kadar onun
-          borcundan düşülür (komisyon % işletmede kalır). Boş = işletme stoğu. */}
-      <div className="rounded-xl border border-slate-200 p-2 dark:border-slate-700">
-        <Field label="Malzeme sahibi — konsinye satış (opsiyonel)">
-          <CustomerPicker
-            placeholder="Sahibin malını satıyorsanız müşteriyi arayın…"
-            onChange={(id) => setOwner(id)}
-          />
-        </Field>
-        {ownerCustomerId && (
-          <div className="mt-2 flex items-end gap-2">
-            <Field label="İşletme komisyonu %" className="w-40">
-              <input
-                className="input"
-                type="number"
-                min={0}
-                max={100}
-                value={ownerCommission}
-                onChange={(e) => setOwnerCommission(e.target.value)}
-              />
-            </Field>
-            <p className="pb-2 text-xs text-slate-500">
-              Satış tutarının %{ownerCommission || 0} kadarı işletmede kalır,
-              kalanı sahibin borcundan düşülür. Ekstresinde "Malzeme satış payı"
-              görünür.
-            </p>
-          </div>
-        )}
-      </div>
+      {ownerConflict && (
+        <p className="text-sm text-red-600">
+          Tek teklifte yalnızca tek malzeme sahibi olabilir. Farklı sahiplerin
+          malzemelerini ayrı tekliflerde satın.
+        </p>
+      )}
 
       {items.map((item, i) => {
-        const plate = plates?.items.find((p) => p.id === item.plateId);
+        const plate = getPlate(item.plateId);
         const preview = quoteLinePreview(item, plate);
         return (
-        <div key={i} className="rounded-xl border border-slate-200 p-2 space-y-2">
+        <div key={i} className="rounded-xl border border-slate-200 p-2 space-y-2 dark:border-slate-700">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>
               {item.lineKind === 'sale'
@@ -410,20 +448,48 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
               Sil
             </button>
           </div>
-          <Field label="Malzeme / plaka">
-            <select
-              className="input"
+
+          {/* #1 Satış kaleminde malzeme sahibi (konsinye) araması — seçilince
+              aşağıdaki plaka listesi yalnızca o sahibin malzemelerini gösterir. */}
+          {item.lineKind === 'sale' && (
+            <Field label="Malzeme sahibi (konsinye — opsiyonel, aratın)">
+              <CustomerPicker
+                placeholder="Sahibin malını satıyorsanız müşteriyi arayın…"
+                onChange={(id) => onOwnerPick(i, id)}
+              />
+            </Field>
+          )}
+
+          <Field
+            label={
+              item.lineKind === 'sale' && item.ownerCustomerId
+                ? 'Sahibin malzemesi / plaka'
+                : 'Malzeme / plaka'
+            }
+          >
+            <PlatePicker
+              ownerCustomerId={item.lineKind === 'sale' ? item.ownerCustomerId : undefined}
               value={item.plateId}
-              onChange={(e) => onSalePlateChange(i, item.lineKind, e.target.value)}
-            >
-              <option value="">Malzeme/plaka seçin…</option>
-              {plates?.items.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {plateLabel(p)}
-                </option>
-              ))}
-            </select>
+              onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
+            />
           </Field>
+
+          {/* Konsinye komisyonu (yalnızca sahip seçiliyse) — sahibe yansımaz,
+              işletme geliri olarak kalır. */}
+          {item.lineKind === 'sale' && item.ownerCustomerId && (
+            <Field label="İşletme komisyonu % (sahibe görünmez, gelir)">
+              <input
+                className="input w-40"
+                type="number"
+                min={0}
+                max={100}
+                value={item.commissionPercent ?? 0}
+                onChange={(e) =>
+                  patch(i, { commissionPercent: Number(e.target.value) })
+                }
+              />
+            </Field>
+          )}
 
           {item.lineKind === 'sale' &&
             askFor &&
@@ -478,7 +544,7 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
           {/* #11 Tabaka (m²) satışında satılacak ebat + "Tamamını sat" */}
           {item.lineKind === 'sale' &&
             (() => {
-              const plate = plates?.items.find((p) => p.id === item.plateId);
+              const plate = getPlate(item.plateId);
               if (!plate || plate.measurementType !== 'area') return null;
               return (
                 <div className="space-y-1 rounded-lg bg-slate-50 p-2">
@@ -607,19 +673,25 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
         className="btn-primary w-full"
         disabled={!canSubmit || createMut.isPending}
         onClick={() => {
-          // Konsinye sahibi seçiliyse SATIŞ kalemleri sahibin malı kabul edilir:
-          // tutar sahibe (komisyon hariç) yansır, borcundan düşülür.
-          const comm = Math.min(100, Math.max(0, Number(ownerCommission) || 0));
-          const mapped: QuoteItemInput[] = items.map((it) =>
-            it.lineKind === 'sale' && ownerCustomerId
-              ? {
-                  ...it,
-                  stockSource: 'consignment_tracked',
-                  ownerSettlement: 'commission_percent',
-                  commissionPercent: comm,
-                }
-              : it,
-          );
+          // #1 Sahibi olan SATIŞ kalemleri konsinye kabul edilir: satış tutarı
+          // (komisyon hariç) sahibe yansır, borcundan düşülür. Komisyon işletme
+          // geliridir, sahibe görünmez. Tek teklif = tek sahip.
+          const ownerCustomerId = distinctOwners[0];
+          const mapped: QuoteItemInput[] = items.map((it) => {
+            const { ownerCustomerId: oid, ...rest } = it;
+            if (it.lineKind === 'sale' && oid) {
+              return {
+                ...rest,
+                stockSource: 'consignment_tracked',
+                ownerSettlement: 'commission_percent',
+                commissionPercent: Math.min(
+                  100,
+                  Math.max(0, Number(it.commissionPercent) || 0),
+                ),
+              };
+            }
+            return rest;
+          });
           createMut.mutate({
             buyerCustomerId,
             ownerCustomerId: ownerCustomerId || undefined,

@@ -168,6 +168,7 @@ export class ProcessingService {
       billOnCompletion: deferred,
       stockConsumed: consumeNow,
       consumedQuantity: consumeNow ? quantity : 0,
+      quoteId: dto.quoteId ?? null,
       note: dto.note,
     });
     const saved = await manager.save(job);
@@ -361,7 +362,11 @@ export class ProcessingService {
       where.status = query.status;
     }
     if (query.from && query.to) {
-      where.processedAt = Between(new Date(query.from), new Date(query.to));
+      // `to` gün sonunu kapsasın — aksi halde bugün tamamlanan işler (saat > 00:00)
+      // aralık dışında kalıp geçmiş listesinde görünmüyordu.
+      const toEnd = new Date(query.to);
+      toEnd.setHours(23, 59, 59, 999);
+      where.processedAt = Between(new Date(query.from), toEnd);
     }
 
     const [items, total] = await this.jobsRepo.findAndCount({

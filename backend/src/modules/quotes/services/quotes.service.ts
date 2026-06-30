@@ -268,6 +268,7 @@ export class QuotesService {
           warehouseId: quote.warehouseId ?? undefined,
           // Dönüşen işler kuyruğa PENDING girer, tamamlanınca faturalanır.
           billOnCompletion: true,
+          quoteId: quote.id,
           note: `Teklif ${quote.quoteNo} → işleme`,
         };
         const job = await this.processingService.persist(

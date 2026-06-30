@@ -334,6 +334,7 @@ export interface ProcessingJob {
   currency: string;
   processedAt: string;
   machineId?: string | null;
+  quoteId?: string | null;
 }
 
 export interface ProcessingQueueGroup {

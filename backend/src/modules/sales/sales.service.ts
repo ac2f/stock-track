@@ -222,13 +222,14 @@ export class SalesService {
       });
     }
 
-    // Alıcı borçlanır (DEBIT, baz tutarda).
+    // Alıcı borçlanır (DEBIT, baz tutarda). Açıklamaya kalem özetini (ürün,
+    // miktar/m², birim fiyat) ekle ki cari ekstrede satış detayı görünsün (#4).
     const buyerBalance = await this.accountService.applyDebit(manager, {
       customerId: dto.buyerCustomerId,
       amount: baseSaleTotal,
       sourceType: LedgerSourceType.SALE,
       sourceId: savedSale.id,
-      description: `Satış #${savedSale.id.slice(0, 8)}`,
+      description: this.saleDescription(dto.items, plateById, currency),
       occurredAt: saleDate,
     });
 
@@ -328,6 +329,34 @@ export class SalesService {
       lineTotal,
       ownerAmount: ownerShareCommission(lineTotal, item.commissionPercent),
     };
+  }
+
+  /**
+   * Cari ekstre için satış açıklaması: her kalemde ürün adı, miktar (m²/adet) ve
+   * birim fiyat. Örn. "Satış: Pleksi 1,5 m² × 1.000 TRY/m²".
+   */
+  private saleDescription(
+    items: SaleItemDto[],
+    plateById: Map<string, MaterialPlate>,
+    currency: string,
+  ): string {
+    const fmt = new Intl.NumberFormat('tr-TR', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+    const parts = items.map((item) => {
+      const plate = plateById.get(item.plateId);
+      const name = plate?.name ?? 'Malzeme';
+      const unit = plate?.measurementType ?? MeasurementType.PIECE;
+      const widthMm = item.widthMm ?? plate?.widthMm ?? null;
+      const heightMm = item.heightMm ?? plate?.heightMm ?? null;
+      if (unit === MeasurementType.AREA && widthMm && heightMm) {
+        const m2 = totalAreaM2(Number(widthMm), Number(heightMm), item.quantity);
+        return `${name} ${fmt.format(m2)} m² × ${fmt.format(item.unitPrice)} ${currency}/m²`;
+      }
+      return `${name} ${fmt.format(item.quantity)} adet × ${fmt.format(item.unitPrice)} ${currency}`;
+    });
+    return `Satış: ${parts.join('; ')}`;
   }
 
   /**

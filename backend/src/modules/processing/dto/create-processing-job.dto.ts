@@ -117,4 +117,9 @@ export class CreateProcessingJobDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  /** Teklif dönüşümünde kaynak teklif id'si (kuyruktan teklife gitmek için). */
+  @IsOptional()
+  @IsUUID()
+  quoteId?: string;
 }

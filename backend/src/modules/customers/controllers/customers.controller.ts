@@ -17,6 +17,7 @@ import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
 import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
+import { ApplyDiscountDto, SettleDebtDto } from '../dto/apply-discount.dto';
 import { CustomersService } from '../services/customers.service';
 
 @ApiTags('customers')
@@ -65,6 +66,26 @@ export class CustomersController {
     @Body() dto: CreateLedgerEntryDto,
   ) {
     return this.customersService.addLedgerEntry(id, dto);
+  }
+
+  // #5 İndirim (borç kapatma/yuvarlama) — ekstrede "İndirim" olarak görünür.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Post(':id/discount')
+  applyDiscount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApplyDiscountDto,
+  ) {
+    return this.customersService.applyDiscount(id, dto);
+  }
+
+  // #5 Borcu kapat: tahsil edilen tutar + kalan fark indirim (tek transaction).
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Post(':id/settle')
+  settleDebt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SettleDebtDto,
+  ) {
+    return this.customersService.settleDebt(id, dto.paidAmount);
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)

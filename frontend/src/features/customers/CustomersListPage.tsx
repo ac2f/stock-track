@@ -5,6 +5,7 @@ import {
   createCustomer,
   fetchCustomerLedger,
   fetchCustomers,
+  settleCustomerDebt,
   type CreateCustomerInput,
   type CustomerFilters,
 } from '../../api/customers.api';
@@ -259,6 +260,7 @@ const SOURCE_LABELS: Record<string, string> = {
   processing: 'İşleme',
   sale: 'Satış',
   payment: 'Ödeme',
+  discount: 'İndirim',
   manual_adjustment: 'Manuel',
 };
 
@@ -308,6 +310,23 @@ function CustomerStatement({
   const computed = rows.map((e) => {
     running += e.entryType === 'debit' ? Number(e.amount) : -Number(e.amount);
     return { ...e, running };
+  });
+  const currentBalance = computed.length ? computed[computed.length - 1].running : 0;
+
+  // #5 İndirim (borç kapatma/yuvarlama): müşterinin ödediği tutarı gir, kalan
+  // fark "İndirim" olarak ekstreye işlenir ve borç kapanır.
+  const [paid, setPaid] = useState('');
+  const discountAmount = Math.max(
+    0,
+    Math.round((currentBalance - (Number(paid) || 0)) * 100) / 100,
+  );
+  const discountMut = useMutation({
+    mutationFn: () => settleCustomerDebt(customerId, Number(paid) || 0),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ledger', customerId] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      setPaid('');
+    },
   });
 
   const fileSlug =
@@ -411,6 +430,49 @@ function CustomerStatement({
           Ekle
         </button>
       </div>
+
+      {/* #5 Borcu kapat (indirimle): ödenen tutarı gir; kalan fark "İndirim" olur. */}
+      {currentBalance > 0 && (
+        <div className="space-y-1 border-t border-slate-200 pt-2">
+          <p className="text-xs font-medium text-slate-600">
+            Borç kapatma · Güncel borç: {currency.format(currentBalance)}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="input w-36"
+              type="number"
+              min={0}
+              placeholder="Tahsil edilen"
+              value={paid}
+              onChange={(e) => setPaid(e.target.value)}
+            />
+            <span className="text-xs text-slate-500">
+              İndirim:{' '}
+              <span className="font-semibold text-amber-600">
+                {currency.format(discountAmount)}
+              </span>
+            </span>
+            <button
+              className="btn bg-amber-600 text-white"
+              disabled={
+                !paid ||
+                Number(paid) <= 0 ||
+                Number(paid) > currentBalance ||
+                discountMut.isPending
+              }
+              onClick={() => discountMut.mutate()}
+            >
+              Borcu kapat
+            </button>
+          </div>
+          {discountMut.isError && (
+            <p className="text-xs text-red-600">
+              {(discountMut.error as { response?: { data?: { message?: string } } })
+                ?.response?.data?.message ?? 'İşlem başarısız.'}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

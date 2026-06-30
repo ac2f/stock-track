@@ -1,7 +1,12 @@
 import { randomBytes } from 'crypto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, Repository } from 'typeorm';
+import { roundMoney } from '../../../common/utils/area.util';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import {
@@ -147,6 +152,63 @@ export class CustomersService {
         await this.accountService.applyDebit(manager, movement);
       } else {
         await this.accountService.applyCredit(manager, movement);
+      }
+      return manager.findOneOrFail(Customer, { where: { id } });
+    });
+  }
+
+  /**
+   * Cariye indirim (borç kapatma/yuvarlama) işler — CREDIT, kaynak DISCOUNT.
+   * Ekstrede "İndirim" olarak ayrı görünür; son ödemeden sonraki sorgularda da yer alır.
+   */
+  async applyDiscount(
+    id: string,
+    dto: { amount: number; description?: string; occurredAt?: string },
+  ): Promise<Customer> {
+    await this.findOne(id);
+    return this.dataSource.transaction(async (manager) => {
+      await this.accountService.applyCredit(manager, {
+        customerId: id,
+        amount: dto.amount,
+        sourceType: LedgerSourceType.DISCOUNT,
+        description: dto.description?.trim() || 'İndirim (borç kapatma)',
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+      });
+      return manager.findOneOrFail(Customer, { where: { id } });
+    });
+  }
+
+  /**
+   * #5 Borcu kapatma: müşteri güncel borcunu yuvarlayıp eksik öderse, ödenen tutar
+   * TAHSİLAT, kalan fark İNDİRİM olarak TEK transaction'da işlenir; borç kapanır.
+   * İkisi de ekstrede ayrı satır olarak görünür (son ödemeden sonraki sorgularda da).
+   */
+  async settleDebt(id: string, paidAmount: number): Promise<Customer> {
+    const customer = await this.findOne(id);
+    const balance = Number(customer.currentBalance);
+    if (balance <= 0) {
+      throw new BadRequestException('Bu carinin kapatılacak borcu yok.');
+    }
+    const paid = Math.min(Math.max(0, paidAmount), balance);
+    const discount = roundMoney(balance - paid);
+    return this.dataSource.transaction(async (manager) => {
+      if (paid > 0) {
+        await this.accountService.applyCredit(manager, {
+          customerId: id,
+          amount: paid,
+          sourceType: LedgerSourceType.PAYMENT,
+          description: 'Tahsilat (borç kapatma)',
+          occurredAt: new Date(),
+        });
+      }
+      if (discount > 0) {
+        await this.accountService.applyCredit(manager, {
+          customerId: id,
+          amount: discount,
+          sourceType: LedgerSourceType.DISCOUNT,
+          description: `İndirim (borç kapatma — tahsilat ${paid})`,
+          occurredAt: new Date(),
+        });
       }
       return manager.findOneOrFail(Customer, { where: { id } });
     });

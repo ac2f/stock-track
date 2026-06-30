@@ -193,6 +193,8 @@ export function ProcessingQueuePage() {
       qc.invalidateQueries({ queryKey: ['customers'] });
       // İptalde tabaka kalan ebadı, tamamlamada stok değişir → stok listesi tazelensin.
       qc.invalidateQueries({ queryKey: ['plates'] });
+      // Tamamlanan/iptal edilen iş geçmiş listesine düşsün (#3).
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
     },
   });
 
@@ -330,6 +332,15 @@ function QueueJobCard({
         >
           Fiş
         </button>
+        {job.quoteId && (
+          <button
+            className="btn bg-slate-100"
+            title="Bu işin kaynak teklifini aç"
+            onClick={() => openPdf(`/quotes/${job.quoteId}/print`)}
+          >
+            Teklif
+          </button>
+        )}
       </div>
     </div>
   );
