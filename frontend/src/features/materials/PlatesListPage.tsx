@@ -348,38 +348,22 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             </Field>
           )}
 
-          <div className="flex gap-2">
-            <Field label="Açılış stoğu (adet)" className="flex-1">
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={form.quantityInStock ?? ''}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    quantityInStock: e.target.value ? Number(e.target.value) : undefined,
-                  })
-                }
-              />
-            </Field>
-            <Field label="Depo" className="flex-1">
-              <select
-                className="input"
-                value={form.warehouseId ?? ''}
-                onChange={(e) =>
-                  setForm({ ...form, warehouseId: e.target.value || undefined })
-                }
-              >
-                <option value="">Varsayılan (Merkez) depo</option>
-                {warehouses?.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
+          <Field label="Depo">
+            <select
+              className="input"
+              value={form.warehouseId ?? ''}
+              onChange={(e) =>
+                setForm({ ...form, warehouseId: e.target.value || undefined })
+              }
+            >
+              <option value="">Varsayılan (Merkez) depo</option>
+              {warehouses?.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </Field>
         </>
       )}
 

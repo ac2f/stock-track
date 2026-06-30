@@ -387,7 +387,9 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
   // satış kaleminde işleme-kalemi sorusunu tetikle.
   const onPlatePick = (i: number, lineKind: FormItem['lineKind'], plateId: string, plate?: Plate) => {
     cachePlate(plate);
-    patch(i, { plateId });
+    // Tabaka satışı tamamen ebattan hesaplandığından adet 1'e sabitlenir.
+    const areaSale = lineKind === 'sale' && plate?.measurementType === 'area';
+    patch(i, { plateId, ...(areaSale ? { quantity: 1 } : {}) });
     if (lineKind === 'sale') {
       setAskFor(plateId ? { index: i, plateId } : null);
     }
@@ -420,6 +422,20 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
     0,
   );
 
+  // #D Tahmini kâr (yalnızca MALZEME SATIŞLARINDAN): konsinye ise komisyon geliri,
+  // işletmenin kendi malıysa satış tutarının tamamı (maliyet ayrı/giderde tutulur).
+  const estimatedSalesProfit = items.reduce((sum, it) => {
+    if (it.lineKind !== 'sale') return sum;
+    const line = quoteLinePreview(it, getPlate(it.plateId)).lineTotal;
+    return (
+      sum +
+      (it.ownerCustomerId
+        ? (line * (Number(it.commissionPercent) || 0)) / 100
+        : line)
+    );
+  }, 0);
+  const hasSale = items.some((it) => it.lineKind === 'sale');
+
   return (
     <div className="card space-y-3">
       <Field label="Alıcı müşteri (ara)">
@@ -449,26 +465,30 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
             </button>
           </div>
 
-          {/* #1 Satış kaleminde malzeme sahibi (konsinye) araması — seçilince
-              aşağıdaki plaka listesi yalnızca o sahibin malzemelerini gösterir. */}
-          {item.lineKind === 'sale' && (
-            <Field label="Malzeme sahibi (konsinye — opsiyonel, aratın)">
-              <CustomerPicker
-                placeholder="Sahibin malını satıyorsanız müşteriyi arayın…"
-                onChange={(id) => onOwnerPick(i, id)}
-              />
-            </Field>
-          )}
+          {/* Malzeme sahibini aratarak malzemeyi bul: seçilince aşağıdaki plaka
+              listesi yalnızca o sahibin malzemelerini gösterir. Satış kaleminde
+              ayrıca konsinye (sahip payı) hesabı uygulanır; işleme kaleminde
+              yalnızca arama/filtre kolaylığıdır. */}
+          <Field
+            label={
+              item.lineKind === 'sale'
+                ? 'Malzeme sahibi (konsinye — opsiyonel, aratın)'
+                : 'Malzeme sahibi (filtre — opsiyonel, aratın)'
+            }
+          >
+            <CustomerPicker
+              placeholder="Sahibini aratarak malzemeyi bulun…"
+              onChange={(id) => onOwnerPick(i, id)}
+            />
+          </Field>
 
           <Field
             label={
-              item.lineKind === 'sale' && item.ownerCustomerId
-                ? 'Sahibin malzemesi / plaka'
-                : 'Malzeme / plaka'
+              item.ownerCustomerId ? 'Sahibin malzemesi / plaka' : 'Malzeme / plaka'
             }
           >
             <PlatePicker
-              ownerCustomerId={item.lineKind === 'sale' ? item.ownerCustomerId : undefined}
+              ownerCustomerId={item.ownerCustomerId}
               value={item.plateId}
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />
@@ -517,17 +537,27 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
             )}
 
           <div className="flex gap-2">
-            <Field label="Adet" className="flex-1">
-              <input
-                className="input"
-                type="number"
-                placeholder="Adet"
-                value={item.quantity}
-                onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
-              />
-            </Field>
+            {/* Tabaka (AREA) SATIŞINDA adet yoktur: tutar tamamen ebattan (m²)
+                hesaplanır. Diğer satış/işleme kalemlerinde adet girilir. */}
+            {!(item.lineKind === 'sale' && plate?.measurementType === 'area') && (
+              <Field label="Adet" className="flex-1">
+                <input
+                  className="input"
+                  type="number"
+                  placeholder="Adet"
+                  value={item.quantity}
+                  onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
+                />
+              </Field>
+            )}
             <Field
-              label={item.lineKind === 'sale' ? 'Birim satış fiyatı' : 'Birim işleme ücreti'}
+              label={
+                item.lineKind === 'sale'
+                  ? plate?.measurementType === 'area'
+                    ? 'Birim satış fiyatı (TL/m²)'
+                    : 'Birim satış fiyatı'
+                  : 'Birim işleme ücreti'
+              }
               className="flex-1"
             >
               <input
@@ -648,6 +678,20 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
             </span>
             <span className="font-semibold">{money.format(preview.lineTotal)}</span>
           </div>
+
+          {/* #D Komisyon geliri önizlemesi (konsinye satış) */}
+          {item.lineKind === 'sale' && item.ownerCustomerId && (
+            <div className="flex items-center justify-between text-xs text-emerald-700">
+              <span>
+                Komisyon geliriniz (%{Number(item.commissionPercent) || 0})
+              </span>
+              <span className="font-semibold">
+                {money.format(
+                  (preview.lineTotal * (Number(item.commissionPercent) || 0)) / 100,
+                )}
+              </span>
+            </div>
+          )}
         </div>
         );
       })}
@@ -661,11 +705,21 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
         </button>
       </div>
 
-      {/* Genel toplam önizleme */}
+      {/* Genel toplam + tahmini kâr önizleme */}
       {items.length > 0 && (
-        <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
-          <span className="text-sm font-medium text-slate-600">Genel Toplam (tahmini)</span>
-          <span className="text-lg font-bold">{money.format(grandTotal)}</span>
+        <div className="space-y-1 rounded-xl bg-slate-50 px-3 py-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-600">Genel Toplam (tahmini)</span>
+            <span className="text-lg font-bold">{money.format(grandTotal)}</span>
+          </div>
+          {hasSale && (
+            <div className="flex items-center justify-between text-xs text-emerald-700">
+              <span>Malzeme satışından tahmini kârınız</span>
+              <span className="font-semibold">
+                {money.format(estimatedSalesProfit)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

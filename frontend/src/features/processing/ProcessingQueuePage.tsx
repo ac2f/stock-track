@@ -37,11 +37,26 @@ function RecentSales() {
     queryFn: () => fetchSales({ from: monthAgo, to: today, page: 1, limit: 100 }),
   });
   const sales: Sale[] = data?.items ?? [];
+  // #D Malzeme satışlarından toplam kâr (işletme payı = satış − sahip payı;
+  // kendi malında tüm satış, konsinyede komisyon).
+  const totalProfit = sales.reduce((s, x) => s + Number(x.businessMargin || 0), 0);
+  const totalSales = sales.reduce((s, x) => s + Number(x.saleTotal || 0), 0);
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold text-slate-500">
-        🧾 Malzeme satışları (son 30 gün)
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-500">
+          🧾 Malzeme satışları (son 30 gün)
+        </h2>
+        {sales.length > 0 && (
+          <span className="text-xs text-slate-500">
+            Ciro: <span className="font-semibold">{money.format(totalSales)}</span>{' '}
+            · Kâr:{' '}
+            <span className="font-semibold text-emerald-700">
+              {money.format(totalProfit)}
+            </span>
+          </span>
+        )}
+      </div>
       {sales.map((s) => (
         <div key={s.id} className="card space-y-1">
           <div className="flex items-center justify-between">
@@ -50,9 +65,14 @@ function RecentSales() {
               <p className="text-xs text-slate-500">{s.saleDate?.slice(0, 10)}</p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold">
-                {money.format(Number(s.saleTotal))}
-              </span>
+              <div className="text-right">
+                <span className="block font-semibold">
+                  {money.format(Number(s.saleTotal))}
+                </span>
+                <span className="block text-xs text-emerald-700">
+                  kâr {money.format(Number(s.businessMargin || 0))}
+                </span>
+              </div>
               <button
                 className="btn bg-slate-100 text-xs"
                 onClick={() => openPdf(`/sales/${s.id}/print`)}
@@ -65,7 +85,8 @@ function RecentSales() {
             {s.items.map((it, idx) => (
               <li key={idx} className="flex justify-between">
                 <span>
-                  {it.plate?.name ?? '—'} · {saleItemMeasure(it)}
+                  {it.plate?.name ?? '—'} · {saleItemMeasure(it)} ×{' '}
+                  {money.format(Number(it.unitPrice))}
                 </span>
                 <span>{money.format(Number(it.lineTotal))}</span>
               </li>
