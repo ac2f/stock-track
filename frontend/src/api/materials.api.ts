@@ -19,6 +19,7 @@ export interface PlateFilters {
   color?: string;
   inStock?: boolean;
   ownerCustomerId?: string;
+  excludeOwnerCustomerId?: string; // alıcının kendi malzemelerini hariç tut
   owner?: 'business' | 'customer';
   from?: string; // stoğa giriş (added_at) tarihi aralığı (YYYY-MM-DD)
   to?: string;

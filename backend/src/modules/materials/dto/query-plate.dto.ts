@@ -44,6 +44,12 @@ export class QueryPlateDto extends PaginationDto {
   @IsUUID()
   ownerCustomerId?: string;
 
+  // Bu müşteriye ait (stoktaki) malzemeleri HARİÇ tut — satış kaleminde alıcının
+  // kendi malzemesinin yanlışlıkla satılmasını engellemek için.
+  @IsOptional()
+  @IsUUID()
+  excludeOwnerCustomerId?: string;
+
   // Sahiplik filtresi: 'business' → işletme stoğu, 'customer' → konsinye (herhangi).
   @IsOptional()
   @IsIn(['business', 'customer'])

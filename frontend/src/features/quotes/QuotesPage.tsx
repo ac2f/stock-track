@@ -29,20 +29,28 @@ type FormItem = QuoteItemInput & { ownerCustomerId?: string };
  */
 function PlatePicker({
   ownerCustomerId,
+  excludeOwnerCustomerId,
   value,
   onPick,
 }: {
   ownerCustomerId?: string;
+  excludeOwnerCustomerId?: string;
   value: string;
   onPick: (plateId: string, plate?: Plate) => void;
 }) {
   const { data } = useQuery({
-    queryKey: ['plates', 'pick', ownerCustomerId ?? 'all'],
+    queryKey: [
+      'plates',
+      'pick',
+      ownerCustomerId ?? 'all',
+      excludeOwnerCustomerId ?? '',
+    ],
     queryFn: () =>
       fetchPlates({
         ownerCustomerId: ownerCustomerId || undefined,
+        excludeOwnerCustomerId: excludeOwnerCustomerId || undefined,
         page: 1,
-        limit: 200,
+        limit: 100,
       }),
   });
   return (
@@ -489,6 +497,11 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
           >
             <PlatePicker
               ownerCustomerId={item.ownerCustomerId}
+              // #2 Satış kaleminde alıcının KENDİ malzemeleri listelenmez
+              // (kişiye kendi malını yanlışlıkla satmayı engeller).
+              excludeOwnerCustomerId={
+                item.lineKind === 'sale' ? buyerCustomerId || undefined : undefined
+              }
               value={item.plateId}
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />

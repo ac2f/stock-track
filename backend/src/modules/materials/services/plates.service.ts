@@ -237,6 +237,18 @@ export class PlatesService {
     if (query.inStock) {
       qb.andWhere('plate.quantity_in_stock > 0');
     }
+    // Alıcının kendi (stoktaki) malzemelerini hariç tut — kişiye kendi malını
+    // satış kalemi olarak eklemeyi engeller.
+    if (query.excludeOwnerCustomerId) {
+      qb.andWhere(
+        `NOT EXISTS (SELECT 1 FROM stock_levels sx
+                      WHERE sx.plate_id = plate.id
+                        AND sx.owner_customer_id = :exclOwner
+                        AND sx.quantity > 0
+                        AND sx.deleted_at IS NULL)`,
+        { exclOwner: query.excludeOwnerCustomerId },
+      );
+    }
     if (query.search) {
       qb.andWhere(
         new Brackets((w) => {
