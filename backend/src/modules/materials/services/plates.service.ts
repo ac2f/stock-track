@@ -466,6 +466,10 @@ export class PlatesService {
 
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
+      // Tükenip soft-delete olmuş tabaka da AREA yolundan (ebat) düşülmeli;
+      // aksi halde null gelip adet yoluna düşüyor ve "Yetersiz stok" hatası
+      // veriyordu (örn. aynı plaka teklifte hem satılıp hem işlendiğinde).
+      withDeleted: true,
     });
 
     // TABAKA (AREA): stok DAİMA ebattan (m²) düşülür — adet yoluna hiç düşmez,

@@ -266,6 +266,10 @@ export class ProcessingService {
               consumedHeightMm: job.heightMm != null ? Number(job.heightMm) : null,
               areaM2: job.quantityValue != null ? Number(job.quantityValue) : null,
               manager,
+              // İş fiilen tamamlandı: kalan stok talep edilenden az olsa bile
+              // (örn. tabaka teklifte ayrıca satılıp tükenmişse) tamamlamayı
+              // engelleme — mevcut kadarını düş/tüket, "Yetersiz stok" verme.
+              allowNegative: true,
             });
             job.consumedHeightMm = cut || null;
             job.consumedQuantity = 0;
