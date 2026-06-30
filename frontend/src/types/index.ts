@@ -333,6 +333,8 @@ export interface ProcessingJob {
   totalCost: number;
   currency: string;
   processedAt: string;
+  completedAt?: string | null;
+  note?: string | null;
   machineId?: string | null;
   quoteId?: string | null;
 }

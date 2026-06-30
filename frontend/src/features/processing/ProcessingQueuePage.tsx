@@ -4,6 +4,7 @@ import {
   fetchProcessingHistory,
   fetchQueue,
   setProcessingStatus,
+  updateProcessingJob,
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
 import { fetchSales, type Sale } from '../../api/sales.api';
@@ -161,21 +162,104 @@ function ProcessingHistory() {
         </label>
       </div>
       {data?.items.map((job) => (
-        <div key={job.id} className="card flex items-center justify-between">
-          <div>
-            <p className="font-medium">{job.plate?.name ?? '—'}</p>
-            <p className="text-sm text-slate-500">
-              {job.processedAt?.slice(0, 10)} · {job.customer?.name ?? 'Müşterisiz'} ·{' '}
-              {STATUS_LABELS[job.status] ?? job.status}
-            </p>
-            {job.plate && plateRemainingLabel(job.plate) && (
-              <p className="text-xs text-slate-400">{plateRemainingLabel(job.plate)}</p>
-            )}
-          </div>
-          <span className="font-semibold">{money.format(Number(job.totalCost))}</span>
-        </div>
+        <HistoryJobCard key={job.id} job={job} />
       ))}
       {!data?.items.length && <p className="text-slate-400">Bu aralıkta iş yok.</p>}
+    </div>
+  );
+}
+
+/**
+ * Geçmiş iş kartı — tamamlandıktan sonra da düzenlenebilir: işlenme ve
+ * TAMAMLANMA tarihi ile not. (Tutar/stok değişmez.)
+ */
+function HistoryJobCard({ job }: { job: ProcessingJob }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [processedAt, setProcessedAt] = useState(job.processedAt?.slice(0, 10) ?? '');
+  const [completedAt, setCompletedAt] = useState(job.completedAt?.slice(0, 10) ?? '');
+  const [note, setNote] = useState(job.note ?? '');
+
+  const mut = useMutation({
+    mutationFn: () =>
+      updateProcessingJob(job.id, {
+        processedAt: processedAt || undefined,
+        completedAt: completedAt || undefined,
+        note,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
+      setEditing(false);
+    },
+  });
+
+  return (
+    <div className="card space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-medium">{job.plate?.name ?? '—'}</p>
+          <p className="text-sm text-slate-500">
+            {job.processedAt?.slice(0, 10)} · {job.customer?.name ?? 'Müşterisiz'} ·{' '}
+            {STATUS_LABELS[job.status] ?? job.status}
+          </p>
+          {job.completedAt && (
+            <p className="text-xs text-slate-400">
+              Tamamlanma: {job.completedAt.slice(0, 10)}
+            </p>
+          )}
+          {job.plate && plateRemainingLabel(job.plate) && (
+            <p className="text-xs text-slate-400">{plateRemainingLabel(job.plate)}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{money.format(Number(job.totalCost))}</span>
+          <button
+            className="btn bg-slate-100 text-xs"
+            onClick={() => setEditing((v) => !v)}
+          >
+            {editing ? 'Kapat' : 'Düzenle'}
+          </button>
+        </div>
+      </div>
+
+      {editing && (
+        <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">
+          <label className="block text-xs">
+            <span className="mb-1 block text-slate-500">İşlenme tarihi</span>
+            <input
+              className="input"
+              type="date"
+              value={processedAt}
+              onChange={(e) => setProcessedAt(e.target.value)}
+            />
+          </label>
+          <label className="block text-xs">
+            <span className="mb-1 block text-slate-500">Tamamlanma tarihi</span>
+            <input
+              className="input"
+              type="date"
+              value={completedAt}
+              onChange={(e) => setCompletedAt(e.target.value)}
+            />
+          </label>
+          <input
+            className="input flex-1"
+            placeholder="Not"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <button
+            className="btn-primary"
+            disabled={mut.isPending}
+            onClick={() => mut.mutate()}
+          >
+            Kaydet
+          </button>
+          {mut.isError && (
+            <p className="w-full text-xs text-red-600">Kaydedilemedi.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

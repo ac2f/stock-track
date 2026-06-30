@@ -423,6 +423,27 @@ export class ProcessingService {
   }
 
   /**
+   * İşleme kaydının düzenlenebilir alanlarını günceller: işlenme/tamamlanma
+   * tarihleri ve not. Tutar/stok/faturalama bu uçtan değiştirilmez.
+   */
+  async update(
+    id: string,
+    dto: { processedAt?: string; completedAt?: string; note?: string },
+  ): Promise<ProcessingJob> {
+    const job = await this.findOne(id);
+    if (dto.processedAt !== undefined) {
+      job.processedAt = new Date(dto.processedAt);
+    }
+    if (dto.completedAt !== undefined) {
+      job.completedAt = dto.completedAt ? new Date(dto.completedAt) : null;
+    }
+    if (dto.note !== undefined) {
+      job.note = dto.note;
+    }
+    return this.jobsRepo.save(job);
+  }
+
+  /**
    * Faturalanan ölçü miktarını birime göre hesaplar; saklanan en/boy/uzunluğu döner.
    */
   private computeQuantity(

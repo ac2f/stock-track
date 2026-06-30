@@ -44,3 +44,18 @@ export async function setProcessingStatus(
   });
   return data;
 }
+
+export interface UpdateProcessingJobInput {
+  processedAt?: string;
+  completedAt?: string;
+  note?: string;
+}
+
+/** Tamamlanmış/var olan işin tarihlerini ve notunu düzenler. */
+export async function updateProcessingJob(
+  id: string,
+  input: UpdateProcessingJobInput,
+): Promise<ProcessingJob> {
+  const { data } = await api.patch<ProcessingJob>(`/processing/${id}`, input);
+  return data;
+}

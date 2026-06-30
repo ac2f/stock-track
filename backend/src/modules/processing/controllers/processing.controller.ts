@@ -15,6 +15,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
 import { UpdateProcessingStatusDto } from '../dto/update-processing-status.dto';
+import { UpdateProcessingJobDto } from '../dto/update-processing-job.dto';
 import { ProcessingService } from '../services/processing.service';
 
 @ApiTags('processing')
@@ -59,5 +60,15 @@ export class ProcessingController {
     return this.processingService.setStatus(id, dto.status, {
       finalAmount: dto.finalAmount,
     });
+  }
+
+  // Tamamlanmış/var olan işin düzenlenebilir alanları (tarihler + not).
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Patch(':id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProcessingJobDto,
+  ) {
+    return this.processingService.update(id, dto);
   }
 }

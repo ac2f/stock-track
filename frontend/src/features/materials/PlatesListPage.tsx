@@ -18,6 +18,7 @@ import {
 import { fetchWarehouses } from '../../api/warehouses.api';
 import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
+import { CustomerPicker } from '../../components/CustomerPicker';
 import type { MaterialTemplate, Plate } from '../../types';
 
 function areaM2(widthMm?: number, heightMm?: number): number | null {
@@ -115,10 +116,6 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const { data: warehouses } = useQuery({
     queryKey: ['warehouses'],
     queryFn: fetchWarehouses,
-  });
-  const { data: customers } = useQuery({
-    queryKey: ['customers', 'all'],
-    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
   });
 
   const tpl = templates?.find((t) => t.id === form.templateId);
@@ -330,21 +327,11 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           </Field>
 
           {owner === 'customer' && (
-            <Field label="Sahip müşteri" hint="Sahipliği sonradan işletmeye aktarabilirsiniz.">
-              <select
-                className="input"
-                value={form.ownerCustomerId ?? ''}
-                onChange={(e) =>
-                  setForm({ ...form, ownerCustomerId: e.target.value || undefined })
-                }
-              >
-                <option value="">Müşteri seç…</option>
-                {customers?.items.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+            <Field label="Sahip müşteri (ara)" hint="Sahibini aratıp seçin. Sahipliği sonradan işletmeye aktarabilirsiniz.">
+              <CustomerPicker
+                placeholder="Sahip müşteriyi arayın…"
+                onChange={(id) => setForm({ ...form, ownerCustomerId: id || undefined })}
+              />
             </Field>
           )}
 
