@@ -21,6 +21,7 @@ import { plateRemainingLabel } from '../../lib/plateLabel';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
+import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
 import type { Plate, Quote, QuoteItemInput, QuoteStatus } from '../../types';
 
@@ -107,6 +108,7 @@ export function QuotesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [filters, setFilters] = useState<QuoteFilters>({ page: 1, limit: 50 });
+  const { mini, toggle: toggleMini } = useListDensity();
 
   const { data, isLoading } = useQuery({
     queryKey: ['quotes', filters],
@@ -184,9 +186,12 @@ export function QuotesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Teklifler</h1>
-        <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? 'Kapat' : '+ Yeni Teklif'}
-        </button>
+        <div className="flex items-center gap-2">
+          <DensityToggle mini={mini} onToggle={toggleMini} />
+          <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
+            {showForm ? 'Kapat' : '+ Yeni Teklif'}
+          </button>
+        </div>
       </div>
 
       {convertMsg && (
@@ -299,21 +304,32 @@ export function QuotesPage() {
       ) : (
         <div className="space-y-2">
           {data?.items.map((q) => (
-            <div key={q.id} className="card space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{q.quoteNo}</p>
-                  <p className="text-sm text-slate-500">
-                    {q.buyerCustomer?.name ?? '—'} · {q.items.length} kalem
+            <div key={q.id} className={mini ? 'card !p-2 space-y-1' : 'card space-y-2'}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {q.quoteNo}
+                    {mini && (
+                      <span className="ml-2 text-xs font-normal text-slate-400">
+                        {q.buyerCustomer?.name ?? '—'} · {q.items.length} kalem
+                      </span>
+                    )}
                   </p>
+                  {!mini && (
+                    <p className="text-sm text-slate-500">
+                      {q.buyerCustomer?.name ?? '—'} · {q.items.length} kalem
+                    </p>
+                  )}
                 </div>
-                <div className="text-right">
+                <div className={mini ? 'flex items-center gap-2' : 'text-right'}>
                   <span
                     className={`inline-block rounded-full px-2 py-0.5 text-xs ${STATUS[q.status].cls}`}
                   >
                     {STATUS[q.status].label}
                   </span>
-                  <p className="mt-1 font-semibold">{money.format(q.total)}</p>
+                  <p className={mini ? 'font-semibold' : 'mt-1 font-semibold'}>
+                    {money.format(q.total)}
+                  </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -470,6 +486,9 @@ function NewQuoteForm({
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  // #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygulama.
+  const [applyPrice, setApplyPrice] = useState('');
+  const [applyNote, setApplyNote] = useState('');
 
   const cachePlate = (p?: Plate) =>
     p && setPlateCache((c) => (c[p.id] ? c : { ...c, [p.id]: p }));
@@ -933,6 +952,53 @@ function NewQuoteForm({
           + İşleme kalemi
         </button>
       </div>
+
+      {/* #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygula. */}
+      {items.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+          <p className="text-xs font-semibold text-slate-500">
+            Tüm kalemlere toplu uygula
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Ortak birim fiyat/ücret" className="w-40">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                placeholder="örn. 1000"
+                value={applyPrice}
+                onChange={(e) => setApplyPrice(e.target.value)}
+              />
+            </Field>
+            <Field label="Ortak not (ekstrede görünür)" className="flex-1">
+              <input
+                className="input"
+                placeholder="Tüm kalemlere yazılacak not…"
+                value={applyNote}
+                onChange={(e) => setApplyNote(e.target.value)}
+              />
+            </Field>
+            <button
+              className="btn bg-slate-800 text-white"
+              onClick={() =>
+                setItems((its) =>
+                  its.map((it) => ({
+                    ...it,
+                    ...(applyPrice !== '' ? { unitPrice: Number(applyPrice) } : {}),
+                    ...(applyNote.trim() ? { description: applyNote.trim() } : {}),
+                  })),
+                )
+              }
+            >
+              Tüm kalemlere uygula ({items.length})
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">
+            Girilen alanlar tüm kalemlere yazılır (boş bırakılan alan değiştirilmez).
+            Sonrasında kalem bazında yine düzenleyebilirsiniz.
+          </p>
+        </div>
+      )}
 
       {/* #2 Teklif (tümü) notu — cari ekstrede satış açıklamasına eklenir. */}
       <Field label="Teklif notu (ekstrede görünür, opsiyonel)">

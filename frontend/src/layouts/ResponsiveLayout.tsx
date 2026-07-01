@@ -2,9 +2,24 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
+import { useDensity } from '../context/DensityContext';
 import { fetchBusinessSettings } from '../api/settings.api';
 import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
 import type { UserRole } from '../types';
+
+/** Genel mini/detaylı mod düğmesi (seçim localStorage'da tutulur, tüm listeler uyar). */
+function DensityModeToggle({ className = '' }: { className?: string }) {
+  const { mini, toggle } = useDensity();
+  return (
+    <button
+      onClick={toggle}
+      title={mini ? 'Detaylı moda geç' : 'Mini moda geç'}
+      className={`btn bg-slate-100 ${className}`}
+    >
+      {mini ? '⊞ Detaylı mod' : '≡ Mini mod'}
+    </button>
+  );
+}
 
 interface NavItem {
   to: string;
@@ -77,6 +92,7 @@ export function ResponsiveLayout() {
         </nav>
         <div className="mt-6 space-y-2">
           <ThemeToggle className="w-full" />
+          <DensityModeToggle className="w-full" />
           <button
             onClick={logout}
             className="btn w-full text-slate-500 hover:text-slate-900"
@@ -92,6 +108,7 @@ export function ResponsiveLayout() {
           <Brand name={brandName} />
           <div className="flex items-center gap-2">
             <ThemeToggle className="px-2 text-xs" />
+            <DensityModeToggle className="px-2 text-xs" />
             <span className="text-xs text-slate-500">{user?.fullName}</span>
           </div>
         </header>

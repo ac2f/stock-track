@@ -13,6 +13,7 @@ import {
   type UpdateCustomerInput,
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
+import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import type { Customer } from '../../types';
 
 const currency = new Intl.NumberFormat('tr-TR', {
@@ -116,6 +117,7 @@ export function CustomersListPage() {
     sort: 'balance',
   });
   const [showForm, setShowForm] = useState(false);
+  const { mini, toggle: toggleMini } = useListDensity();
 
   const { data, isLoading } = useQuery({
     queryKey: ['customers', filters],
@@ -131,11 +133,14 @@ export function CustomersListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Müşteriler / Cari</h1>
-        {!showForm && (
-          <button className="btn-primary" onClick={() => setShowForm(true)}>
-            + Yeni Müşteri
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <DensityToggle mini={mini} onToggle={toggleMini} />
+          {!showForm && (
+            <button className="btn-primary" onClick={() => setShowForm(true)}>
+              + Yeni Müşteri
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && <NewCustomerForm onClose={() => setShowForm(false)} />}
@@ -193,7 +198,7 @@ export function CustomersListPage() {
       ) : (
         <div className="space-y-2">
           {data?.items.map((c) => (
-            <CustomerRow key={c.id} customer={c} />
+            <CustomerRow key={c.id} customer={c} mini={mini} />
           ))}
           {!data?.items.length && (
             <p className="text-slate-400">Kayıt bulunamadı.</p>
@@ -341,18 +346,27 @@ function EditCustomerForm({
 }
 
 /** Tek cari satırı: bakiye + ekstre + düzenle/sil. */
-function CustomerRow({ customer }: { customer: Customer }) {
+function CustomerRow({ customer, mini }: { customer: Customer; mini?: boolean }) {
   const [openStatement, setOpenStatement] = useState(false);
   const [editing, setEditing] = useState(false);
 
   return (
-    <div className="card">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-medium">{customer.name}</h3>
-          <p className="text-sm text-slate-500">
-            {customer.companyName ?? customer.phone ?? '—'}
-          </p>
+    <div className={mini ? 'card !p-2' : 'card'}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="font-medium">
+            {customer.name}
+            {mini && (customer.companyName || customer.phone) ? (
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                {customer.companyName ?? customer.phone}
+              </span>
+            ) : null}
+          </h3>
+          {!mini && (
+            <p className="text-sm text-slate-500">
+              {customer.companyName ?? customer.phone ?? '—'}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span

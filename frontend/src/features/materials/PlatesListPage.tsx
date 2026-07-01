@@ -20,6 +20,7 @@ import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
+import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import type { MaterialTemplate, Plate } from '../../types';
 
 function areaM2(widthMm?: number, heightMm?: number): number | null {
@@ -764,7 +765,8 @@ export function PlatesListPage() {
   const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: 20 });
   const [showForm, setShowForm] = useState(false);
   const [groupByType, setGroupByType] = useState(false);
-  const [miniView, setMiniView] = useState(false);
+  // #2 Genel mini mod ayarına uyar; sayfada Mini/Detaylı ile geçici override.
+  const { mini: miniView, toggle: toggleMini } = useListDensity();
 
   const { data, isLoading } = useQuery({
     queryKey: ['plates', filters],
@@ -879,14 +881,9 @@ export function PlatesListPage() {
             />
             Sahip + kategoriye göre grupla
           </label>
-          <label className="flex min-h-[44px] shrink-0 items-center gap-2 px-2 text-sm">
-            <input
-              type="checkbox"
-              checked={miniView}
-              onChange={(e) => setMiniView(e.target.checked)}
-            />
-            Mini görünüm
-          </label>
+          <div className="flex min-h-[44px] shrink-0 items-center px-2">
+            <DensityToggle mini={miniView} onToggle={toggleMini} />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-sm">
