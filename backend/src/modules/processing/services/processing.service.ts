@@ -415,6 +415,10 @@ export class ProcessingService {
       .withDeleted()
       .leftJoinAndSelect('j.machine', 'machine')
       .leftJoinAndSelect('j.plate', 'plate')
+      // Kategori (malzeme türü) kuyruk gruplamasında görünsün — QueryBuilder
+      // eager ilişkileri otomatik yüklemez.
+      .leftJoinAndSelect('plate.template', 'template')
+      .leftJoinAndSelect('template.category', 'category')
       .leftJoinAndSelect('j.customer', 'customer')
       .where('j.status IN (:...statuses)', { statuses })
       .andWhere('j.deleted_at IS NULL')

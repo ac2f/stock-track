@@ -324,6 +324,8 @@ export interface PlateBrief {
   widthMm?: number | null;
   heightMm?: number | null;
   thicknessMm?: number | null;
+  // Kuyruk/geçmiş gruplaması için malzeme türü (kategori).
+  template?: { category?: { name?: string } | null } | null;
 }
 
 export interface ProcessingJob {

@@ -21,6 +21,20 @@ function DensityModeToggle({ className = '' }: { className?: string }) {
   );
 }
 
+/** Genel gruplama modu düğmesi (kalıcı, tüm listeler uyar). */
+function GroupModeToggle({ className = '' }: { className?: string }) {
+  const { grouped, toggleGrouped } = useDensity();
+  return (
+    <button
+      onClick={toggleGrouped}
+      title={grouped ? 'Gruplamayı kapat' : 'Listeleri grupla'}
+      className={`btn bg-slate-100 ${className}`}
+    >
+      {grouped ? '▦ Gruplu' : '▤ Grupsuz'}
+    </button>
+  );
+}
+
 interface NavItem {
   to: string;
   label: string;
@@ -93,6 +107,7 @@ export function ResponsiveLayout() {
         <div className="mt-6 space-y-2">
           <ThemeToggle className="w-full" />
           <DensityModeToggle className="w-full" />
+          <GroupModeToggle className="w-full" />
           <button
             onClick={logout}
             className="btn w-full text-slate-500 hover:text-slate-900"
@@ -109,6 +124,7 @@ export function ResponsiveLayout() {
           <div className="flex items-center gap-2">
             <ThemeToggle className="px-2 text-xs" />
             <DensityModeToggle className="px-2 text-xs" />
+            <GroupModeToggle className="px-2 text-xs" />
             <span className="text-xs text-slate-500">{user?.fullName}</span>
           </div>
         </header>

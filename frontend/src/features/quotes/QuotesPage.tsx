@@ -17,6 +17,7 @@ import {
   fetchPlates,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
+import { fetchQueue } from '../../api/processing.api';
 import { plateRemainingLabel } from '../../lib/plateLabel';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
@@ -500,6 +501,16 @@ function NewQuoteForm({
     queryFn: () => fetchMaterialTemplates(),
   });
 
+  // Halihazırda üretim kuyruğunda (PENDING/IN_PROGRESS — başlatılmamış olsa bile)
+  // olan plakaların id'leri: kaleme eklenince sarı uyarı gösterilir (engellenmez).
+  const { data: queueGroups } = useQuery({
+    queryKey: ['queue'],
+    queryFn: () => fetchQueue(),
+  });
+  const queuedPlateIds = new Set(
+    (queueGroups ?? []).flatMap((g) => g.jobs).map((j) => j.plateId),
+  );
+
   const createMut = useMutation({
     mutationFn: (input: CreateQuoteInput) =>
       editQuote ? updateQuote(editQuote.id, input) : createQuote(input),
@@ -732,6 +743,16 @@ function NewQuoteForm({
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />
           </Field>
+
+          {/* Bu plaka halihazırda üretim kuyruğunda mı? Engellenmez, ama sarı ve
+              belirgin bir uyarı gösterilir (başlat'a basılmamış olsa bile). */}
+          {item.plateId && queuedPlateIds.has(item.plateId) && (
+            <div className="rounded-lg border-2 border-amber-400 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900">
+              ⚠️ Bu ürün halihazırda üretim kuyruğunda (başlatılmamış olsa bile).
+              Yine de teklife ekleyebilirsiniz — mükerrer işleme olmadığından emin
+              olun.
+            </div>
+          )}
 
           {/* Konsinye komisyonu (yalnızca sahip seçiliyse) — sahibe yansımaz,
               işletme geliri olarak kalır. */}

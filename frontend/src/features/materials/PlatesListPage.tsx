@@ -20,7 +20,12 @@ import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
-import { useListDensity, DensityToggle } from '../../context/DensityContext';
+import {
+  useListDensity,
+  useListGrouping,
+  DensityToggle,
+  GroupToggle,
+} from '../../context/DensityContext';
 import type { MaterialTemplate, Plate } from '../../types';
 
 function areaM2(widthMm?: number, heightMm?: number): number | null {
@@ -764,9 +769,9 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
 export function PlatesListPage() {
   const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: 20 });
   const [showForm, setShowForm] = useState(false);
-  const [groupByType, setGroupByType] = useState(false);
-  // #2 Genel mini mod ayarına uyar; sayfada Mini/Detaylı ile geçici override.
+  // Genel mini mod + gruplama ayarlarına uyar; sayfada geçici override edilebilir.
   const { mini: miniView, toggle: toggleMini } = useListDensity();
+  const { grouped: groupByType, toggle: toggleGroup } = useListGrouping();
 
   const { data, isLoading } = useQuery({
     queryKey: ['plates', filters],
@@ -873,15 +878,8 @@ export function PlatesListPage() {
             />
             Stokta
           </label>
-          <label className="flex min-h-[44px] shrink-0 items-center gap-2 px-2 text-sm">
-            <input
-              type="checkbox"
-              checked={groupByType}
-              onChange={(e) => setGroupByType(e.target.checked)}
-            />
-            Sahip + kategoriye göre grupla
-          </label>
-          <div className="flex min-h-[44px] shrink-0 items-center px-2">
+          <div className="flex min-h-[44px] shrink-0 items-center gap-2 px-2">
+            <GroupToggle grouped={groupByType} onToggle={toggleGroup} />
             <DensityToggle mini={miniView} onToggle={toggleMini} />
           </div>
         </div>

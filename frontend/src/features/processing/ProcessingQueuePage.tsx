@@ -10,7 +10,26 @@ import {
 import { openPdf } from '../../api/documents.api';
 import { fetchSales, type Sale } from '../../api/sales.api';
 import { plateRemainingLabel } from '../../lib/plateLabel';
+import { useListGrouping, GroupToggle } from '../../context/DensityContext';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
+
+/** Kuyruk/geçmiş işini "Müşteri · Kategori" ile gruplar. */
+function jobGroupKey(job: ProcessingJob): string {
+  const customer = job.customer?.name ?? 'Müşterisiz';
+  const category = job.plate?.template?.category?.name ?? 'Diğer';
+  return `${customer} · ${category}`;
+}
+
+function groupJobs(jobs: ProcessingJob[]): [string, ProcessingJob[]][] {
+  const map = new Map<string, ProcessingJob[]>();
+  for (const j of jobs) {
+    const k = jobGroupKey(j);
+    const arr = map.get(k);
+    if (arr) arr.push(j);
+    else map.set(k, [j]);
+  }
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'tr'));
+}
 
 /** Bir satış kaleminin ölçüsü: tabaka ise m², değilse adet. */
 function saleItemMeasure(it: {
@@ -123,6 +142,7 @@ function ProcessingHistory() {
   const [to, setTo] = useState(today);
   const [status, setStatus] = useState<'' | ProcessingStatus>('completed');
 
+  const { grouped, toggle: toggleGroup } = useListGrouping();
   const { data } = useQuery({
     queryKey: ['processing-history', from, to, status],
     queryFn: () =>
@@ -137,7 +157,10 @@ function ProcessingHistory() {
 
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold text-slate-500">Geçmiş işler</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-500">Geçmiş işler</h2>
+        <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+      </div>
       <div className="card grid grid-cols-3 gap-2">
         <label className="block text-sm">
           <span className="mb-1 block text-xs text-slate-500">Başlangıç</span>
@@ -162,9 +185,20 @@ function ProcessingHistory() {
           </select>
         </label>
       </div>
-      {data?.items.map((job) => (
-        <HistoryJobCard key={job.id} job={job} />
-      ))}
+      {grouped ? (
+        groupJobs(data?.items ?? []).map(([key, jobs]) => (
+          <div key={key} className="space-y-2">
+            <h3 className="text-xs font-semibold text-slate-400">
+              {key} · {jobs.length} iş
+            </h3>
+            {jobs.map((job) => (
+              <HistoryJobCard key={job.id} job={job} />
+            ))}
+          </div>
+        ))
+      ) : (
+        data?.items.map((job) => <HistoryJobCard key={job.id} job={job} />)
+      )}
       {!data?.items.length && <p className="text-slate-400">Bu aralıkta iş yok.</p>}
     </div>
   );
@@ -312,6 +346,7 @@ const unitLabel: Record<string, string> = {
  */
 export function ProcessingQueuePage() {
   const qc = useQueryClient();
+  const { grouped, toggle: toggleGroup } = useListGrouping();
   const { data, isLoading } = useQuery({
     queryKey: ['queue'],
     queryFn: () => fetchQueue(),
@@ -341,10 +376,24 @@ export function ProcessingQueuePage() {
 
   const groups = data ?? [];
   const empty = groups.every((g) => g.jobs.length === 0);
+  const allJobs = groups.flatMap((g) => g.jobs);
+  const renderCard = (job: ProcessingJob) => (
+    <QueueJobCard
+      key={job.id}
+      job={job}
+      pending={mut.isPending}
+      onAction={(status, finalAmount) =>
+        mut.mutate({ id: job.id, status, finalAmount })
+      }
+    />
+  );
 
   return (
     <div className="space-y-5">
-      <h1 className="text-xl font-bold">Üretim Kuyruğu</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Üretim Kuyruğu</h1>
+        <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+      </div>
 
       {mut.isError && (
         <p className="card text-sm text-red-600">
@@ -355,23 +404,24 @@ export function ProcessingQueuePage() {
 
       {empty && <p className="text-slate-400">Kuyrukta bekleyen iş yok.</p>}
 
-      {groups.map((group) => (
-        <div key={group.machineId ?? 'unassigned'} className="space-y-2">
-          <h2 className="text-sm font-semibold text-slate-500">
-            🛠️ {group.machineName}
-          </h2>
-          {group.jobs.map((job) => (
-            <QueueJobCard
-              key={job.id}
-              job={job}
-              pending={mut.isPending}
-              onAction={(status, finalAmount) =>
-                mut.mutate({ id: job.id, status, finalAmount })
-              }
-            />
+      {/* Gruplu: Müşteri · Kategori; grupsuz: makineye göre (varsayılan). */}
+      {grouped
+        ? groupJobs(allJobs).map(([key, jobs]) => (
+            <div key={key} className="space-y-2">
+              <h2 className="text-sm font-semibold text-slate-500">
+                {key} · {jobs.length} iş
+              </h2>
+              {jobs.map(renderCard)}
+            </div>
+          ))
+        : groups.map((group) => (
+            <div key={group.machineId ?? 'unassigned'} className="space-y-2">
+              <h2 className="text-sm font-semibold text-slate-500">
+                🛠️ {group.machineName}
+              </h2>
+              {group.jobs.map(renderCard)}
+            </div>
           ))}
-        </div>
-      ))}
 
       <RecentSales />
 
