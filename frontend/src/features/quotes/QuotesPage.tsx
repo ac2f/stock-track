@@ -13,13 +13,16 @@ import { fetchCustomers } from '../../api/customers.api';
 import {
   comparePrices,
   fetchMaterialCategories,
+  fetchMaterialTemplates,
   fetchPlates,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
-import { plateLabel } from '../../lib/plateLabel';
+import { plateRemainingLabel } from '../../lib/plateLabel';
+import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
-import type { Plate, QuoteItemInput, QuoteStatus } from '../../types';
+import { updateQuote } from '../../api/quotes.api';
+import type { Plate, Quote, QuoteItemInput, QuoteStatus } from '../../types';
 
 /** Form içi kalem: backend QuoteItemInput + UI-içi sahip (konsinye) seçimi. */
 type FormItem = QuoteItemInput & { ownerCustomerId?: string };
@@ -33,11 +36,17 @@ function PlatePicker({
   excludeOwnerCustomerId,
   value,
   onPick,
+  highlightIds,
+  selectedPlate,
 }: {
   ownerCustomerId?: string;
   excludeOwnerCustomerId?: string;
   value: string;
   onPick: (plateId: string, plate?: Plate) => void;
+  /** #7 Zaten başka bir kaleme eklenmiş plakalar ayrı renkte gösterilir. */
+  highlightIds?: Set<string>;
+  /** #8 Düzenlemede seçili plaka listede olmasa da adı görünsün. */
+  selectedPlate?: Plate;
 }) {
   const { data } = useQuery({
     queryKey: [
@@ -54,23 +63,28 @@ function PlatePicker({
         limit: 100,
       }),
   });
+  const items = data?.items ?? [];
+  // Seçili plaka listede yoksa (ör. düzenlemede farklı filtre) başa eklenir.
+  const merged =
+    selectedPlate && !items.some((p) => p.id === selectedPlate.id)
+      ? [selectedPlate, ...items]
+      : items;
   return (
-    <select
-      className="input"
+    <SearchSelect
       value={value}
-      onChange={(e) =>
-        onPick(e.target.value, data?.items.find((p) => p.id === e.target.value))
+      placeholder={
+        ownerCustomerId ? 'Sahibin malzemesini ara/seç…' : 'Malzeme/plaka ara/seç…'
       }
-    >
-      <option value="">
-        {ownerCustomerId ? 'Sahibin malzemesini seçin…' : 'Malzeme/plaka seçin…'}
-      </option>
-      {data?.items.map((p) => (
-        <option key={p.id} value={p.id}>
-          {plateLabel(p)}
-        </option>
-      ))}
-    </select>
+      emptyText="Uygun malzeme yok."
+      options={merged.map((p) => ({
+        id: p.id,
+        label: p.name,
+        group: p.template?.category?.name ?? 'Diğer',
+        sublabel: plateRemainingLabel(p) ?? undefined,
+        highlight: highlightIds?.has(p.id),
+      }))}
+      onChange={(id) => onPick(id, merged.find((p) => p.id === id))}
+    />
   );
 }
 
@@ -91,6 +105,7 @@ const STATUS: Record<QuoteStatus, { label: string; cls: string }> = {
 export function QuotesPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [filters, setFilters] = useState<QuoteFilters>({ page: 1, limit: 50 });
 
   const { data, isLoading } = useQuery({
@@ -267,6 +282,18 @@ export function QuotesPage() {
         />
       )}
 
+      {/* #8 Onaylanmamış teklifin tam düzenlenmesi. */}
+      {editingQuote && (
+        <NewQuoteForm
+          key={editingQuote.id}
+          editQuote={editingQuote}
+          onDone={() => {
+            setEditingQuote(null);
+            qc.invalidateQueries({ queryKey: ['quotes'] });
+          }}
+        />
+      )}
+
       {isLoading ? (
         <p className="text-slate-400">Yükleniyor…</p>
       ) : (
@@ -309,6 +336,19 @@ export function QuotesPage() {
                       Reddet
                     </button>
                   </>
+                )}
+                {/* #8 Onaylanmamış (taslak/gönderildi/red) teklif tümüyle düzenlenebilir. */}
+                {(q.status === 'draft' ||
+                  q.status === 'sent' ||
+                  q.status === 'rejected') && (
+                  <button
+                    className="btn bg-amber-500 text-white"
+                    onClick={() =>
+                      setEditingQuote(editingQuote?.id === q.id ? null : q)
+                    }
+                  >
+                    {editingQuote?.id === q.id ? 'Düzenlemeyi kapat' : 'Düzenle'}
+                  </button>
                 )}
                 {q.status === 'accepted' && (
                   <button
@@ -384,23 +424,119 @@ function Field({
   );
 }
 
-function NewQuoteForm({ onDone }: { onDone: () => void }) {
-  const [buyerCustomerId, setBuyer] = useState('');
-  const [quoteNote, setQuoteNote] = useState('');
-  const [items, setItems] = useState<FormItem[]>([]);
+/** #8 Kayıtlı teklif kalemini form kalemine çevirir (düzenleme için). */
+function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
+  const consignment =
+    it.lineKind === 'sale' && it.stockSource && it.stockSource !== 'business';
+  return {
+    lineKind: it.lineKind,
+    plateId: it.plateId,
+    description: it.description,
+    quantity: Number(it.quantity),
+    unitPrice: Number(it.unitPrice),
+    billingUnit: it.billingUnit,
+    widthMm: it.widthMm != null ? Number(it.widthMm) : undefined,
+    heightMm: it.heightMm != null ? Number(it.heightMm) : undefined,
+    lengthMeters: it.lengthMeters != null ? Number(it.lengthMeters) : undefined,
+    stockSource: it.stockSource,
+    commissionPercent:
+      it.commissionPercent != null ? Number(it.commissionPercent) : undefined,
+    ownerCustomerId: consignment ? quote.ownerCustomerId ?? undefined : undefined,
+  };
+}
+
+function NewQuoteForm({
+  onDone,
+  editQuote,
+}: {
+  onDone: () => void;
+  editQuote?: Quote;
+}) {
+  const [buyerCustomerId, setBuyer] = useState(editQuote?.buyerCustomerId ?? '');
+  const [quoteNote, setQuoteNote] = useState(editQuote?.note ?? '');
+  const [items, setItems] = useState<FormItem[]>(
+    () => editQuote?.items.map((it) => quoteItemToForm(it, editQuote)) ?? [],
+  );
   // Seçilen plakaların önbelleği (sahibe göre filtreli dropdown'lardan gelenler de
   // dahil) — canlı tutar/m² önizlemesi ve AREA ebat alanları için.
-  const [plateCache, setPlateCache] = useState<Record<string, Plate>>({});
+  const [plateCache, setPlateCache] = useState<Record<string, Plate>>(() => {
+    const seed: Record<string, Plate> = {};
+    for (const it of editQuote?.items ?? []) {
+      const p = (it as unknown as { plate?: Plate }).plate;
+      if (p) seed[p.id] = p;
+    }
+    return seed;
+  });
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   const cachePlate = (p?: Plate) =>
     p && setPlateCache((c) => (c[p.id] ? c : { ...c, [p.id]: p }));
   const getPlate = (id: string): Plate | undefined => plateCache[id];
 
+  // #6 İşleme malzemesi için türlerin standart tabaka ebadı gerekir.
+  const { data: templates } = useQuery({
+    queryKey: ['material-templates'],
+    queryFn: () => fetchMaterialTemplates(),
+  });
+
   const createMut = useMutation({
-    mutationFn: (input: CreateQuoteInput) => createQuote(input),
+    mutationFn: (input: CreateQuoteInput) =>
+      editQuote ? updateQuote(editQuote.id, input) : createQuote(input),
     onSuccess: onDone,
+  });
+
+  // #6 Bu müşteriye ait, stokta olan, bugün/dün eklenen ve kalan ebadı tam tabaka
+  // olan tüm malzemeleri tek tıkla işleme kalemi olarak ekle.
+  const bulkMut = useMutation({
+    mutationFn: () =>
+      // ownerCustomerId filtresi zaten yalnızca o sahibin stoğu > 0 olan
+      // (konsinye) malzemelerini döner; ayrı inStock gerekmez (inStock işletme
+      // stoğuna bakar, konsinyede 0'dır).
+      fetchPlates({
+        ownerCustomerId: buyerCustomerId,
+        page: 1,
+        limit: 100,
+      }),
+    onSuccess: (res) => {
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const okDates = new Set([iso(new Date()), iso(new Date(Date.now() - 864e5))]);
+      const stdById = new Map(
+        (templates ?? []).map((t) => [t.id, t.defaultSize] as const),
+      );
+      const already = new Set(items.map((x) => x.plateId));
+      const chosen = res.items.filter((p) => {
+        if (already.has(p.id)) return false;
+        if (!okDates.has(p.addedAt ?? '')) return false;
+        if (!p.templateId) return false;
+        const std = stdById.get(p.templateId);
+        if (!std) return false;
+        // Kalan ebat = standart tabaka ebadı (yani hiç kesilmemiş tam tabaka).
+        return (
+          Number(p.widthMm) === Number(std.widthMm) &&
+          Number(p.heightMm) === Number(std.heightMm)
+        );
+      });
+      if (!chosen.length) {
+        setBulkMsg('Uygun (bugün/dün eklenen, tam tabaka) malzeme bulunamadı.');
+        return;
+      }
+      chosen.forEach(cachePlate);
+      setItems((it) => [
+        ...it,
+        ...chosen.map((p) => ({
+          lineKind: 'processing' as const,
+          plateId: p.id,
+          quantity: 1,
+          unitPrice: 0,
+          billingUnit: 'area' as const,
+          widthMm: Number(p.widthMm),
+          heightMm: Number(p.heightMm),
+        })),
+      ]);
+      setBulkMsg(`${chosen.length} malzeme işleme kalemi olarak eklendi.`);
+    },
   });
 
   const addItem = (lineKind: 'sale' | 'processing') =>
@@ -479,8 +615,29 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
   return (
     <div className="card space-y-3">
       <Field label="Alıcı müşteri (ara)">
-        <CustomerPicker onChange={(id) => setBuyer(id)} />
+        <CustomerPicker
+          onChange={(id) => setBuyer(id)}
+          initialName={editQuote?.buyerCustomer?.name}
+        />
       </Field>
+
+      {/* #6 Bu müşterinin bugün/dün eklenen tam tabaka malzemelerini tek tıkla
+          işleme kalemi olarak ekle. */}
+      {buyerCustomerId && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="btn bg-indigo-600 text-white"
+            disabled={bulkMut.isPending}
+            onClick={() => {
+              setBulkMsg(null);
+              bulkMut.mutate();
+            }}
+          >
+            ⚡ Müşterinin tam tabakalarını işleme ekle (bugün/dün)
+          </button>
+          {bulkMsg && <span className="text-xs text-slate-500">{bulkMsg}</span>}
+        </div>
+      )}
 
       {ownerConflict && (
         <p className="text-sm text-red-600">
@@ -528,13 +685,31 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
             }
           >
             <PlatePicker
-              ownerCustomerId={item.ownerCustomerId}
+              // #5 İşleme kaleminde varsayılan olarak ALICI müşterinin kendi
+              // malzemeleri listelenir (elle başka sahip aratılana kadar).
+              ownerCustomerId={
+                item.ownerCustomerId ||
+                (item.lineKind === 'processing'
+                  ? buyerCustomerId || undefined
+                  : undefined)
+              }
               // #2 Satış kaleminde alıcının KENDİ malzemeleri listelenmez
               // (kişiye kendi malını yanlışlıkla satmayı engeller).
               excludeOwnerCustomerId={
                 item.lineKind === 'sale' ? buyerCustomerId || undefined : undefined
               }
               value={item.plateId}
+              selectedPlate={getPlate(item.plateId)}
+              // #7 Bu teklifte başka bir kaleme zaten eklenmiş plakalar ayrı
+              // renkte gösterilir (aynı özellikli tabakaları ayırt etmek için).
+              highlightIds={
+                new Set(
+                  items
+                    .filter((_, idx) => idx !== i)
+                    .map((x) => x.plateId)
+                    .filter(Boolean),
+                )
+              }
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />
           </Field>
@@ -819,12 +994,13 @@ function NewQuoteForm({ onDone }: { onDone: () => void }) {
           });
         }}
       >
-        Teklif Oluştur
+        {editQuote ? 'Teklifi Güncelle' : 'Teklif Oluştur'}
       </button>
       {createMut.isError && (
         <p className="text-sm text-red-600">
           {(createMut.error as { response?: { data?: { message?: string } } })
-            ?.response?.data?.message ?? 'Teklif oluşturulamadı.'}
+            ?.response?.data?.message ??
+            (editQuote ? 'Teklif güncellenemedi.' : 'Teklif oluşturulamadı.')}
         </p>
       )}
     </div>

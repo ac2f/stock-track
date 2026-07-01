@@ -181,7 +181,11 @@ export class PlatesService {
   async findAll(query: QueryPlateDto): Promise<PaginatedResult<MaterialPlate>> {
     const qb = this.platesRepo
       .createQueryBuilder('plate')
-      .leftJoinAndSelect('plate.template', 'template');
+      .leftJoinAndSelect('plate.template', 'template')
+      // Kategori adı listede/gruplamada ve teklif seçicisinde görünsün
+      // (QueryBuilder eager ilişkileri otomatik yüklemez).
+      .leftJoinAndSelect('template.category', 'category')
+      .leftJoinAndSelect('template.defaultSize', 'defaultSize');
 
     // Depo/sahip filtresi için stok seviyelerine join.
     if (query.warehouseId || query.ownerCustomerId || query.owner) {

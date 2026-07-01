@@ -299,10 +299,12 @@ export interface Quote {
   quoteNo: string;
   buyerCustomerId: string;
   buyerCustomer?: Customer;
+  ownerCustomerId?: string | null;
   status: QuoteStatus;
   currency: string;
   subtotal: number;
   total: number;
+  note?: string | null;
   validUntil?: string | null;
   createdAt: string;
   items: QuoteItem[];

@@ -19,6 +19,7 @@ import { fetchWarehouses } from '../../api/warehouses.api';
 import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
+import { SearchSelect } from '../../components/SearchSelect';
 import type { MaterialTemplate, Plate } from '../../types';
 
 function areaM2(widthMm?: number, heightMm?: number): number | null {
@@ -195,19 +196,18 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         </p>
       )}
 
-      <Field label="Ürün türü (özellikler buradan gelir)">
-        <select
-          className="input"
+      <Field label="Ürün türü (kategoriye göre gruplu · aratılabilir)">
+        {/* #2 Kategoriye göre gruplu, aranabilir, klavyeyle gezilebilir seçici. */}
+        <SearchSelect
+          placeholder="Ürün türü ara / seç…"
           value={form.templateId}
-          onChange={(e) => applyTemplateDefaults(e.target.value)}
-        >
-          <option value="">Ürün türü seç…</option>
-          {templates?.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+          options={(templates ?? []).map((t) => ({
+            id: t.id,
+            label: t.name,
+            group: t.category?.name ?? 'Diğer',
+          }))}
+          onChange={(id) => applyTemplateDefaults(id)}
+        />
       </Field>
 
       {tpl && (
@@ -718,6 +718,44 @@ function PlateCard({ plate }: { plate: Plate }) {
   );
 }
 
+/** #4 Mini görünüm: tek satırda ad · kalan ebat · sahip · adet + düzenle. */
+function PlateMiniRow({ plate }: { plate: Plate }) {
+  const [editing, setEditing] = useState(false);
+  const m2 = areaM2(plate.widthMm, plate.heightMm);
+  return (
+    <div className="bg-white px-3 py-2 text-sm dark:bg-slate-800">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="font-medium">{plate.name}</span>
+          <span className="ml-2 text-xs text-slate-400">
+            {plate.widthMm}×{plate.heightMm}
+            {plate.thicknessMm ? `×${plate.thicknessMm}` : ''} mm
+            {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
+            {' · '}
+            {plate.owners?.length ? plate.owners.join(', ') : 'İşletme'}
+          </span>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
+            plate.quantityInStock > 0
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-red-100 text-red-700'
+          }`}
+        >
+          {plate.quantityInStock} adet
+        </span>
+        <button
+          className="btn shrink-0 px-2 py-1 text-xs"
+          onClick={() => setEditing((v) => !v)}
+        >
+          {editing ? 'Kapat' : 'Düzenle'}
+        </button>
+      </div>
+      {editing && <EditPlateForm plate={plate} onClose={() => setEditing(false)} />}
+    </div>
+  );
+}
+
 /**
  * Plaka (stok) listesi + gelişmiş filtreleme.
  * Mobil: tek sütun kartlar; masaüstü: çok sütunlu ızgara.
@@ -726,6 +764,7 @@ export function PlatesListPage() {
   const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: 20 });
   const [showForm, setShowForm] = useState(false);
   const [groupByType, setGroupByType] = useState(false);
+  const [miniView, setMiniView] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['plates', filters],
@@ -743,13 +782,17 @@ export function PlatesListPage() {
   const set = (patch: Partial<PlateFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
-  // Tür bazlı gruplama (işleme malzemesini kolay bulmak için).
+  // #4 Sahip + kategori bazlı gruplama (müşteriye ait malzemeleri kolay bulmak için).
+  const ownerOf = (p: Plate) => (p.owners?.length ? p.owners.join(', ') : 'İşletme');
   const groups = new Map<string, Plate[]>();
   for (const p of data?.items ?? []) {
-    const key = p.template?.category?.name ?? 'Diğer';
+    const key = `${ownerOf(p)} · ${p.template?.category?.name ?? 'Diğer'}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(p);
   }
+  const groupList = [...groups.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0], 'tr'),
+  );
 
   return (
     <div className="space-y-4">
@@ -834,7 +877,15 @@ export function PlatesListPage() {
               checked={groupByType}
               onChange={(e) => setGroupByType(e.target.checked)}
             />
-            Türe göre grupla
+            Sahip + kategoriye göre grupla
+          </label>
+          <label className="flex min-h-[44px] shrink-0 items-center gap-2 px-2 text-sm">
+            <input
+              type="checkbox"
+              checked={miniView}
+              onChange={(e) => setMiniView(e.target.checked)}
+            />
+            Mini görünüm
           </label>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -865,17 +916,31 @@ export function PlatesListPage() {
         <p className="text-slate-400">Kayıt bulunamadı.</p>
       ) : groupByType ? (
         <div className="space-y-4">
-          {[...groups.entries()].map(([cat, items]) => (
-            <div key={cat} className="space-y-2">
+          {groupList.map(([key, items]) => (
+            <div key={key} className="space-y-2">
               <h2 className="text-sm font-semibold text-slate-500">
-                {cat} · {items.length}
+                {key} · {items.length} adet
               </h2>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {items.map((plate) => (
-                  <PlateCard key={plate.id} plate={plate} />
-                ))}
-              </div>
+              {miniView ? (
+                <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+                  {items.map((plate) => (
+                    <PlateMiniRow key={plate.id} plate={plate} />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map((plate) => (
+                    <PlateCard key={plate.id} plate={plate} />
+                  ))}
+                </div>
+              )}
             </div>
+          ))}
+        </div>
+      ) : miniView ? (
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+          {data.items.map((plate) => (
+            <PlateMiniRow key={plate.id} plate={plate} />
           ))}
         </div>
       ) : (

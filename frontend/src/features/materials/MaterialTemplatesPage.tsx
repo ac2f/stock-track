@@ -32,18 +32,37 @@ const EMPTY: MaterialTemplateInput = {
   isActive: true,
 };
 
-/** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
+/** #3 Şablonları kategori adına göre gruplar (sıra: kategori adı). */
+function groupByCategory<T extends { category?: { name?: string } }>(
+  list: T[],
+): [string, T[]][] {
+  const map = new Map<string, T[]>();
+  for (const t of list) {
+    const key = t.category?.name ?? 'Diğer';
+    const arr = map.get(key);
+    if (arr) arr.push(t);
+    else map.set(key, [t]);
+  }
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'tr'));
+}
+
+/**
+ * Tür Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik
+ * kısımlar "—" ile gösterilir. #1 Başa kategori (tür) adı eklenir.
+ */
 function buildCatalogName(
+  type: string | undefined,
   brand: { name: string } | undefined,
   color: { name: string; code?: string } | undefined,
   size: { widthMm: number; heightMm: number } | undefined,
   thickness: { valueMm: number } | undefined,
 ): string {
+  const typePart = type?.trim() ? `${type.trim()} ` : '';
   const brandPart = brand?.name ?? '—';
   const colorPart = color ? (color.code ? `${color.name} ${color.code}` : color.name) : '—';
   const thicknessPart = thickness?.valueMm ?? '—';
   const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
-  return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
+  return `${typePart}${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
 }
 
 /**
@@ -101,11 +120,15 @@ export function MaterialTemplatesPage() {
       if (!f) return f;
       const next = { ...f, ...patch };
       if (nameTouched) return next;
+      const cat = categories?.find((c) => c.id === next.categoryId);
       const brand = brands?.find((b) => b.id === next.defaultBrandId);
       const color = colors?.find((c) => c.id === next.defaultColorId);
       const size = sizes?.find((s) => s.id === next.defaultSizeId);
       const thickness = thicknesses?.find((t) => t.id === next.defaultThicknessId);
-      return { ...next, name: buildCatalogName(brand, color, size, thickness) };
+      return {
+        ...next,
+        name: buildCatalogName(cat?.name, brand, color, size, thickness),
+      };
     });
   };
 
@@ -229,7 +252,8 @@ export function MaterialTemplatesPage() {
                 defaultColorId: undefined,
                 defaultSizeId: undefined,
                 defaultThicknessId: undefined,
-                name: '',
+                // #1 Ad kategori (tür) adıyla başlasın; kullanıcı elle değiştirebilir.
+                name: cat?.name ? `${cat.name} ` : '',
               });
             }}
           >
@@ -476,8 +500,14 @@ export function MaterialTemplatesPage() {
       {isLoading ? (
         <p className="text-slate-400">Yükleniyor…</p>
       ) : (
-        <div className="space-y-2">
-          {data?.map((t) => (
+        <div className="space-y-5">
+          {/* #3 Malzemeler kategorilerine göre gruplanır. */}
+          {groupByCategory(data ?? []).map(([catName, tpls]) => (
+            <div key={catName} className="space-y-2">
+              <h2 className="text-sm font-semibold text-slate-500">
+                {catName} · {tpls.length}
+              </h2>
+              {tpls.map((t) => (
             <div key={t.id} className="card flex items-center justify-between">
               <div>
                 <h3 className="font-medium">
@@ -532,6 +562,8 @@ export function MaterialTemplatesPage() {
                   Sil
                 </button>
               </div>
+            </div>
+              ))}
             </div>
           ))}
           {!data?.length && <p className="text-slate-400">Kayıt bulunamadı.</p>}

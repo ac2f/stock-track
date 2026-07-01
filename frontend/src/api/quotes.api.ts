@@ -35,6 +35,15 @@ export async function createQuote(input: CreateQuoteInput): Promise<Quote> {
   return data;
 }
 
+/** #8 Onaylanmamış (taslak/gönderildi/red) teklifi tümüyle yeniden yazar. */
+export async function updateQuote(
+  id: string,
+  input: CreateQuoteInput,
+): Promise<Quote> {
+  const { data } = await api.patch<Quote>(`/quotes/${id}`, input);
+  return data;
+}
+
 export async function setQuoteStatus(
   id: string,
   status: QuoteStatus,
