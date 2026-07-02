@@ -30,3 +30,19 @@ export function plateLabel(plate: PlateBrief): string {
   const rem = plateRemainingLabel(plate);
   return rem ? `${plate.name} · ${rem}` : plate.name;
 }
+
+/**
+ * Tabaka KESİLMİŞ mi? (kalan ebat, türün standart tabaka ebadından küçük)
+ * Şerit/rulo (AREA dışı) veya standart ebat tanımsızsa false — vurgulanmaz.
+ */
+export function isPartialSheet(
+  plate: Pick<PlateBrief, 'measurementType' | 'widthMm' | 'heightMm' | 'template'>,
+): boolean {
+  if (plate.measurementType && plate.measurementType !== 'area') return false;
+  const std = plate.template?.defaultSize;
+  if (!std) return false;
+  const w = Number(plate.widthMm);
+  const h = Number(plate.heightMm);
+  if (!w || !h) return false;
+  return w < Number(std.widthMm) || h < Number(std.heightMm);
+}

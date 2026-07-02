@@ -8,6 +8,8 @@ export interface SearchOption {
   group?: string;
   /** İkincil satır (ör. kalan ebat / firma). */
   sublabel?: string;
+  /** İkincil satır vurgusu: 'warn' → kesilmiş/kalan ebat gibi dikkat çekmesi gerekenler. */
+  subtone?: 'warn';
   /** #7 Zaten seçili/eklenmiş olanı farklı renkle vurgula. */
   highlight?: boolean;
 }
@@ -165,7 +167,13 @@ export function SearchSelect({
                           {o.label}
                         </span>
                         {o.sublabel && (
-                          <span className="block text-xs text-slate-500">
+                          <span
+                            className={`block text-xs ${
+                              o.subtone === 'warn'
+                                ? 'font-semibold text-amber-700 dark:text-amber-400'
+                                : 'text-slate-500'
+                            }`}
+                          >
                             {o.sublabel}
                           </span>
                         )}

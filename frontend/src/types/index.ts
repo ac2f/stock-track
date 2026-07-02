@@ -197,7 +197,12 @@ export interface Plate {
   processedAt?: string; // işlenme tarihi (YYYY-MM-DD)
   owners?: string[]; // dinamik sahip(ler): "İşletme" ve/veya müşteri adları
   templateId?: string;
-  template?: { category: MaterialCategory; name: string };
+  template?: {
+    category: MaterialCategory;
+    name: string;
+    // Standart tabaka ebadı — kalan ebadın kesilmiş olduğunu tespit için.
+    defaultSize?: { widthMm: number; heightMm: number } | null;
+  };
 }
 
 /** Bir plakanın depo/sahip bazlı stok seviyesi (konsinye-farkında). */
@@ -324,8 +329,11 @@ export interface PlateBrief {
   widthMm?: number | null;
   heightMm?: number | null;
   thicknessMm?: number | null;
-  // Kuyruk/geçmiş gruplaması için malzeme türü (kategori).
-  template?: { category?: { name?: string } | null } | null;
+  // Kuyruk/geçmiş gruplaması için malzeme türü (kategori) + standart tabaka ebadı.
+  template?: {
+    category?: { name?: string } | null;
+    defaultSize?: { widthMm: number; heightMm: number } | null;
+  } | null;
 }
 
 export interface ProcessingJob {

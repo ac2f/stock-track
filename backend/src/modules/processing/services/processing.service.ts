@@ -416,9 +416,11 @@ export class ProcessingService {
       .leftJoinAndSelect('j.machine', 'machine')
       .leftJoinAndSelect('j.plate', 'plate')
       // Kategori (malzeme türü) kuyruk gruplamasında görünsün — QueryBuilder
-      // eager ilişkileri otomatik yüklemez.
+      // eager ilişkileri otomatik yüklemez. defaultSize: kalan ebadın standart
+      // tabakadan küçük olduğunu vurgulamak için.
       .leftJoinAndSelect('plate.template', 'template')
       .leftJoinAndSelect('template.category', 'category')
+      .leftJoinAndSelect('template.defaultSize', 'defaultSize')
       .leftJoinAndSelect('j.customer', 'customer')
       .where('j.status IN (:...statuses)', { statuses })
       .andWhere('j.deleted_at IS NULL')

@@ -21,7 +21,8 @@ import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
 import { UnitConverter } from '../../components/UnitConverter';
-import { GroupSection } from '../../components/GroupSection';
+import { GroupSection, groupChipClass } from '../../components/GroupSection';
+import { isPartialSheet } from '../../lib/plateLabel';
 import {
   useListDensity,
   useListGrouping,
@@ -775,15 +776,37 @@ function PlateCard({ plate }: { plate: Plate }) {
         {plate.colorCode ? ` (${plate.colorCode})` : ''}
         {plate.variant ? ` · ${plate.variant}` : ''}
       </p>
-      <p className="mt-1 text-xs text-slate-400">
-        {plate.widthMm}×{plate.heightMm}×{plate.thicknessMm} mm
-        {m2 != null ? ` · kalan ${m2.toFixed(2)} m²` : ''}
-      </p>
-      {/* Başlık altı: dinamik sahip + stok/işlenme tarihi. */}
-      <p className="mt-1 text-xs text-slate-400">
-        Sahip: {plate.owners?.length ? plate.owners.join(', ') : '—'}
-        {plate.addedAt ? ` · Stok: ${plate.addedAt}` : ''}
-        {plate.processedAt ? ` · İşlendi: ${plate.processedAt}` : ''}
+      {/* Kesilmiş tabakada KALAN ebat ön planda ve okunaklı; tam tabakada sade. */}
+      {isPartialSheet(plate) ? (
+        <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 text-sm font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+            ✂ Kalan: {Number(plate.widthMm)}×{Number(plate.heightMm)} mm
+            {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
+          </span>
+          {plate.template?.defaultSize && (
+            <span className="text-xs text-slate-400">
+              Standart: {Number(plate.template.defaultSize.widthMm)}×
+              {Number(plate.template.defaultSize.heightMm)}
+            </span>
+          )}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-slate-400">
+          {plate.widthMm}×{plate.heightMm}×{plate.thicknessMm} mm
+          {m2 != null ? ` · kalan ${m2.toFixed(2)} m²` : ''}
+        </p>
+      )}
+      {/* Başlık altı: sahip renkli rozet + stok/işlenme tarihi. */}
+      <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+        <span
+          className={`inline-block rounded-full px-2 py-0.5 font-semibold ${groupChipClass(
+            plate.owners?.length ? plate.owners.join(', ') : 'İşletme',
+          )}`}
+        >
+          👤 {plate.owners?.length ? plate.owners.join(', ') : 'İşletme'}
+        </span>
+        {plate.addedAt ? <span>Stok: {plate.addedAt}</span> : null}
+        {plate.processedAt ? <span>İşlendi: {plate.processedAt}</span> : null}
       </p>
       <div className="mt-2">
         <button className="btn" onClick={() => setEditing((v) => !v)}>
@@ -804,11 +827,23 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <span className="font-medium">{plate.name}</span>
-          <span className="ml-2 text-xs text-slate-400">
-            {plate.widthMm}×{plate.heightMm}
-            {plate.thicknessMm ? `×${plate.thicknessMm}` : ''} mm
-            {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
-            {' · '}
+          {isPartialSheet(plate) ? (
+            <span className="ml-2 inline-block rounded bg-amber-100 px-1 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+              ✂ Kalan: {Number(plate.widthMm)}×{Number(plate.heightMm)}
+              {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
+            </span>
+          ) : (
+            <span className="ml-2 text-xs text-slate-400">
+              {plate.widthMm}×{plate.heightMm}
+              {plate.thicknessMm ? `×${plate.thicknessMm}` : ''} mm
+              {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
+            </span>
+          )}
+          <span
+            className={`ml-2 inline-block rounded-full px-1.5 py-0.5 text-xs font-semibold ${groupChipClass(
+              plate.owners?.length ? plate.owners.join(', ') : 'İşletme',
+            )}`}
+          >
             {plate.owners?.length ? plate.owners.join(', ') : 'İşletme'}
           </span>
         </div>

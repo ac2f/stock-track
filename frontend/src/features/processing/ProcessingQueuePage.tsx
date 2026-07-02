@@ -9,7 +9,7 @@ import {
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
 import { fetchSales, type Sale } from '../../api/sales.api';
-import { plateRemainingLabel } from '../../lib/plateLabel';
+import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
 import { useListGrouping, GroupToggle } from '../../context/DensityContext';
 import { GroupSection } from '../../components/GroupSection';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
@@ -264,7 +264,16 @@ function HistoryJobCard({ job }: { job: ProcessingJob }) {
             </p>
           )}
           {job.plate && plateRemainingLabel(job.plate) && (
-            <p className="text-xs text-slate-400">{plateRemainingLabel(job.plate)}</p>
+            <p
+              className={
+                isPartialSheet(job.plate)
+                  ? 'mt-0.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                  : 'text-xs text-slate-400'
+              }
+            >
+              {isPartialSheet(job.plate) ? '✂ ' : ''}
+              {plateRemainingLabel(job.plate)}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -452,7 +461,18 @@ function QueueJobCard({
             {job.customer?.name ?? 'Müşterisiz'} · {job.quantityValue}{' '}
             {unitLabel[job.billingUnit] ?? ''}
           </p>
-          {remaining && <p className="text-xs text-slate-400">{remaining}</p>}
+          {remaining && (
+            <p
+              className={
+                job.plate && isPartialSheet(job.plate)
+                  ? 'mt-0.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                  : 'text-xs text-slate-400'
+              }
+            >
+              {job.plate && isPartialSheet(job.plate) ? '✂ ' : ''}
+              {remaining}
+            </p>
+          )}
         </div>
         <div className="text-right">
           <span

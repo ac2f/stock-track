@@ -18,7 +18,7 @@ import {
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchQueue } from '../../api/processing.api';
-import { plateRemainingLabel } from '../../lib/plateLabel';
+import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
@@ -40,10 +40,31 @@ type FormItem = QuoteItemInput & {
  * Plaka seçici (gerekirse sahibe göre filtreli). Sahip verilirse yalnızca o
  * müşterinin malzemeleri listelenir (#1). Seçilen plaka nesnesi yukarı bildirilir.
  */
+/** Bir plakanın sahip etiketi: konsinye ise müşteri adları, değilse "İşletme". */
+function plateOwnerLabel(p: Plate): string {
+  return p.owners?.length ? p.owners.join(', ') : 'İşletme';
+}
+
+/** Seçici alt satırı: kategori + (tabaka ise kalan ebat / şerit ise yükseklik×uzunluk). */
+function platePickSublabel(p: Plate): string {
+  const cat = p.template?.category?.name;
+  const parts: string[] = [];
+  if (cat) parts.push(cat);
+  if (p.measurementType === 'length') {
+    const h = Number(p.heightMm);
+    parts.push(`${h ? `${h}mm × ` : ''}${Number(p.quantityInStock)} m`);
+  } else {
+    const rem = plateRemainingLabel(p);
+    if (rem) parts.push(rem);
+  }
+  return parts.join(' · ');
+}
+
 function PlatePicker({
   ownerCustomerId,
   businessOnly,
   excludeOwnerCustomerId,
+  preferOwnerName,
   value,
   onPick,
   highlightIds,
@@ -53,6 +74,8 @@ function PlatePicker({
   /** Yalnızca işletmeye ait stok listelensin (owner=business filtresi). */
   businessOnly?: boolean;
   excludeOwnerCustomerId?: string;
+  /** Bu sahibin (alıcının) malzemeleri listede EN ÜSTTE gruplansın. */
+  preferOwnerName?: string;
   value: string;
   onPick: (plateId: string, plate?: Plate) => void;
   /** #7 Zaten başka bir kaleme eklenmiş plakalar ayrı renkte gösterilir. */
@@ -60,18 +83,26 @@ function PlatePicker({
   /** #8 Düzenlemede seçili plaka listede olmasa da adı görünsün. */
   selectedPlate?: Plate;
 }) {
+  // Ürün türü (kategori) filtresi — varsayılan: tümü.
+  const [categoryId, setCategoryId] = useState('');
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: fetchMaterialCategories,
+  });
   const { data } = useQuery({
     queryKey: [
       'plates',
       'pick',
       businessOnly ? 'business' : ownerCustomerId ?? 'all',
       excludeOwnerCustomerId ?? '',
+      categoryId,
     ],
     queryFn: () =>
       fetchPlates({
         ownerCustomerId: businessOnly ? undefined : ownerCustomerId || undefined,
         owner: businessOnly ? 'business' : undefined,
         excludeOwnerCustomerId: excludeOwnerCustomerId || undefined,
+        categoryId: categoryId || undefined,
         page: 1,
         limit: 100,
       }),
@@ -82,22 +113,54 @@ function PlatePicker({
     selectedPlate && !items.some((p) => p.id === selectedPlate.id)
       ? [selectedPlate, ...items]
       : items;
+  // Sahiplere göre sırala: tercih edilen sahip (alıcı) → İşletme → diğerleri (ada göre).
+  const ownerRank = (p: Plate): [number, string] => {
+    const label = plateOwnerLabel(p);
+    if (preferOwnerName && p.owners?.includes(preferOwnerName)) return [0, label];
+    if (label === 'İşletme') return [1, label];
+    return [2, label];
+  };
+  const sorted = [...merged].sort((a, b) => {
+    const [ra, la] = ownerRank(a);
+    const [rb, lb] = ownerRank(b);
+    if (ra !== rb) return ra - rb;
+    const cmp = la.localeCompare(lb, 'tr');
+    if (cmp !== 0) return cmp;
+    return a.name.localeCompare(b.name, 'tr');
+  });
   return (
-    <SearchSelect
-      value={value}
-      placeholder={
-        ownerCustomerId ? 'Sahibin malzemesini ara/seç…' : 'Malzeme/plaka ara/seç…'
-      }
-      emptyText="Uygun malzeme yok."
-      options={merged.map((p) => ({
-        id: p.id,
-        label: p.name,
-        group: p.template?.category?.name ?? 'Diğer',
-        sublabel: plateRemainingLabel(p) ?? undefined,
-        highlight: highlightIds?.has(p.id),
-      }))}
-      onChange={(id) => onPick(id, merged.find((p) => p.id === id))}
-    />
+    <div className="space-y-1">
+      <select
+        className="input"
+        value={categoryId}
+        onChange={(e) => setCategoryId(e.target.value)}
+      >
+        <option value="">Tüm ürün türleri</option>
+        {categories?.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <SearchSelect
+        value={value}
+        placeholder={
+          ownerCustomerId ? 'Sahibin malzemesini ara/seç…' : 'Malzeme/plaka ara/seç…'
+        }
+        emptyText="Uygun malzeme yok."
+        options={sorted.map((p) => ({
+          id: p.id,
+          label: p.name,
+          // Sahiplere göre gruplama — kimin malı olduğu başlıktan okunur.
+          group: `👤 ${plateOwnerLabel(p)}`,
+          sublabel: platePickSublabel(p),
+          // Kesilmiş (tam olmayan) tabakanın kalan ebadı vurgulanır.
+          subtone: isPartialSheet(p) ? ('warn' as const) : undefined,
+          highlight: highlightIds?.has(p.id),
+        }))}
+        onChange={(id) => onPick(id, sorted.find((p) => p.id === id))}
+      />
+    </div>
   );
 }
 
@@ -482,6 +545,10 @@ function NewQuoteForm({
   editQuote?: Quote;
 }) {
   const [buyerCustomerId, setBuyer] = useState(editQuote?.buyerCustomerId ?? '');
+  // Alıcının adı — seçicide alıcının malzemelerini en üstte gruplamak için.
+  const [buyerName, setBuyerName] = useState(
+    editQuote?.buyerCustomer?.name ?? '',
+  );
   const [quoteNote, setQuoteNote] = useState(editQuote?.note ?? '');
   const [items, setItems] = useState<FormItem[]>(
     () => editQuote?.items.map((it) => quoteItemToForm(it, editQuote)) ?? [],
@@ -522,6 +589,42 @@ function NewQuoteForm({
   const queuedPlateIds = new Set(
     (queueGroups ?? []).flatMap((g) => g.jobs).map((j) => j.plateId),
   );
+
+  // #2b Alıcının SON EKLENEN (bugün/dün) TAM OLMAYAN (kesik) tabakaları —
+  // checkbox ile tek tek seçilip işleme kalemi olarak eklenir.
+  const { data: buyerPlatesData } = useQuery({
+    queryKey: ['plates', 'buyer-recent', buyerCustomerId],
+    enabled: !!buyerCustomerId,
+    queryFn: () =>
+      fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 100 }),
+  });
+  const [selPartials, setSelPartials] = useState<Set<string>>(new Set());
+  const recentDates = (() => {
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    return new Set([iso(new Date()), iso(new Date(Date.now() - 864e5))]);
+  })();
+  const recentPartials = (buyerPlatesData?.items ?? []).filter(
+    (p) => recentDates.has(p.addedAt ?? '') && isPartialSheet(p),
+  );
+  const addSelectedPartials = () => {
+    const chosen = recentPartials.filter(
+      (p) => selPartials.has(p.id) && !items.some((x) => x.plateId === p.id),
+    );
+    chosen.forEach(cachePlate);
+    setItems((it) => [
+      ...it,
+      ...chosen.map((p) => ({
+        lineKind: 'processing' as const,
+        plateId: p.id,
+        quantity: 1,
+        unitPrice: 0,
+        billingUnit: 'area' as const,
+        widthMm: Number(p.widthMm),
+        heightMm: Number(p.heightMm),
+      })),
+    ]);
+    setSelPartials(new Set());
+  };
 
   const createMut = useMutation({
     mutationFn: (input: CreateQuoteInput) =>
@@ -658,7 +761,10 @@ function NewQuoteForm({
     <div className="card space-y-3">
       <Field label="Alıcı müşteri (ara)">
         <CustomerPicker
-          onChange={(id) => setBuyer(id)}
+          onChange={(id, name) => {
+            setBuyer(id);
+            setBuyerName(name ?? '');
+          }}
           initialName={editQuote?.buyerCustomer?.name}
         />
       </Field>
@@ -678,6 +784,50 @@ function NewQuoteForm({
             ⚡ Müşterinin tam tabakalarını işleme ekle (bugün/dün)
           </button>
           {bulkMsg && <span className="text-xs text-slate-500">{bulkMsg}</span>}
+        </div>
+      )}
+
+      {/* #2b Son eklenen KESİK (tam olmayan) tabakalar — checkbox ile ekle. */}
+      {buyerCustomerId && recentPartials.length > 0 && (
+        <div className="space-y-1 rounded-xl border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-900/20">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+            ✂ Müşterinin son eklenen tam olmayan (kesik) tabakaları
+          </p>
+          {recentPartials.map((p) => {
+            const already = items.some((x) => x.plateId === p.id);
+            return (
+              <label
+                key={p.id}
+                className={`flex items-center gap-2 text-sm ${already ? 'opacity-50' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  disabled={already}
+                  checked={already || selPartials.has(p.id)}
+                  onChange={(e) =>
+                    setSelPartials((s) => {
+                      const n = new Set(s);
+                      if (e.target.checked) n.add(p.id);
+                      else n.delete(p.id);
+                      return n;
+                    })
+                  }
+                />
+                <span>{p.name}</span>
+                <span className="font-semibold text-amber-700 dark:text-amber-400">
+                  {plateRemainingLabel(p)}
+                </span>
+                {already && <span className="text-xs text-slate-400">(eklendi)</span>}
+              </label>
+            );
+          })}
+          <button
+            className="btn bg-amber-600 text-white"
+            disabled={selPartials.size === 0}
+            onClick={addSelectedPartials}
+          >
+            Seçilenleri işleme kalemi ekle ({selPartials.size})
+          </button>
         </div>
       )}
 
@@ -750,17 +900,17 @@ function NewQuoteForm({
           >
             <PlatePicker
               // Kaynak: 'business' → yalnızca işletme stoğu; 'customer' → seçilen
-              // sahibin malzemeleri; 'auto' → işlemede alıcının malzemeleri (#5),
-              // satışta tümü.
+              // sahibin malzemeleri; 'auto' → TÜMÜ (işletme şeritleri dahil) —
+              // işlemede alıcının malzemeleri EN ÜSTTE gruplanır (#5).
               businessOnly={item.ownerMode === 'business'}
               ownerCustomerId={
-                item.ownerMode === 'business'
-                  ? undefined
-                  : item.ownerCustomerId ||
-                    (item.lineKind === 'processing' &&
-                    (item.ownerMode ?? 'auto') === 'auto'
-                      ? buyerCustomerId || undefined
-                      : undefined)
+                item.ownerMode === 'business' ? undefined : item.ownerCustomerId
+              }
+              preferOwnerName={
+                item.lineKind === 'processing' &&
+                (item.ownerMode ?? 'auto') === 'auto'
+                  ? buyerName || undefined
+                  : undefined
               }
               // #2 Satış kaleminde alıcının KENDİ malzemeleri listelenmez
               // (kişiye kendi malını yanlışlıkla satmayı engeller).
