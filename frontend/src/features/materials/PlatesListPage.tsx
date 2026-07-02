@@ -21,6 +21,7 @@ import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
 import { UnitConverter } from '../../components/UnitConverter';
+import { GroupSection } from '../../components/GroupSection';
 import {
   useListDensity,
   useListGrouping,
@@ -980,12 +981,9 @@ export function PlatesListPage() {
       ) : !data?.items.length ? (
         <p className="text-slate-400">Kayıt bulunamadı.</p>
       ) : groupByType ? (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {groupList.map(([key, items]) => (
-            <div key={key} className="space-y-2">
-              <h2 className="text-sm font-semibold text-slate-500">
-                {key} · {items.length} adet
-              </h2>
+            <GroupSection key={key} title={key} count={items.length} countLabel="adet">
               {miniView ? (
                 <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
                   {items.map((plate) => (
@@ -999,7 +997,7 @@ export function PlatesListPage() {
                   ))}
                 </div>
               )}
-            </div>
+            </GroupSection>
           ))}
         </div>
       ) : miniView ? (

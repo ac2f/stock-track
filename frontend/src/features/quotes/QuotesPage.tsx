@@ -26,8 +26,15 @@ import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
 import type { Plate, Quote, QuoteItemInput, QuoteStatus } from '../../types';
 
-/** Form içi kalem: backend QuoteItemInput + UI-içi sahip (konsinye) seçimi. */
-type FormItem = QuoteItemInput & { ownerCustomerId?: string };
+/**
+ * Form içi kalem: backend QuoteItemInput + UI-içi sahip (konsinye) seçimi.
+ * ownerMode yalnızca arayüz filtresi: 'auto' (satışta tümü, işlemede alıcının
+ * malzemeleri) · 'business' (işletme stoğu) · 'customer' (aranan müşteri).
+ */
+type FormItem = QuoteItemInput & {
+  ownerCustomerId?: string;
+  ownerMode?: 'auto' | 'business' | 'customer';
+};
 
 /**
  * Plaka seçici (gerekirse sahibe göre filtreli). Sahip verilirse yalnızca o
@@ -35,6 +42,7 @@ type FormItem = QuoteItemInput & { ownerCustomerId?: string };
  */
 function PlatePicker({
   ownerCustomerId,
+  businessOnly,
   excludeOwnerCustomerId,
   value,
   onPick,
@@ -42,6 +50,8 @@ function PlatePicker({
   selectedPlate,
 }: {
   ownerCustomerId?: string;
+  /** Yalnızca işletmeye ait stok listelensin (owner=business filtresi). */
+  businessOnly?: boolean;
   excludeOwnerCustomerId?: string;
   value: string;
   onPick: (plateId: string, plate?: Plate) => void;
@@ -54,12 +64,13 @@ function PlatePicker({
     queryKey: [
       'plates',
       'pick',
-      ownerCustomerId ?? 'all',
+      businessOnly ? 'business' : ownerCustomerId ?? 'all',
       excludeOwnerCustomerId ?? '',
     ],
     queryFn: () =>
       fetchPlates({
-        ownerCustomerId: ownerCustomerId || undefined,
+        ownerCustomerId: businessOnly ? undefined : ownerCustomerId || undefined,
+        owner: businessOnly ? 'business' : undefined,
         excludeOwnerCustomerId: excludeOwnerCustomerId || undefined,
         page: 1,
         limit: 100,
@@ -459,6 +470,7 @@ function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
     commissionPercent:
       it.commissionPercent != null ? Number(it.commissionPercent) : undefined,
     ownerCustomerId: consignment ? quote.ownerCustomerId ?? undefined : undefined,
+    ownerMode: consignment ? 'customer' : 'auto',
   };
 }
 
@@ -692,21 +704,43 @@ function NewQuoteForm({
             </button>
           </div>
 
-          {/* Malzeme sahibini aratarak malzemeyi bul: seçilince aşağıdaki plaka
-              listesi yalnızca o sahibin malzemelerini gösterir. Satış kaleminde
-              ayrıca konsinye (sahip payı) hesabı uygulanır; işleme kaleminde
-              yalnızca arama/filtre kolaylığıdır. */}
+          {/* Malzeme kaynağı: işletme stoğu / müşteri (konsinye) / tümü.
+              Satış kaleminde müşteri seçilirse konsinye (sahip payı) hesabı
+              uygulanır; işleme kaleminde yalnızca arama/filtre kolaylığıdır. */}
           <Field
             label={
               item.lineKind === 'sale'
-                ? 'Malzeme sahibi (konsinye — opsiyonel, aratın)'
-                : 'Malzeme sahibi (filtre — opsiyonel, aratın)'
+                ? 'Malzeme kaynağı (işletme stoğu / konsinye sahibi)'
+                : 'Malzeme kaynağı (filtre)'
             }
           >
-            <CustomerPicker
-              placeholder="Sahibini aratarak malzemeyi bulun…"
-              onChange={(id) => onOwnerPick(i, id)}
-            />
+            <div className="space-y-1">
+              <select
+                className="input"
+                value={item.ownerMode ?? 'auto'}
+                onChange={(e) =>
+                  patch(i, {
+                    ownerMode: e.target.value as FormItem['ownerMode'],
+                    ownerCustomerId: undefined,
+                    plateId: '',
+                  })
+                }
+              >
+                <option value="auto">
+                  {item.lineKind === 'processing'
+                    ? 'Alıcının malzemeleri (varsayılan)'
+                    : 'Tümü (alıcının kendi malzemeleri hariç)'}
+                </option>
+                <option value="business">İşletme stoğu</option>
+                <option value="customer">Müşteri malzemesi (aratın)</option>
+              </select>
+              {item.ownerMode === 'customer' && (
+                <CustomerPicker
+                  placeholder="Sahibini aratarak malzemeyi bulun…"
+                  onChange={(id) => onOwnerPick(i, id)}
+                />
+              )}
+            </div>
           </Field>
 
           <Field
@@ -715,13 +749,18 @@ function NewQuoteForm({
             }
           >
             <PlatePicker
-              // #5 İşleme kaleminde varsayılan olarak ALICI müşterinin kendi
-              // malzemeleri listelenir (elle başka sahip aratılana kadar).
+              // Kaynak: 'business' → yalnızca işletme stoğu; 'customer' → seçilen
+              // sahibin malzemeleri; 'auto' → işlemede alıcının malzemeleri (#5),
+              // satışta tümü.
+              businessOnly={item.ownerMode === 'business'}
               ownerCustomerId={
-                item.ownerCustomerId ||
-                (item.lineKind === 'processing'
-                  ? buyerCustomerId || undefined
-                  : undefined)
+                item.ownerMode === 'business'
+                  ? undefined
+                  : item.ownerCustomerId ||
+                    (item.lineKind === 'processing' &&
+                    (item.ownerMode ?? 'auto') === 'auto'
+                      ? buyerCustomerId || undefined
+                      : undefined)
               }
               // #2 Satış kaleminde alıcının KENDİ malzemeleri listelenmez
               // (kişiye kendi malını yanlışlıkla satmayı engeller).
@@ -1058,7 +1097,8 @@ function NewQuoteForm({
           // geliridir, sahibe görünmez. Tek teklif = tek sahip.
           const ownerCustomerId = distinctOwners[0];
           const mapped: QuoteItemInput[] = items.map((it) => {
-            const { ownerCustomerId: oid, ...rest } = it;
+            // ownerMode yalnızca arayüz filtresi — backend'e gönderilmez.
+            const { ownerCustomerId: oid, ownerMode: _mode, ...rest } = it;
             if (it.lineKind === 'sale' && oid) {
               return {
                 ...rest,

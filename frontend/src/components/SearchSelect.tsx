@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { groupChipClass } from './GroupSection';
 
 export interface SearchOption {
   id: string;
@@ -132,8 +133,12 @@ export function SearchSelect({
           {sections.map(([group, opts]) => (
             <li key={group || '_'}>
               {group && (
-                <div className="sticky top-0 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-700/70">
-                  {group}
+                <div className="sticky top-0 bg-white px-2 py-1 dark:bg-slate-800">
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${groupChipClass(group)}`}
+                  >
+                    {group}
+                  </span>
                 </div>
               )}
               <ul>

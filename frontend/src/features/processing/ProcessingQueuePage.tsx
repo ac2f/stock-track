@@ -11,6 +11,7 @@ import { openPdf } from '../../api/documents.api';
 import { fetchSales, type Sale } from '../../api/sales.api';
 import { plateRemainingLabel } from '../../lib/plateLabel';
 import { useListGrouping, GroupToggle } from '../../context/DensityContext';
+import { GroupSection } from '../../components/GroupSection';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
 /** Kuyruk/geçmiş işini "Müşteri · Kategori" ile gruplar. */
@@ -187,14 +188,11 @@ function ProcessingHistory() {
       </div>
       {grouped ? (
         groupJobs(data?.items ?? []).map(([key, jobs]) => (
-          <div key={key} className="space-y-2">
-            <h3 className="text-xs font-semibold text-slate-400">
-              {key} · {jobs.length} iş
-            </h3>
+          <GroupSection key={key} title={key} count={jobs.length} countLabel="iş">
             {jobs.map((job) => (
               <HistoryJobCard key={job.id} job={job} />
             ))}
-          </div>
+          </GroupSection>
         ))
       ) : (
         data?.items.map((job) => <HistoryJobCard key={job.id} job={job} />)
@@ -407,20 +405,19 @@ export function ProcessingQueuePage() {
       {/* Gruplu: Müşteri · Kategori; grupsuz: makineye göre (varsayılan). */}
       {grouped
         ? groupJobs(allJobs).map(([key, jobs]) => (
-            <div key={key} className="space-y-2">
-              <h2 className="text-sm font-semibold text-slate-500">
-                {key} · {jobs.length} iş
-              </h2>
+            <GroupSection key={key} title={key} count={jobs.length} countLabel="iş">
               {jobs.map(renderCard)}
-            </div>
+            </GroupSection>
           ))
         : groups.map((group) => (
-            <div key={group.machineId ?? 'unassigned'} className="space-y-2">
-              <h2 className="text-sm font-semibold text-slate-500">
-                🛠️ {group.machineName}
-              </h2>
+            <GroupSection
+              key={group.machineId ?? 'unassigned'}
+              title={`🛠️ ${group.machineName}`}
+              count={group.jobs.length}
+              countLabel="iş"
+            >
               {group.jobs.map(renderCard)}
-            </div>
+            </GroupSection>
           ))}
 
       <RecentSales />

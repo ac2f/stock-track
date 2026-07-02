@@ -24,6 +24,7 @@ import {
   updateMaterialThickness,
   type MaterialTemplateInput,
 } from '../../api/materials.api';
+import { GroupSection } from '../../components/GroupSection';
 import type { MeasurementType } from '../../types';
 
 const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
@@ -787,10 +788,12 @@ export function MaterialTemplatesPage() {
         <div className="space-y-5">
           {/* #3 Malzemeler kategorilerine göre gruplanır. */}
           {groupByCategory(data ?? []).map(([catName, tpls]) => (
-            <div key={catName} className="space-y-2">
-              <h2 className="text-sm font-semibold text-slate-500">
-                {catName} · {tpls.length}
-              </h2>
+            <GroupSection
+              key={catName}
+              title={catName}
+              count={tpls.length}
+              countLabel="tür"
+            >
               {tpls.map((t) => (
             <div key={t.id} className="card flex items-center justify-between">
               <div>
@@ -848,7 +851,7 @@ export function MaterialTemplatesPage() {
               </div>
             </div>
               ))}
-            </div>
+            </GroupSection>
           ))}
           {!data?.length && <p className="text-slate-400">Kayıt bulunamadı.</p>}
         </div>
