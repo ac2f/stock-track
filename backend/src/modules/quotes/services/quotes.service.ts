@@ -442,6 +442,12 @@ export class QuotesService {
     ) {
       return lineTotalOf(item.quantity, item.unitPrice);
     }
+    // Metre (şerit/rulo) SATIŞINDA metre, quantity alanında taşınır (satış
+    // dönüşümü de quantity × birim fiyat hesaplar) — lengthMeters verilmemişse
+    // hata fırlatma, quantity'yi metre kabul et.
+    if (billingUnit === MeasurementType.LENGTH && item.lengthMeters == null) {
+      return lineTotalOf(item.quantity, item.unitPrice);
+    }
     const quantityValue = computeQuantityValue({
       billingUnit,
       quantity: item.quantity,

@@ -987,24 +987,42 @@ function NewQuoteForm({
 
           <div className="flex gap-2">
             {/* Tabaka (AREA) SATIŞINDA adet yoktur: tutar tamamen ebattan (m²)
-                hesaplanır. Diğer satış/işleme kalemlerinde adet girilir. */}
-            {!(item.lineKind === 'sale' && plate?.measurementType === 'area') && (
-              <Field label="Adet" className="flex-1">
+                hesaplanır. Şerit/rulo (LENGTH) SATIŞINDA yalnızca METRE girilir
+                (metre quantity alanında taşınır; satır = metre × TL/m).
+                Diğer satış/işleme kalemlerinde adet girilir. */}
+            {item.lineKind === 'sale' && plate?.measurementType === 'length' ? (
+              <Field label="Uzunluk (metre)" className="flex-1">
                 <input
                   className="input"
                   type="number"
-                  placeholder="Adet"
+                  min={0}
+                  step="0.01"
+                  placeholder="Uzunluk (m)"
                   value={item.quantity}
                   onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
                 />
               </Field>
+            ) : (
+              !(item.lineKind === 'sale' && plate?.measurementType === 'area') && (
+                <Field label="Adet" className="flex-1">
+                  <input
+                    className="input"
+                    type="number"
+                    placeholder="Adet"
+                    value={item.quantity}
+                    onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
+                  />
+                </Field>
+              )
             )}
             <Field
               label={
                 item.lineKind === 'sale'
                   ? plate?.measurementType === 'area'
                     ? 'Birim satış fiyatı (TL/m²)'
-                    : 'Birim satış fiyatı'
+                    : plate?.measurementType === 'length'
+                      ? 'Birim satış fiyatı (TL/metre)'
+                      : 'Birim satış fiyatı'
                   : 'Birim işleme ücreti'
               }
               className="flex-1"

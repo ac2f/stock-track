@@ -393,6 +393,10 @@ export class SalesService {
         const m2 = totalAreaM2(Number(widthMm), Number(heightMm), item.quantity);
         return `${name} ${fmt.format(m2)} m² × ${fmt.format(item.unitPrice)} ${currency}/m²${note}`;
       }
+      // Şerit/rulo (LENGTH) satışında miktar metredir — "adet" değil.
+      if (unit === MeasurementType.LENGTH) {
+        return `${name} ${fmt.format(item.quantity)} m × ${fmt.format(item.unitPrice)} ${currency}/m${note}`;
+      }
       return `${name} ${fmt.format(item.quantity)} adet × ${fmt.format(item.unitPrice)} ${currency}${note}`;
     });
     const head = note?.trim() ? `Satış (${note.trim()}): ` : 'Satış: ';

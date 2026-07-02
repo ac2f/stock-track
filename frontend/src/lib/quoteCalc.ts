@@ -46,6 +46,11 @@ export function quoteLinePreview(
   if (unit === 'area' && (!widthMm || !heightMm)) {
     return { unit, measure: qty, lineTotal: round2(qty * price) };
   }
+  // Metre (şerit/rulo) SATIŞINDA metre quantity'de taşınır: lengthMeters yoksa
+  // quantity'yi metre kabul et (backend computeLineTotal ile aynı kural).
+  if (unit === 'length' && !item.lengthMeters) {
+    return { unit, measure: qty, lineTotal: round2(qty * price) };
+  }
   const measure = quantityValue(unit, qty, widthMm, heightMm, item.lengthMeters);
   const lineTotal = measure == null ? 0 : round2(measure * price);
   return { unit, measure, lineTotal };
