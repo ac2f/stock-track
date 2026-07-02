@@ -226,10 +226,11 @@ export interface MaterialTemplateInput {
   name: string;
   categoryId: string;
   measurementType?: MaterialTemplate['measurementType'];
-  defaultBrandId?: string;
-  defaultColorId?: string;
-  defaultSizeId?: string;
-  defaultThicknessId?: string;
+  // null → varsayılanı temizle (undefined "değiştirme" demektir; axios undefined'ı düşürür).
+  defaultBrandId?: string | null;
+  defaultColorId?: string | null;
+  defaultSizeId?: string | null;
+  defaultThicknessId?: string | null;
   defaultVariant?: string;
   defaultAttributes?: Record<string, unknown>;
   description?: string;

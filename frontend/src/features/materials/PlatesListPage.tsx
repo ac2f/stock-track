@@ -20,6 +20,7 @@ import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
+import { UnitConverter } from '../../components/UnitConverter';
 import {
   useListDensity,
   useListGrouping,
@@ -134,6 +135,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const tpl = templates?.find((t) => t.id === form.templateId);
   const std = tpl?.defaultSize;
   const isArea = (form.measurementType ?? tpl?.measurementType) === 'area';
+  const isLength = (form.measurementType ?? tpl?.measurementType) === 'length';
   const suggestedSku = tpl ? buildSku(tpl) : '';
   // Otomatik ad: şablonun GÜNCEL özelliklerinden CANLI türetilir (SKU gibi).
   // Böylece kataloğa yeni marka/renk/ebat eklenip şablon güncellenince ad da
@@ -316,6 +318,48 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
               </div>
             </Field>
           )}
+
+          {/* Metre (rulo/şerit) malzemede yükseklik + uzunluk girişi. */}
+          {isLength && (
+            <Field
+              label="Rulo/şerit ölçüsü (yükseklik × uzunluk)"
+              hint="Yükseklik mm cinsinden; uzunluk metre cinsinden stok miktarı olarak tutulur."
+            >
+              <div className="flex gap-2">
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder="Yükseklik (mm)"
+                  value={form.heightMm ?? ''}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      heightMm: e.target.value ? Number(e.target.value) : undefined,
+                    })
+                  }
+                />
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder="Uzunluk (metre)"
+                  value={form.quantityInStock ?? ''}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      quantityInStock: e.target.value
+                        ? Number(e.target.value)
+                        : undefined,
+                    })
+                  }
+                />
+              </div>
+            </Field>
+          )}
+
+          {/* 📐 cm/mm çevirici — ölçü girerken hızlı çevrim için. */}
+          <UnitConverter />
 
           <div className="flex gap-2">
             <Field label="Eklenme tarihi" className="flex-1">
@@ -567,6 +611,32 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
           </div>
         </Field>
       )}
+
+      {/* Metre (rulo/şerit) malzemede yükseklik düzenlenebilir; uzunluk stok
+          hareketleriyle (satış/işleme) yönetilir. */}
+      {plate.measurementType === 'length' && (
+        <Field
+          label="Yükseklik (mm)"
+          hint={`Mevcut uzunluk: ${Number(plate.quantityInStock)} m (stok hareketleriyle değişir).`}
+        >
+          <input
+            className="input"
+            type="number"
+            min={0}
+            placeholder="Yükseklik (mm)"
+            value={form.heightMm ?? ''}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                heightMm: e.target.value ? Number(e.target.value) : undefined,
+              })
+            }
+          />
+        </Field>
+      )}
+
+      {/* 📐 cm/mm çevirici — ölçü girerken hızlı çevrim için. */}
+      <UnitConverter />
 
       <div className="flex gap-2">
         <Field label="Eklenme tarihi" className="flex-1">

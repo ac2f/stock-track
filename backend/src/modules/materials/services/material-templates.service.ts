@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, Repository } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { CreateMaterialTemplateDto } from '../dto/create-material-template.dto';
 import { UpdateMaterialTemplateDto } from '../dto/update-material-template.dto';
@@ -98,8 +99,18 @@ export class MaterialTemplatesService {
       await this.categoriesService.findOne(dto.categoryId);
     }
     await this.validateCatalogRefs(categoryId, dto);
-    Object.assign(template, dto);
-    return this.templatesRepo.save(template);
+    // Object.assign + save, eager yüklü ilişki nesneleri (defaultSize vb.) FK
+    // kolonundaki değişikliği eziyordu (TypeORM ilişki nesnesini önceler) →
+    // kolonları doğrudan güncelle, sonra taze halini dön.
+    if (Object.keys(dto).length > 0) {
+      await this.templatesRepo.update(
+        id,
+        // JSON kolonu (defaultAttributes) TypeORM update tipiyle uyumsuz görünür
+        // (bilinen tip kısıtı) — çalışma zamanında sorunsuz.
+        { ...dto } as QueryDeepPartialEntity<MaterialTemplate>,
+      );
+    }
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<void> {
