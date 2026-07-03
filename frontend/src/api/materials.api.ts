@@ -361,3 +361,51 @@ export async function comparePrices(
   );
   return data;
 }
+
+// ── Tedarikçi fiyatları (plaka bazlı) yönetimi ──
+export type SupplierPriceUnit = 'per_plate' | 'per_m2' | 'per_meter' | 'per_kg';
+
+export interface SupplierPriceRow {
+  id: string;
+  supplierId: string;
+  supplier?: { name: string };
+  price: number;
+  currency: string;
+  unit: SupplierPriceUnit;
+  priceUpdatedAt: string;
+  note?: string | null;
+}
+
+export async function fetchPlatePrices(
+  plateId: string,
+): Promise<SupplierPriceRow[]> {
+  const { data } = await api.get<SupplierPriceRow[]>(`/plates/${plateId}/prices`);
+  return data;
+}
+
+export interface UpsertSupplierPriceInput {
+  supplierId: string;
+  price: number;
+  currency?: string;
+  unit?: SupplierPriceUnit;
+  note?: string;
+}
+
+/** Tedarikçinin bu plaka için fiyatını ekler/günceller (plaka+tedarikçi+birim tekil). */
+export async function upsertPlatePrice(
+  plateId: string,
+  input: UpsertSupplierPriceInput,
+): Promise<SupplierPriceRow> {
+  const { data } = await api.put<SupplierPriceRow>(
+    `/plates/${plateId}/prices`,
+    input,
+  );
+  return data;
+}
+
+export async function deletePlatePrice(
+  plateId: string,
+  priceId: string,
+): Promise<void> {
+  await api.delete(`/plates/${plateId}/prices/${priceId}`);
+}

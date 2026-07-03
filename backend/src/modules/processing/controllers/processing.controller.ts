@@ -61,6 +61,8 @@ export class ProcessingController {
   ) {
     return this.processingService.setStatus(id, dto.status, {
       finalAmount: dto.finalAmount,
+      offcutWidthMm: dto.offcutWidthMm,
+      offcutHeightMm: dto.offcutHeightMm,
     });
   }
 

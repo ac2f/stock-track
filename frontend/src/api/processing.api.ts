@@ -33,14 +33,26 @@ export async function fetchProcessingHistory(
   return data;
 }
 
+export interface CompleteOptions {
+  finalAmount?: number;
+  /** Fire/kalan parça: kesimden artan parçanın ebadı (mm). İkisi de verilirse
+   * kesik plaka olarak stoğa eklenir (sahiplik korunur). */
+  offcutWidthMm?: number;
+  offcutHeightMm?: number;
+}
+
 export async function setProcessingStatus(
   id: string,
   status: ProcessingStatus,
-  finalAmount?: number,
+  opts: CompleteOptions = {},
 ): Promise<ProcessingJob> {
   const { data } = await api.patch<ProcessingJob>(`/processing/${id}/status`, {
     status,
-    ...(finalAmount != null ? { finalAmount } : {}),
+    ...(opts.finalAmount != null ? { finalAmount: opts.finalAmount } : {}),
+    ...(opts.offcutWidthMm != null ? { offcutWidthMm: opts.offcutWidthMm } : {}),
+    ...(opts.offcutHeightMm != null
+      ? { offcutHeightMm: opts.offcutHeightMm }
+      : {}),
   });
   return data;
 }

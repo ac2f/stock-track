@@ -6,6 +6,8 @@ import {
   deleteCustomer,
   fetchCustomerLedger,
   fetchCustomers,
+  issuePortalLink,
+  revokePortalLink,
   settleCustomerDebt,
   updateCustomer,
   type CreateCustomerInput,
@@ -345,10 +347,102 @@ function EditCustomerForm({
   );
 }
 
+/**
+ * 🔗 Müşteri portal linki paneli: link üret → kopyala / WhatsApp'tan gönder /
+ * iptal et. Link, uygulamanın kendi adresi üzerinden kurulur (her ortamda doğru).
+ */
+function PortalLinkPanel({ customer }: { customer: Customer }) {
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const issueMut = useMutation({
+    mutationFn: () => issuePortalLink(customer.id),
+    onSuccess: (res) => {
+      setLink(`${window.location.origin}/portal/${res.token}`);
+      setCopied(false);
+    },
+  });
+  const revokeMut = useMutation({
+    mutationFn: () => revokePortalLink(customer.id),
+    onSuccess: () => setLink(null),
+  });
+
+  const copy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+    } catch {
+      // Pano izni yoksa metni seçili input üzerinden elle kopyalasın.
+      setCopied(false);
+    }
+  };
+
+  const waHref = link
+    ? `https://wa.me/${(customer.phone ?? '').replace(/\D/g, '')}?text=${encodeURIComponent(
+        `Merhaba ${customer.name}, güncel hesap ekstrenizi buradan görüntüleyebilirsiniz: ${link}`,
+      )}`
+    : '#';
+
+  return (
+    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2 text-sm dark:border-slate-700">
+      <p className="text-xs text-slate-500">
+        Müşteri bu linkle borcunu ve ekstresini kendisi görüntüler (giriş gerekmez).
+        Link üretmek eskisini geçersiz kılar; "İptal et" tüm erişimi kapatır.
+      </p>
+      {issueMut.isError && (
+        <p className="text-xs text-red-600">Link üretilemedi. Tekrar deneyin.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          className="btn bg-indigo-600 text-white"
+          disabled={issueMut.isPending}
+          onClick={() => issueMut.mutate()}
+        >
+          {link ? 'Yeni link üret' : 'Link üret'}
+        </button>
+        {link && (
+          <>
+            <input
+              className="input min-w-0 flex-1 text-xs"
+              readOnly
+              value={link}
+              onFocus={(e) => e.target.select()}
+            />
+            <button className="btn bg-slate-100" onClick={copy}>
+              {copied ? '✓ Kopyalandı' : 'Kopyala'}
+            </button>
+            <a
+              className="btn bg-emerald-600 text-white"
+              href={waHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              WhatsApp
+            </a>
+            <button
+              className="btn bg-red-50 text-red-600"
+              disabled={revokeMut.isPending}
+              onClick={() => {
+                if (confirm('Portal erişimi iptal edilsin mi? Link geçersizleşir.')) {
+                  revokeMut.mutate();
+                }
+              }}
+            >
+              İptal et
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Tek cari satırı: bakiye + ekstre + düzenle/sil. */
 function CustomerRow({ customer, mini }: { customer: Customer; mini?: boolean }) {
   const [openStatement, setOpenStatement] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [portalOpen, setPortalOpen] = useState(false);
 
   return (
     <div className={mini ? 'card !p-2' : 'card'}>
@@ -379,11 +473,19 @@ function CustomerRow({ customer, mini }: { customer: Customer; mini?: boolean })
           <button className="btn bg-slate-100 text-xs" onClick={() => setOpenStatement((o) => !o)}>
             {openStatement ? 'Kapat' : 'Ekstre'}
           </button>
+          <button
+            className="btn bg-slate-100 text-xs"
+            title="Müşteri portal linki (borç/ekstre görüntüleme)"
+            onClick={() => setPortalOpen((p) => !p)}
+          >
+            🔗 Portal
+          </button>
           <button className="btn bg-slate-100 text-xs" onClick={() => setEditing((e) => !e)}>
             {editing ? 'Vazgeç' : 'Düzenle'}
           </button>
         </div>
       </div>
+      {portalOpen && <PortalLinkPanel customer={customer} />}
       {editing && (
         <EditCustomerForm customer={customer} onDone={() => setEditing(false)} />
       )}

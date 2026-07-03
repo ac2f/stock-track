@@ -3,7 +3,11 @@ import type { Paginated } from '../types';
 
 export interface SaleItemRow {
   plateId: string;
-  plate?: { name: string };
+  plate?: {
+    name: string;
+    // Şerit/rulo satışında miktarın "m" olarak gösterilmesi için.
+    measurementType?: 'area' | 'length' | 'piece' | 'weight';
+  };
   quantity: number;
   widthMm?: number | null;
   heightMm?: number | null;

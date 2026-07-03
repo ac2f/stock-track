@@ -3,18 +3,23 @@ import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
+  deletePlatePrice,
   depletePlate,
   fetchMaterialCategories,
   fetchMaterialTemplates,
+  fetchPlatePrices,
   fetchPlateStockLevels,
   fetchPlates,
   transferPlateOwnership,
   updatePlate,
+  upsertPlatePrice,
   type CreatePlateInput,
   type PlateFilters,
+  type SupplierPriceUnit,
   type TransferOwnershipInput,
   type UpdatePlateInput,
 } from '../../api/materials.api';
+import { fetchSuppliers } from '../../api/suppliers.api';
 import { fetchWarehouses } from '../../api/warehouses.api';
 import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
@@ -469,6 +474,135 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+const PRICE_UNIT_LABELS: Record<SupplierPriceUnit, string> = {
+  per_plate: 'Plaka/adet',
+  per_m2: 'm²',
+  per_meter: 'metre',
+  per_kg: 'kg',
+};
+
+/** 💰 Tedarikçi fiyatları: bu plaka için tedarikçi bazlı alış fiyatı yönet. */
+function PlatePricesSection({ plate }: { plate: Plate }) {
+  const qc = useQueryClient();
+  const [supplierId, setSupplierId] = useState('');
+  const [price, setPrice] = useState('');
+  const [unit, setUnit] = useState<SupplierPriceUnit>(
+    plate.measurementType === 'length'
+      ? 'per_meter'
+      : plate.measurementType === 'weight'
+        ? 'per_kg'
+        : 'per_plate',
+  );
+
+  const { data: prices } = useQuery({
+    queryKey: ['plate-prices', plate.id],
+    queryFn: () => fetchPlatePrices(plate.id),
+  });
+  const { data: suppliers } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: () => fetchSuppliers(),
+  });
+  const invalidate = () =>
+    qc.invalidateQueries({ queryKey: ['plate-prices', plate.id] });
+
+  const upsertMut = useMutation({
+    mutationFn: () =>
+      upsertPlatePrice(plate.id, {
+        supplierId,
+        price: Number(price),
+        unit,
+      }),
+    onSuccess: () => {
+      invalidate();
+      setPrice('');
+    },
+  });
+  const delMut = useMutation({
+    mutationFn: (priceId: string) => deletePlatePrice(plate.id, priceId),
+    onSuccess: invalidate,
+  });
+
+  return (
+    <div className="space-y-2 rounded-lg bg-slate-50 p-2 text-sm dark:bg-slate-800">
+      <p className="font-medium text-slate-700 dark:text-slate-200">
+        💰 Tedarikçi fiyatları
+      </p>
+      {(upsertMut.isError || delMut.isError) && (
+        <p className="text-xs text-red-600">
+          {errMessage(upsertMut.error ?? delMut.error, 'İşlem başarısız.')}
+        </p>
+      )}
+      {prices?.map((row) => (
+        <div
+          key={row.id}
+          className="flex items-center justify-between border-t border-slate-200 pt-1 first:border-0 first:pt-0 dark:border-slate-700"
+        >
+          <span>
+            {row.supplier?.name ?? '—'} ·{' '}
+            <span className="font-semibold">
+              {Number(row.price).toLocaleString('tr-TR')} {row.currency}
+            </span>{' '}
+            / {PRICE_UNIT_LABELS[row.unit] ?? row.unit}
+            <span className="ml-1 text-xs text-slate-400">
+              ({row.priceUpdatedAt?.slice(0, 10)})
+            </span>
+          </span>
+          <button
+            className="text-xs text-red-600"
+            disabled={delMut.isPending}
+            onClick={() => delMut.mutate(row.id)}
+          >
+            Sil
+          </button>
+        </div>
+      ))}
+      {!prices?.length && (
+        <p className="text-xs text-slate-400">Henüz tedarikçi fiyatı yok.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="input w-auto flex-1"
+          value={supplierId}
+          onChange={(e) => setSupplierId(e.target.value)}
+        >
+          <option value="">Tedarikçi seç…</option>
+          {suppliers?.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <input
+          className="input w-28"
+          type="number"
+          min={0}
+          placeholder="Fiyat"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+        <select
+          className="input w-auto"
+          value={unit}
+          onChange={(e) => setUnit(e.target.value as SupplierPriceUnit)}
+        >
+          {Object.entries(PRICE_UNIT_LABELS).map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn bg-slate-800 text-white"
+          disabled={!supplierId || price === '' || upsertMut.isPending}
+          onClick={() => upsertMut.mutate()}
+        >
+          Kaydet
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** İşlenmiş/kesilmiş bir plakanın kalan ebat, tarih ve sahiplik bilgisini düzenler. */
 function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }) {
   const qc = useQueryClient();
@@ -658,6 +792,9 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
           />
         </Field>
       </div>
+
+      {/* 💰 Tedarikçi fiyatları — alım karşılaştırması buradan beslenir. */}
+      <PlatePricesSection plate={plate} />
 
       {activeLevels.length > 0 && (
         <div className="space-y-2 rounded-lg bg-slate-50 p-2 text-sm">

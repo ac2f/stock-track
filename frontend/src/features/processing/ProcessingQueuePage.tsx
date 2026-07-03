@@ -6,6 +6,7 @@ import {
   fetchQueue,
   setProcessingStatus,
   updateProcessingJob,
+  type CompleteOptions,
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
 import { fetchSales, type Sale } from '../../api/sales.api';
@@ -32,12 +33,17 @@ function groupJobs(jobs: ProcessingJob[]): [string, ProcessingJob[]][] {
   return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'tr'));
 }
 
-/** Bir satış kaleminin ölçüsü: tabaka ise m², değilse adet. */
+/** Bir satış kaleminin ölçüsü: tabaka ise m², şerit/rulo ise metre, değilse adet. */
 function saleItemMeasure(it: {
   widthMm?: number | null;
   heightMm?: number | null;
   quantity: number;
+  plate?: { measurementType?: string };
 }): string {
+  // Şerit/rulo (LENGTH): miktar metredir — "adet" değil.
+  if (it.plate?.measurementType === 'length') {
+    return `${Number(it.quantity).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} m`;
+  }
   const w = Number(it.widthMm);
   const h = Number(it.heightMm);
   if (w && h) {
@@ -363,12 +369,12 @@ export function ProcessingQueuePage() {
     mutationFn: ({
       id,
       status,
-      finalAmount,
+      opts,
     }: {
       id: string;
       status: ProcessingStatus;
-      finalAmount?: number;
-    }) => setProcessingStatus(id, status, finalAmount),
+      opts?: CompleteOptions;
+    }) => setProcessingStatus(id, status, opts),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['queue'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
@@ -389,9 +395,7 @@ export function ProcessingQueuePage() {
       key={job.id}
       job={job}
       pending={mut.isPending}
-      onAction={(status, finalAmount) =>
-        mut.mutate({ id: job.id, status, finalAmount })
-      }
+      onAction={(status, opts) => mut.mutate({ id: job.id, status, opts })}
     />
   );
 
@@ -448,9 +452,14 @@ function QueueJobCard({
 }: {
   job: ProcessingJob;
   pending: boolean;
-  onAction: (status: ProcessingStatus, finalAmount?: number) => void;
+  onAction: (status: ProcessingStatus, opts?: CompleteOptions) => void;
 }) {
   const [finalPrice, setFinalPrice] = useState('');
+  // Fire/kalan parça (ops.): kesimden artan parçanın ebadı — tamamlanınca
+  // aynı türden kesik plaka olarak stoğa eklenir (sahiplik korunur).
+  const [offW, setOffW] = useState('');
+  const [offH, setOffH] = useState('');
+  const isAreaPlate = !job.plate?.measurementType || job.plate.measurementType === 'area';
   const remaining = job.plate && plateRemainingLabel(job.plate);
   return (
     <div className="card space-y-2">
@@ -503,6 +512,33 @@ function QueueJobCard({
         </span>
       </div>
 
+      {/* ✂ Fire/kalan parça (ops.) — yalnızca tabaka (AREA) işlerinde. */}
+      {isAreaPlate && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500">✂ Kalan parçayı stoğa ekle (ops.):</span>
+          <input
+            className="input w-24"
+            type="number"
+            min={1}
+            placeholder="En (mm)"
+            value={offW}
+            onChange={(e) => setOffW(e.target.value)}
+          />
+          <span className="text-xs text-slate-400">×</span>
+          <input
+            className="input w-24"
+            type="number"
+            min={1}
+            placeholder="Boy (mm)"
+            value={offH}
+            onChange={(e) => setOffH(e.target.value)}
+          />
+          <span className="text-xs text-slate-400">
+            Tamamlanınca kesik plaka olarak stoğa girer (sahiplik korunur)
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {job.status === 'pending' && (
           <button
@@ -517,10 +553,11 @@ function QueueJobCard({
           className="btn bg-emerald-600 text-white"
           disabled={pending}
           onClick={() =>
-            onAction(
-              'completed',
-              finalPrice !== '' ? Number(finalPrice) : undefined,
-            )
+            onAction('completed', {
+              finalAmount: finalPrice !== '' ? Number(finalPrice) : undefined,
+              offcutWidthMm: offW !== '' ? Number(offW) : undefined,
+              offcutHeightMm: offH !== '' ? Number(offH) : undefined,
+            })
           }
         >
           Tamamla

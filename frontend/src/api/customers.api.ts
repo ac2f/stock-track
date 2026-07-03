@@ -43,6 +43,31 @@ export async function createCustomer(
   return data;
 }
 
+/** Tek müşteri (güncel bakiye dahil). */
+export async function fetchCustomer(id: string): Promise<Customer> {
+  const { data } = await api.get<Customer>(`/customers/${id}`);
+  return data;
+}
+
+/**
+ * Portal erişim linki üretir (varsa yeniler): müşteri borç/ekstre görüntüleme.
+ * Dönen url backend'in PORTAL_BASE_URL'ine göredir; arayüz kendi origin'iyle
+ * de kurabilir: `${window.location.origin}/portal/${token}`.
+ */
+export async function issuePortalLink(
+  id: string,
+): Promise<{ token: string; url: string }> {
+  const { data } = await api.post<{ token: string; url: string }>(
+    `/customers/${id}/portal-token`,
+  );
+  return data;
+}
+
+/** Portal erişimini iptal eder (link geçersizleşir). */
+export async function revokePortalLink(id: string): Promise<void> {
+  await api.delete(`/customers/${id}/portal-token`);
+}
+
 export type UpdateCustomerInput = Partial<Omit<CreateCustomerInput, 'openingBalance'>>;
 
 export async function updateCustomer(

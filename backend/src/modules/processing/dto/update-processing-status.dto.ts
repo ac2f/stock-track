@@ -14,4 +14,20 @@ export class UpdateProcessingStatusDto {
   @IsNumber()
   @Min(0)
   finalAmount?: number;
+
+  /**
+   * Fire/kalan parça: iş tamamlanırken kesimden artan parçanın ebadı (mm).
+   * İkisi de verilirse, aynı türden KESİK bir plaka kaydı olarak stoğa eklenir
+   * (kaynak plakanın sahipliği korunur). Yalnızca AREA malzemede ve
+   * COMPLETED'da anlamlıdır.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  offcutWidthMm?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  offcutHeightMm?: number;
 }

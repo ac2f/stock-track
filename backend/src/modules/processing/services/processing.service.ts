@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +29,7 @@ import { WarehousesService } from '../../warehouses/warehouses.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { CustomerAccountService } from '../../customers/services/customer-account.service';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
+import { StockLevel } from '../../materials/entities/stock-level.entity';
 import { ProcessingJob } from '../entities/processing-job.entity';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
@@ -41,6 +43,7 @@ export interface ProcessingQueueGroup {
 
 @Injectable()
 export class ProcessingService {
+  private readonly logger = new Logger(ProcessingService.name);
   private readonly business: BusinessConfig;
   private readonly defaultWarehouseCode: string;
 
@@ -219,9 +222,25 @@ export class ProcessingService {
   async setStatus(
     id: string,
     status: ProcessingStatus,
-    opts: { finalAmount?: number } = {},
+    opts: {
+      finalAmount?: number;
+      offcutWidthMm?: number;
+      offcutHeightMm?: number;
+    } = {},
   ): Promise<ProcessingJob> {
-    return this.dataSource.transaction(async (manager) => {
+    // Fire/kalan parça bağlamı — transaction İÇİNDE (tüketimden önce) yakalanır,
+    // plaka kaydı transaction commit SONRASI oluşturulur (best-effort).
+    // (Ref nesnesi: closure içindeki atamayı TS akış analizi izleyemiyor.)
+    const offcutRef: {
+      value: {
+        templateId: string;
+        name: string;
+        ownerCustomerId: string | null;
+        warehouseId?: string;
+      } | null;
+    } = { value: null };
+
+    const saved = await this.dataSource.transaction(async (manager) => {
       const job = await manager.findOne(ProcessingJob, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -237,6 +256,26 @@ export class ProcessingService {
           where: { id: job.plateId },
           withDeleted: true,
         });
+
+        // Fire/kalan parça istendi mi? Kaynak plakanın SAHİBİNİ stok tüketilip
+        // seviye kaydı silinmeden ÖNCE yakala (tam tükenmede seviyeler silinir).
+        if (
+          opts.offcutWidthMm &&
+          opts.offcutHeightMm &&
+          plate?.measurementType === MeasurementType.AREA &&
+          plate.templateId
+        ) {
+          const lvl = await manager.findOne(StockLevel, {
+            where: { plateId: job.plateId },
+            order: { quantity: 'DESC' },
+          });
+          offcutRef.value = {
+            templateId: plate.templateId,
+            name: `${plate.name} (kalan)`,
+            ownerCustomerId: lvl?.ownerCustomerId ?? null,
+            warehouseId: job.warehouseId ?? undefined,
+          };
+        }
         // İş bitiminde pazarlıkla belirlenen nihai tutar verildiyse, işin
         // ücretini güncelle; faturalama bu yeni tutar üzerinden yapılır.
         if (opts.finalAmount != null) {
@@ -359,6 +398,31 @@ export class ProcessingService {
       job.status = status;
       return manager.save(job);
     });
+
+    // Commit sonrası: kesimden artan parçayı aynı türden KESİK plaka olarak
+    // stoğa ekle (sahiplik korunur). Başarısız olursa tamamlama geri alınmaz —
+    // yalnızca loglanır (kullanıcı parçayı elle de ekleyebilir).
+    const offcut = offcutRef.value;
+    if (offcut) {
+      try {
+        await this.platesService.create({
+          templateId: offcut.templateId,
+          name: offcut.name,
+          widthMm: opts.offcutWidthMm,
+          heightMm: opts.offcutHeightMm,
+          quantityInStock: 1,
+          ownerCustomerId: offcut.ownerCustomerId ?? undefined,
+          warehouseId: offcut.warehouseId,
+          processedAt: new Date().toISOString().slice(0, 10),
+        });
+      } catch (err) {
+        this.logger.warn(
+          `Kalan parça stoğa eklenemedi (iş ${id}): ${(err as Error).message}`,
+        );
+      }
+    }
+
+    return saved;
   }
 
   async findAll(

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { fetchCustomers } from '../../api/customers.api';
+import { fetchCustomer } from '../../api/customers.api';
+import { CustomerPicker } from '../../components/CustomerPicker';
 import { fetchEmployees } from '../../api/users.api';
 import {
   createBankAccount,
@@ -41,7 +42,6 @@ const EMPTY: CreatePaymentInput = {
 export function PaymentsPage() {
   const qc = useQueryClient();
   const { hasRole } = useAuth();
-  const [search, setSearch] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [form, setForm] = useState<CreatePaymentInput>(EMPTY);
   const [lastBalance, setLastBalance] = useState<number | null>(null);
@@ -50,12 +50,6 @@ export function PaymentsPage() {
   const [histTo, setHistTo] = useState('');
   const [histMethod, setHistMethod] = useState<'' | PaymentMethod>('');
 
-  // #1 Müşteri arama — hepsini listelemek yerine ada/telefona göre sorgula.
-  const { data: results } = useQuery({
-    queryKey: ['customers', 'search', search],
-    queryFn: () => fetchCustomers({ search: search || undefined, page: 1, limit: 20, sort: 'name' }),
-    enabled: search.length >= 1,
-  });
   const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: fetchEmployees });
   const { data: banks } = useQuery({ queryKey: ['bank-accounts'], queryFn: fetchBankAccounts });
   const { data: payments } = useQuery({
@@ -63,10 +57,15 @@ export function PaymentsPage() {
     queryFn: () => fetchPayments(customerId),
     enabled: !!customerId,
   });
-
-  const selectedCustomer = results?.items.find((c) => c.id === customerId);
+  // Seçilen müşterinin güncel bakiyesi (tek kayıt sorgusu).
+  const { data: selectedCustomer } = useQuery({
+    queryKey: ['customers', 'one', customerId],
+    queryFn: () => fetchCustomer(customerId),
+    enabled: !!customerId,
+  });
   // #6 Anlık bakiye: son ödemenin döndürdüğü bakiye varsa onu göster.
-  const displayBalance = lastBalance ?? selectedCustomer?.currentBalance ?? null;
+  const displayBalance =
+    lastBalance ?? (selectedCustomer ? Number(selectedCustomer.currentBalance) : null);
 
   const createMut = useMutation({
     mutationFn: (input: CreatePaymentInput) => createPayment(customerId, input),
@@ -102,35 +101,20 @@ export function PaymentsPage() {
       {/* #4/#5 Çalışan kasası — yalnızca İşletme Sahibi */}
       {hasRole('owner') && <CashCollectionsPanel />}
 
-      {/* #1 Müşteri arama */}
+      {/* #1 Müşteri arama — teklislerdeki gibi klavye destekli seçici. */}
       <div className="card space-y-2">
         <label className="block text-sm">
-          <span className="mb-1 block text-xs text-slate-500">Müşteri ara (ad / firma / telefon)</span>
-          <input
-            className="input"
-            placeholder="En az 1 karakter yazın…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        {search && (
-          <select
-            className="input"
-            value={customerId}
-            onChange={(e) => {
-              setCustomerId(e.target.value);
+          <span className="mb-1 block text-xs text-slate-500">
+            Müşteri ara (ad / firma / telefon)
+          </span>
+          <CustomerPicker
+            placeholder="Müşteri arayın… (↑/↓ + Enter ile seçin)"
+            onChange={(id) => {
+              setCustomerId(id);
               setLastBalance(null);
             }}
-          >
-            <option value="">Sonuçlardan seçin…</option>
-            {results?.items.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.phone ? ` · ${c.phone}` : ''}
-              </option>
-            ))}
-          </select>
-        )}
+          />
+        </label>
         {customerId && displayBalance != null && (
           <p className="text-sm">
             Güncel bakiye:{' '}

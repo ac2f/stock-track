@@ -13,6 +13,7 @@ import { PortalPage } from './features/portal/PortalPage';
 import { EmployeesPage } from './features/employees/EmployeesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
+import { PurchasesPage } from './features/purchases/PurchasesPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 
 function Placeholder({ title }: { title: string }) {
@@ -59,7 +60,7 @@ export default function App() {
             </RoleGate>
           }
         />
-        <Route path="/purchases" element={<Placeholder title="Satın Alma" />} />
+        <Route path="/purchases" element={<PurchasesPage />} />
         <Route path="/processing" element={<Placeholder title="İşleme" />} />
         <Route path="/queue" element={<ProcessingQueuePage />} />
         <Route path="/quotes" element={<QuotesPage />} />
