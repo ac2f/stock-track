@@ -150,6 +150,13 @@ export class ProcessingJob extends BaseEntity {
   @Column({ name: 'consumed_height_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
   consumedHeightMm?: number | null;
 
+  /**
+   * Tabaka (AREA) işinde stoktan düşülen kalan EN (mm) — enlemesine (dikey şerit)
+   * kesimde kullanılır. İptalde bu kadar en tabakaya geri eklenir. Yoksa null.
+   */
+  @Column({ name: 'consumed_width_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  consumedWidthMm?: number | null;
+
   /** Bu iş bir teklif dönüşümünden geldiyse kaynak teklif (kuyruktan teklife gitmek için). */
   @Column({ name: 'quote_id', type: 'uuid', nullable: true })
   quoteId?: string | null;

@@ -45,6 +45,12 @@ export const envValidationSchema = Joi.object({
   // Zamanlayıcı (cluster'da tek replikada açık tutulur)
   SCHEDULER_ENABLED: Joi.boolean().default(true),
 
+  // Veritabanı yedekleme
+  BACKUP_DIR: Joi.string().default('backups'),
+  BACKUP_CRON: Joi.string().default('0 3 * * *'),
+  BACKUP_PG_BIN_DIR: Joi.string().allow('').optional(),
+  BACKUP_KEEP: Joi.number().min(0).default(14),
+
   // Bildirim (Telegram opsiyonel; boşsa yalnızca Log kanalı)
   TELEGRAM_BOT_TOKEN: Joi.string().allow('').optional(),
   TELEGRAM_OWNER_CHAT_ID: Joi.string().allow('').optional(),

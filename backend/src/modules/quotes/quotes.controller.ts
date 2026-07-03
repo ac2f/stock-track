@@ -15,6 +15,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateQuoteDto } from './dto/create-quote.dto';
+import { ConvertQuoteDto } from './dto/convert-quote.dto';
 import { QueryQuoteDto } from './dto/query-quote.dto';
 import { UpdateQuoteStatusDto } from './dto/update-quote-status.dto';
 import { QuotesService } from './services/quotes.service';
@@ -62,8 +63,11 @@ export class QuotesController {
   convert(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') userId: string,
+    @Body() dto: ConvertQuoteDto,
   ) {
-    return this.quotesService.convert(id, userId);
+    return this.quotesService.convert(id, userId, {
+      completeProcessing: dto.completeProcessing ?? false,
+    });
   }
 
   // Teklifi sil: kuyruk işlerini + (varsa) dönüşen satışı geri alır, ekstreden düşer.

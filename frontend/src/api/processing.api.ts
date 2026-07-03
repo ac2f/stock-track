@@ -6,11 +6,23 @@ import type {
   ProcessingStatus,
 } from '../types';
 
+export interface QueueFilters {
+  machineId?: string;
+  categoryId?: string;
+  customerId?: string;
+  search?: string;
+}
+
 export async function fetchQueue(
-  machineId?: string,
+  filters: QueueFilters = {},
 ): Promise<ProcessingQueueGroup[]> {
+  const params: Record<string, string> = {};
+  if (filters.machineId) params.machineId = filters.machineId;
+  if (filters.categoryId) params.categoryId = filters.categoryId;
+  if (filters.customerId) params.customerId = filters.customerId;
+  if (filters.search) params.search = filters.search;
   const { data } = await api.get<ProcessingQueueGroup[]>('/processing/queue', {
-    params: machineId ? { machineId } : undefined,
+    params: Object.keys(params).length ? params : undefined,
   });
   return data;
 }

@@ -46,6 +46,13 @@ export class QuoteItem extends BaseEntity {
   @Column({ name: 'line_total', type: 'numeric', precision: 14, scale: 2 })
   lineTotal: number;
 
+  /**
+   * Kaleme özel işlenme/teslim tarihi (opsiyonel). Dönüşümde işleme işinin
+   * `processedAt`'ine, satış kaleminde (ilk verilen) satışın `saleDate`'ine yansır.
+   */
+  @Column({ name: 'item_date', type: 'timestamptz', nullable: true })
+  itemDate?: Date | null;
+
   // ── İşleme (PROCESSING) kalemi alanları ──
   @Column({
     name: 'billing_unit',

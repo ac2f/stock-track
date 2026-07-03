@@ -40,6 +40,12 @@ export class QuoteItemDto {
   @Min(0)
   unitPrice: number;
 
+  // Kaleme özel işlenme/teslim tarihi (opsiyonel). Dönüşümde işleme işinin
+  // processedAt'ine / satışın saleDate'ine yansır.
+  @IsOptional()
+  @IsDateString()
+  itemDate?: string;
+
   // ── PROCESSING kalemi ──
   @IsOptional()
   @IsEnum(MeasurementType)

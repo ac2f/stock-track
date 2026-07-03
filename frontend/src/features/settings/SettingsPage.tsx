@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchBusinessSettings,
   updateBusinessSettings,
   type UpdateBusinessInput,
 } from '../../api/settings.api';
+import {
+  downloadBackup,
+  fetchBackups,
+  restoreBackup,
+} from '../../api/backups.api';
+import { fetchNotifications } from '../../api/notifications.api';
 
 /** Etiketli form alanı. */
 function Field({
@@ -136,6 +142,187 @@ export function SettingsPage() {
           Kaydet
         </button>
       </div>
+
+      <BackupSection />
+      <NotificationsHistory />
+    </div>
+  );
+}
+
+/** İnsan-okur boyut (KB/MB). */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * #6 Veritabanı yedekleme/geri yükleme. "Yedek indir" anlık .sql üretip indirir;
+ * "Geri yükle" yüklenen .sql'i uygular (ÇİFT ONAYLI — veriyi üzerine yazar).
+ * Ayrıca sunucudaki otomatik yedeklerin listesi gösterilir.
+ */
+function BackupSection() {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const { data: backups } = useQuery({
+    queryKey: ['backups'],
+    queryFn: fetchBackups,
+  });
+
+  const downloadMut = useMutation({ mutationFn: () => downloadBackup() });
+  const restoreMut = useMutation({
+    mutationFn: (file: File) => restoreBackup(file),
+    onSuccess: () => {
+      setRestoreFile(null);
+      if (fileRef.current) fileRef.current.value = '';
+      // Geri yükleme sonrası tüm veri değişebilir → önbelleği tazele.
+      qc.invalidateQueries();
+    },
+  });
+
+  function handleRestore() {
+    if (!restoreFile) return;
+    if (
+      !window.confirm(
+        'DİKKAT: Geri yükleme MEVCUT verinin üzerine yazabilir ve geri alınamaz. ' +
+          'Devam etmeden önce güncel bir yedek indirmeniz önerilir. Devam edilsin mi?',
+      )
+    )
+      return;
+    if (
+      !window.confirm(
+        `Son onay: "${restoreFile.name}" yedeği veritabanına uygulanacak. Emin misiniz?`,
+      )
+    )
+      return;
+    restoreMut.mutate(restoreFile);
+  }
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">🗄️ Veritabanı yedekleme</h2>
+      <p className="text-sm text-slate-500">
+        Anlık yedek indirin ya da bir yedek dosyasından geri yükleyin. Sunucu ayrıca
+        düzenli aralıklarla otomatik yedek alır (sonuç bildirim geçmişine düşer).
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          className="btn-primary"
+          disabled={downloadMut.isPending}
+          onClick={() => downloadMut.mutate()}
+        >
+          {downloadMut.isPending ? 'Hazırlanıyor…' : '⬇️ Yedek indir (.sql)'}
+        </button>
+      </div>
+      {downloadMut.isError && (
+        <p className="text-sm text-red-600">
+          {(downloadMut.error as { response?: { data?: { message?: string } } })
+            ?.response?.data?.message ?? 'Yedek indirilemedi.'}
+        </p>
+      )}
+
+      <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3">
+        <span className="block text-sm font-semibold text-red-700">
+          Geri yükle (tehlikeli)
+        </span>
+        <input
+          ref={fileRef}
+          className="block text-sm"
+          type="file"
+          accept=".sql"
+          onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
+        />
+        <button
+          className="btn bg-red-600 text-white"
+          disabled={!restoreFile || restoreMut.isPending}
+          onClick={handleRestore}
+        >
+          {restoreMut.isPending ? 'Geri yükleniyor…' : 'Seçili yedeği geri yükle'}
+        </button>
+        {restoreMut.isError && (
+          <p className="text-sm text-red-700">
+            {(restoreMut.error as { response?: { data?: { message?: string } } })
+              ?.response?.data?.message ?? 'Geri yükleme başarısız.'}
+          </p>
+        )}
+        {restoreMut.isSuccess && (
+          <p className="text-sm text-emerald-700">Geri yükleme tamamlandı.</p>
+        )}
+      </div>
+
+      {!!backups?.length && (
+        <div>
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            Sunucudaki otomatik yedekler
+          </span>
+          <ul className="divide-y rounded-lg border text-sm">
+            {backups.map((b) => (
+              <li
+                key={b.name}
+                className="flex items-center justify-between px-3 py-2"
+              >
+                <span className="truncate">{b.name}</span>
+                <span className="shrink-0 text-slate-400">
+                  {new Date(b.createdAt).toLocaleString('tr-TR')} ·{' '}
+                  {humanSize(b.size)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** #6 Bildirim geçmişi (gönderim defteri) — yedek/borç/stok bildirimleri burada. */
+function NotificationsHistory() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => fetchNotifications(50),
+  });
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">🔔 Bildirim geçmişi</h2>
+      {isLoading && <p className="text-slate-400">Yükleniyor…</p>}
+      {!isLoading && !data?.length && (
+        <p className="text-sm text-slate-400">Henüz bildirim yok.</p>
+      )}
+      {!!data?.length && (
+        <ul className="divide-y rounded-lg border text-sm">
+          {data.map((n) => (
+            <li key={n.id} className="space-y-0.5 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{n.subject ?? n.type}</span>
+                <span className="shrink-0 text-xs text-slate-400">
+                  {new Date(n.createdAt).toLocaleString('tr-TR')}
+                </span>
+              </div>
+              <p className="text-slate-600">{n.body}</p>
+              <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5">
+                  {n.channel}
+                </span>
+                <span
+                  className={`rounded px-1.5 py-0.5 ${
+                    n.status === 'sent'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : n.status === 'failed'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-slate-100'
+                  }`}
+                >
+                  {n.status}
+                </span>
+                {n.error && <span className="text-red-500">{n.error}</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

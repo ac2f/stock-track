@@ -452,13 +452,15 @@ export class PlatesService {
     plateId: string;
     warehouseId: string;
     quantity: number;
+    /** Kesim ENİ (mm) — enlemesine (dikey şerit) kesim tespiti için. */
+    consumedWidthMm?: number | null;
     consumedHeightMm?: number | null;
-    /** Düşülecek m² (boy verilmediyse: kesim boyu = m²×1e6 / kalan en). */
+    /** Düşülecek m² (ebat verilmediyse: kesim boyu = m²×1e6 / kalan en). */
     areaM2?: number | null;
     ownerCustomerId?: string | null;
     manager: EntityManager;
     allowNegative?: boolean;
-  }): Promise<number> {
+  }): Promise<{ widthReducedMm: number; heightReducedMm: number }> {
     const {
       plateId,
       warehouseId,
@@ -476,23 +478,28 @@ export class PlatesService {
       withDeleted: true,
     });
 
-    // TABAKA (AREA): stok DAİMA ebattan (m²) düşülür — adet yoluna hiç düşmez,
-    // böylece "Yetersiz stok (adet)" hatası AREA malzemede oluşamaz. Kesim boyu:
-    //  1) verilen kesim boyu × adet, yoksa
-    //  2) m² × 1e6 / kalan en, yoksa
-    //  3) kalan boyun tamamı (parça tüm tabakayı tüketir).
+    // TABAKA (AREA): stok ebattan (giyotin kesim) düşülür — adet yoluna hiç
+    // düşmez, böylece "Yetersiz stok (adet)" hatası AREA malzemede oluşamaz.
     if (plate && plate.measurementType === MeasurementType.AREA) {
-      const width = Number(plate.widthMm) || 0;
-      let cutHeight = 0;
+      const qty = quantity || 1;
+      const W = Number(plate.widthMm) || 0;
+      const H = Number(plate.heightMm) || 0;
+      let cutW =
+        opts.consumedWidthMm != null && Number(opts.consumedWidthMm) > 0
+          ? Number(opts.consumedWidthMm)
+          : W; // en verilmediyse tam en (yatay şerit)
+      let cutH = 0;
       if (opts.consumedHeightMm != null && Number(opts.consumedHeightMm) > 0) {
-        cutHeight = Number(opts.consumedHeightMm) * (quantity || 1);
-      } else if (opts.areaM2 != null && Number(opts.areaM2) > 0 && width > 0) {
-        cutHeight = (Number(opts.areaM2) * 1_000_000) / width;
+        cutH = Number(opts.consumedHeightMm);
+      } else if (opts.areaM2 != null && Number(opts.areaM2) > 0 && cutW > 0) {
+        // Boy verilmediyse m²'den kesim boyunu türet (kesim eni × boy = alan).
+        cutH = (Number(opts.areaM2) * 1_000_000) / (cutW * qty);
       } else {
-        cutHeight = Number(plate.heightMm) || 0;
+        cutH = H; // hiçbir bilgi yoksa tüm boyu tüket
       }
-      if (cutHeight <= 0) return 0; // düşülecek bir şey yok (hata verme)
-      return this.reduceSheetHeight(plate, cutHeight, manager, allowNegative);
+      cutW = Math.min(cutW, W || cutW);
+      if (cutH <= 0 && cutW <= 0) return { widthReducedMm: 0, heightReducedMm: 0 };
+      return this.reduceSheet(plate, cutW, cutH, qty, manager, allowNegative);
     }
 
     // AREA dışı: klasik adet düşüşü.
@@ -504,54 +511,92 @@ export class PlatesService {
       manager,
       allowNegative,
     );
-    return 0;
+    return { widthReducedMm: 0, heightReducedMm: 0 };
   }
 
-  /** Tabakanın kalan boyunu kesim kadar azaltır; biterse tüketir (soft-remove). */
-  private async reduceSheetHeight(
+  /**
+   * Giyotin kesim modeli: W×H tabakadan cw×ch parça(lar) kesilince kalan yine
+   * dikdörtgen kalacak şekilde TEK eksen düşürülür:
+   *  - kesim tam-en (cw≈W)  → BOY düşer  (H −= ch×adet)  [yatay şerit]
+   *  - kesim tam-boy (ch≈H)  → EN düşer   (W −= cw×adet)  [dikey şerit / enlemesine]
+   *  - ikisinde de küçükse   → kalan alanı büyük bırakan eksene düşülür
+   * Kalan ≤ 0 olursa tabaka tükenir (soft-remove). Dönüş: düşülen eksen miktarı.
+   */
+  private async reduceSheet(
     plate: MaterialPlate,
-    cutHeightMm: number,
+    cutW: number,
+    cutH: number,
+    qty: number,
     manager: EntityManager,
     allowNegative: boolean,
-  ): Promise<number> {
-    const current = Number(plate.heightMm) || 0;
-    const next = current - cutHeightMm;
+  ): Promise<{ widthReducedMm: number; heightReducedMm: number }> {
+    const W = Number(plate.widthMm) || 0;
+    const H = Number(plate.heightMm) || 0;
+    const tol = 1; // mm tolerans (yuvarlama)
+    const fullWidth = cutW >= W - tol;
+    const fullHeight = cutH >= H - tol;
+
+    // Ekseni seç: tam-boy ise en düş; tam-en ise boy düş; ikisi de kısmiyse
+    // kalan alanı daha büyük bırakan ekseni seç (asgari tüketim).
+    let reduceWidth: boolean;
+    if (fullHeight && !fullWidth) reduceWidth = true;
+    else if (fullWidth && !fullHeight) reduceWidth = false;
+    else if (fullWidth && fullHeight) reduceWidth = false; // tam tabaka → boydan tüket
+    else {
+      const remIfHeight = W * (H - cutH * qty);
+      const remIfWidth = (W - cutW * qty) * H;
+      reduceWidth = remIfWidth > remIfHeight;
+    }
+
+    const reduceBy = reduceWidth ? cutW * qty : cutH * qty;
+    const current = reduceWidth ? W : H;
+    const next = current - reduceBy;
+
     if (next <= 0) {
-      if (next < 0 && !allowNegative) {
+      if (next < -tol && !allowNegative) {
         throw new BadRequestException(
-          `Yetersiz tabaka boyu. Kalan: ${current} mm, kesilen: ${cutHeightMm} mm.`,
+          `Yetersiz tabaka ${reduceWidth ? 'eni' : 'boyu'}. Kalan: ${current} mm, kesilen: ${reduceBy} mm.`,
         );
       }
       // Tabaka tümüyle tükendi: stok seviyelerini sıfırla + listeden kaldır.
       await manager.getRepository(StockLevel).delete({ plateId: plate.id });
       plate.quantityInStock = 0;
-      plate.heightMm = 0;
+      if (reduceWidth) plate.widthMm = 0;
+      else plate.heightMm = 0;
       plate.isActive = false;
       await manager.save(MaterialPlate, plate);
       await manager.softRemove(MaterialPlate, plate);
-      return current;
+      return reduceWidth
+        ? { widthReducedMm: current, heightReducedMm: 0 }
+        : { widthReducedMm: 0, heightReducedMm: current };
     }
-    plate.heightMm = next;
+
+    if (reduceWidth) plate.widthMm = next;
+    else plate.heightMm = next;
     await manager.save(MaterialPlate, plate);
-    return cutHeightMm;
+    return reduceWidth
+      ? { widthReducedMm: reduceBy, heightReducedMm: 0 }
+      : { widthReducedMm: 0, heightReducedMm: reduceBy };
   }
 
   /**
-   * İptal/iade: tabakanın kalan boyunu geri ekler (best-effort). Tabaka silinmişse
-   * geri yükler. AREA dışı iadeler için adjustStock kullanılır.
+   * İptal/iade: tabakaya düşülen ekseni (en veya boy) geri ekler (best-effort).
+   * Tabaka silinmişse geri yükler. AREA dışı iadeler için adjustStock kullanılır.
    */
-  async restoreSheetHeight(
+  async restoreSheet(
     plateId: string,
+    widthMm: number,
     heightMm: number,
     manager: EntityManager,
   ): Promise<void> {
-    if (!heightMm) return;
+    if (!widthMm && !heightMm) return;
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
       withDeleted: true,
     });
     if (!plate) return;
-    plate.heightMm = (Number(plate.heightMm) || 0) + heightMm;
+    if (widthMm) plate.widthMm = (Number(plate.widthMm) || 0) + widthMm;
+    if (heightMm) plate.heightMm = (Number(plate.heightMm) || 0) + heightMm;
     if (plate.deletedAt) {
       plate.deletedAt = null;
       plate.isActive = true;

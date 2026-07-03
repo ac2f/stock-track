@@ -177,19 +177,22 @@ export class ProcessingService {
     const saved = await manager.save(job);
 
     if (consumeNow) {
-      // Tabaka (AREA) işinde kalan boy düşülür; değilse adet. Düşülen boy iptal
-      // için saklanır.
+      // Tabaka (AREA) işinde giyotin kesim: kesim en/boyuna göre en VEYA boy
+      // düşülür (enlemesine dahil). Düşülen eksen iptal için saklanır.
       const cut = await this.platesService.consume({
         plateId: plate.id,
         warehouseId: warehouse!.id,
         quantity,
+        consumedWidthMm:
+          billingUnit === MeasurementType.AREA ? widthMm : null,
         consumedHeightMm:
           billingUnit === MeasurementType.AREA ? heightMm : null,
         areaM2: billingUnit === MeasurementType.AREA ? quantityValue : null,
         manager,
       });
-      if (cut > 0) {
-        saved.consumedHeightMm = cut;
+      if (cut.widthReducedMm > 0 || cut.heightReducedMm > 0) {
+        saved.consumedWidthMm = cut.widthReducedMm || null;
+        saved.consumedHeightMm = cut.heightReducedMm || null;
         await manager.save(saved);
       }
     }
@@ -302,6 +305,7 @@ export class ProcessingService {
               plateId: job.plateId,
               warehouseId: job.warehouseId,
               quantity: Number(job.quantity),
+              consumedWidthMm: job.widthMm != null ? Number(job.widthMm) : null,
               consumedHeightMm: job.heightMm != null ? Number(job.heightMm) : null,
               areaM2: job.quantityValue != null ? Number(job.quantityValue) : null,
               manager,
@@ -310,7 +314,8 @@ export class ProcessingService {
               // engelleme — mevcut kadarını düş/tüket, "Yetersiz stok" verme.
               allowNegative: true,
             });
-            job.consumedHeightMm = cut || null;
+            job.consumedWidthMm = cut.widthReducedMm || null;
+            job.consumedHeightMm = cut.heightReducedMm || null;
             job.consumedQuantity = 0;
           } else {
             // İşletme stoğundan mevcut kadarını düş — yetersizse tamamlamayı
@@ -358,13 +363,12 @@ export class ProcessingService {
         }
       } else if (status === ProcessingStatus.CANCELLED) {
         if (job.stockConsumed && job.warehouseId) {
-          if (job.consumedHeightMm && Number(job.consumedHeightMm) > 0) {
-            // Tabaka işi: düşülen boyu geri ekle (best-effort).
-            await this.platesService.restoreSheetHeight(
-              job.plateId,
-              Number(job.consumedHeightMm),
-              manager,
-            );
+          const cw = Number(job.consumedWidthMm) || 0;
+          const ch = Number(job.consumedHeightMm) || 0;
+          if (cw > 0 || ch > 0) {
+            // Tabaka işi: düşülen ekseni (en/boy) geri ekle (best-effort).
+            await this.platesService.restoreSheet(job.plateId, cw, ch, manager);
+            job.consumedWidthMm = null;
             job.consumedHeightMm = null;
           } else {
             const refund =
@@ -491,6 +495,22 @@ export class ProcessingService {
       .orderBy('j.processed_at', 'ASC');
     if (query.machineId) {
       qb.andWhere('j.machine_id = :machineId', { machineId: query.machineId });
+    }
+    // #4 Malzeme türüne, sahibe (müşteri) ve serbest metne göre filtreleme.
+    if (query.categoryId) {
+      qb.andWhere('template.category_id = :categoryId', {
+        categoryId: query.categoryId,
+      });
+    }
+    if (query.customerId) {
+      qb.andWhere('j.customer_id = :customerId', {
+        customerId: query.customerId,
+      });
+    }
+    if (query.search) {
+      qb.andWhere('(plate.name ILIKE :s OR customer.name ILIKE :s)', {
+        s: `%${query.search}%`,
+      });
     }
     const jobs = await qb.getMany();
 

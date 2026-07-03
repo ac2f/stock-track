@@ -13,6 +13,7 @@ import {
   QuoteStatus,
 } from '../../../common/enums/quote-status.enum';
 import { SaleStockSource } from '../../../common/enums/sale-source.enum';
+import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
 import {
   buildPaginatedResult,
   PaginatedResult,
@@ -205,7 +206,11 @@ export class QuotesService {
    *    billOnCompletion=true) → tamamlanınca faturalanır.
    * Olaylar (sale.created) commit sonrası yayınlanır.
    */
-  async convert(id: string, soldById: string): Promise<QuoteConversionResult> {
+  async convert(
+    id: string,
+    soldById: string,
+    opts: { completeProcessing?: boolean } = {},
+  ): Promise<QuoteConversionResult> {
     const quote = await this.findOne(id);
     if (quote.status === QuoteStatus.CONVERTED) {
       throw new BadRequestException('Teklif zaten dönüştürülmüş.');
@@ -228,11 +233,16 @@ export class QuotesService {
     const outcome = await this.dataSource.transaction(async (manager) => {
       let saleId: string | undefined;
       if (saleLines.length > 0) {
+        // Kaleme özel tarih verilmişse (ilk verilen) satışın tarihine yansır.
+        const saleLineDate = saleLines.find((l) => l.itemDate)?.itemDate;
         const saleDto: CreateSaleDto = {
           buyerCustomerId: quote.buyerCustomerId,
           ownerCustomerId: quote.ownerCustomerId ?? undefined,
           warehouseId: quote.warehouseId ?? undefined,
           currency: quote.currency,
+          saleDate: saleLineDate
+            ? new Date(saleLineDate).toISOString()
+            : undefined,
           // Teklif (tümü) notu cari ekstre açıklamasına yansır.
           note: quote.note?.trim()
             ? `Teklif ${quote.quoteNo}: ${quote.note.trim()}`
@@ -282,6 +292,10 @@ export class QuotesService {
           // Dönüşen işler kuyruğa PENDING girer, tamamlanınca faturalanır.
           billOnCompletion: true,
           quoteId: quote.id,
+          // Kaleme özel işlenme tarihi verilmişse işe yansır.
+          processedAt: l.itemDate
+            ? new Date(l.itemDate).toISOString()
+            : undefined,
           // Teklif notu (tümü) ve kalem notu → işleme tamamlanınca cari ekstre
           // açıklamasına yansır.
           note: [
@@ -313,6 +327,18 @@ export class QuotesService {
     // Olaylar commit sonrası.
     for (const e of events) {
       this.eventEmitter.emit(e.name, e.payload);
+    }
+
+    // #1 "Tamamlanmış olarak ekle": dönüşen işleme işleri hemen COMPLETED yapılır
+    // (stok düşer + faturalanır). Her biri kendi transaction'ında; biri hata
+    // verirse diğerlerini engellemesin (iş yine kuyrukta tamamlanabilir).
+    if (opts.completeProcessing) {
+      for (const jobId of outcome.processingJobIds) {
+        await this.processingService.setStatus(
+          jobId,
+          ProcessingStatus.COMPLETED,
+        );
+      }
     }
 
     quote.status = QuoteStatus.CONVERTED;
@@ -378,6 +404,7 @@ export class QuotesService {
           quantity: itemDto.quantity,
           unitPrice: itemDto.unitPrice,
           lineTotal,
+          itemDate: itemDto.itemDate ? new Date(itemDto.itemDate) : null,
           // m²/metre gösterimi ve hesabı için ölçü birimi ve ebatları (gerekirse
           // plakadan) kaleme yansıtılır — satış kaleminde de m² görünür.
           billingUnit: itemDto.billingUnit ?? plate.measurementType ?? null,

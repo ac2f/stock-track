@@ -18,5 +18,6 @@ export enum NotificationType {
   SALE_CREATED = 'sale_created',
   STOCK_LOW = 'stock_low',
   DEBT_REMINDER = 'debt_reminder',
+  BACKUP = 'backup',
   GENERIC = 'generic',
 }

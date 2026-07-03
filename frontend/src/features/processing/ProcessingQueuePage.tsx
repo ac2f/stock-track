@@ -13,6 +13,8 @@ import { fetchSales, type Sale } from '../../api/sales.api';
 import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
 import { useListGrouping, GroupToggle } from '../../context/DensityContext';
 import { GroupSection } from '../../components/GroupSection';
+import { CustomerPicker } from '../../components/CustomerPicker';
+import { fetchMaterialCategories } from '../../api/materials.api';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
 /** Kuyruk/geçmiş işini "Müşteri · Kategori" ile gruplar. */
@@ -360,9 +362,23 @@ const unitLabel: Record<string, string> = {
 export function ProcessingQueuePage() {
   const qc = useQueryClient();
   const { grouped, toggle: toggleGroup } = useListGrouping();
+  // #4 Kuyruk filtreleri: malzeme türü (kategori), sahip (müşteri), arama.
+  const [categoryId, setCategoryId] = useState('');
+  const [filterCustomerId, setFilterCustomerId] = useState('');
+  const [search, setSearch] = useState('');
+  const [filterKey, setFilterKey] = useState(0); // CustomerPicker'ı sıfırlamak için
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: fetchMaterialCategories,
+  });
   const { data, isLoading } = useQuery({
-    queryKey: ['queue'],
-    queryFn: () => fetchQueue(),
+    queryKey: ['queue', categoryId, filterCustomerId, search],
+    queryFn: () =>
+      fetchQueue({
+        categoryId: categoryId || undefined,
+        customerId: filterCustomerId || undefined,
+        search: search || undefined,
+      }),
   });
 
   const mut = useMutation({
@@ -385,6 +401,22 @@ export function ProcessingQueuePage() {
     },
   });
 
+  // #1 "Tümünü Tamamla": kuyrukta görünen (filtrelenmiş) tüm işleri sırayla
+  // COMPLETED yapar (stok düşer + faturalanır). Kalan parça/nihai fiyat sorulmaz.
+  const bulkComplete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await setProcessingStatus(id, 'completed');
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['queue'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
+    },
+  });
+
   if (isLoading) return <p className="text-slate-400">Yükleniyor…</p>;
 
   const groups = data ?? [];
@@ -403,7 +435,70 @@ export function ProcessingQueuePage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Üretim Kuyruğu</h1>
-        <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+        <div className="flex items-center gap-2">
+          {allJobs.length > 0 && (
+            <button
+              className="btn bg-emerald-600 text-white"
+              disabled={bulkComplete.isPending || mut.isPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Kuyrukta görünen ${allJobs.length} işin tümü tamamlanacak (stok düşer, faturalanır). Onaylıyor musunuz?`,
+                  )
+                ) {
+                  bulkComplete.mutate(allJobs.map((j) => j.id));
+                }
+              }}
+            >
+              {bulkComplete.isPending ? 'Tamamlanıyor…' : '✓ Tümünü Tamamla'}
+            </button>
+          )}
+          <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+        </div>
+      </div>
+
+      {/* #4 Tür / sahip / arama filtreleri */}
+      <div className="card space-y-2">
+        <input
+          className="input"
+          placeholder="Ara (plaka adı / müşteri)…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="flex flex-wrap gap-2">
+          <select
+            className="input w-auto"
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            <option value="">Tüm malzeme türleri</option>
+            {categories?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <div className="min-w-[220px] flex-1">
+            <CustomerPicker
+              key={filterKey}
+              placeholder="Sahibe göre süz (müşteri ara)…"
+              onChange={(id) => setFilterCustomerId(id)}
+            />
+          </div>
+          {(categoryId || filterCustomerId || search) && (
+            <button
+              className="btn bg-slate-100 text-xs"
+              onClick={() => {
+                setCategoryId('');
+                setFilterCustomerId('');
+                setSearch('');
+                setFilterKey((k) => k + 1);
+              }}
+            >
+              Filtreyi temizle
+            </button>
+          )}
+        </div>
       </div>
 
       {mut.isError && (

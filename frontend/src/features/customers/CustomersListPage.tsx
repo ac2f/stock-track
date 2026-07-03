@@ -4,6 +4,7 @@ import {
   addCustomerLedgerEntry,
   createCustomer,
   deleteCustomer,
+  fetchCustomer,
   fetchCustomerLedger,
   fetchCustomers,
   issuePortalLink,
@@ -527,6 +528,12 @@ function CustomerStatement({
     queryKey: ['ledger', customerId],
     queryFn: () => fetchCustomerLedger(customerId),
   });
+  // Yetkili bakiye backend'den (settle bunu esas alır); ledger toplamıyla
+  // ıraksarsa bile borç kapatma doğru çalışsın.
+  const { data: freshCustomer } = useQuery({
+    queryKey: ['customers', 'one', customerId],
+    queryFn: () => fetchCustomer(customerId),
+  });
   const addMut = useMutation({
     mutationFn: () =>
       addCustomerLedgerEntry(customerId, {
@@ -538,6 +545,7 @@ function CustomerStatement({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ledger', customerId] });
       qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customers', 'one', customerId] });
       setAmount('');
       setDesc('');
     },
@@ -552,7 +560,11 @@ function CustomerStatement({
     running += e.entryType === 'debit' ? Number(e.amount) : -Number(e.amount);
     return { ...e, running };
   });
-  const currentBalance = computed.length ? computed[computed.length - 1].running : 0;
+  const ledgerBalance = computed.length ? computed[computed.length - 1].running : 0;
+  // Borç kapatma için backend'in cache'li bakiyesini esas al (settle onu kullanır);
+  // henüz gelmemişse ledger toplamına düş.
+  const currentBalance =
+    freshCustomer != null ? Number(freshCustomer.currentBalance) : ledgerBalance;
 
   // #5 İndirim (borç kapatma/yuvarlama): müşterinin ödediği tutarı gir, kalan
   // fark "İndirim" olarak ekstreye işlenir ve borç kapanır.
@@ -566,6 +578,7 @@ function CustomerStatement({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ledger', customerId] });
       qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customers', 'one', customerId] });
       setPaid('');
     },
   });
@@ -687,6 +700,13 @@ function CustomerStatement({
               value={paid}
               onChange={(e) => setPaid(e.target.value)}
             />
+            <button
+              className="btn bg-slate-100 text-xs"
+              title="Kalan borcun tamamını tahsilat olarak yaz (indirim yok)"
+              onClick={() => setPaid(String(currentBalance))}
+            >
+              Tümü
+            </button>
             <span className="text-xs text-slate-500">
               İndirim:{' '}
               <span className="font-semibold text-amber-600">
@@ -695,12 +715,7 @@ function CustomerStatement({
             </span>
             <button
               className="btn bg-amber-600 text-white"
-              disabled={
-                !paid ||
-                Number(paid) <= 0 ||
-                Number(paid) > currentBalance ||
-                discountMut.isPending
-              }
+              disabled={!paid || Number(paid) <= 0 || discountMut.isPending}
               onClick={() => discountMut.mutate()}
             >
               Borcu kapat

@@ -238,8 +238,19 @@ export function QuotesPage() {
   }
 
   const [convertMsg, setConvertMsg] = useState<string | null>(null);
+  // #1 Kalem başına değil, dönüşüm başına: işaretliyse işleme işleri hemen
+  // "tamamlanmış" olarak eklenir (stok düşer + faturalanır). Teklif id → seçim.
+  const [completeOnConvert, setCompleteOnConvert] = useState<
+    Record<string, boolean>
+  >({});
   const convertMut = useMutation({
-    mutationFn: (id: string) => convertQuote(id),
+    mutationFn: ({
+      id,
+      completeProcessing,
+    }: {
+      id: string;
+      completeProcessing: boolean;
+    }) => convertQuote(id, { completeProcessing }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['quotes'] });
       qc.invalidateQueries({ queryKey: ['queue'] });
@@ -442,13 +453,33 @@ export function QuotesPage() {
                   </button>
                 )}
                 {q.status === 'accepted' && (
-                  <button
-                    className="btn-primary"
-                    disabled={convertMut.isPending}
-                    onClick={() => convertMut.mutate(q.id)}
-                  >
-                    Satış/İşlemeye Dönüştür
-                  </button>
+                  <>
+                    <label className="flex items-center gap-1 text-xs text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={!!completeOnConvert[q.id]}
+                        onChange={(e) =>
+                          setCompleteOnConvert((s) => ({
+                            ...s,
+                            [q.id]: e.target.checked,
+                          }))
+                        }
+                      />
+                      İşlemeleri tamamlanmış olarak ekle
+                    </label>
+                    <button
+                      className="btn-primary"
+                      disabled={convertMut.isPending}
+                      onClick={() =>
+                        convertMut.mutate({
+                          id: q.id,
+                          completeProcessing: !!completeOnConvert[q.id],
+                        })
+                      }
+                    >
+                      Satış/İşlemeye Dönüştür
+                    </button>
+                  </>
                 )}
                 <button
                   className="btn bg-slate-100"
@@ -525,6 +556,8 @@ function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
     description: it.description,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
+    // Kaydedilen tarih (ISO) → tarih input'u için YYYY-MM-DD.
+    itemDate: it.itemDate ? String(it.itemDate).slice(0, 10) : undefined,
     billingUnit: it.billingUnit,
     widthMm: it.widthMm != null ? Number(it.widthMm) : undefined,
     heightMm: it.heightMm != null ? Number(it.heightMm) : undefined,
@@ -1042,6 +1075,16 @@ function NewQuoteForm({
               placeholder="Örn. özel kesim / iskonto sebebi…"
               value={item.description ?? ''}
               onChange={(e) => patch(i, { description: e.target.value || undefined })}
+            />
+          </Field>
+          {/* #2 Kaleme özel işlenme/teslim tarihi — dönüşümde işleme işinin
+              (processedAt) / satışın (saleDate) tarihine yansır. */}
+          <Field label="İşlenme/teslim tarihi (opsiyonel)">
+            <input
+              className="input w-48"
+              type="date"
+              value={item.itemDate ?? ''}
+              onChange={(e) => patch(i, { itemDate: e.target.value || undefined })}
             />
           </Field>
           {item.lineKind === 'sale' && item.plateId && (

@@ -215,6 +215,8 @@ export class SalesService {
         plateId: item.plateId,
         warehouseId: warehouse!.id,
         quantity: item.quantity,
+        // Satılan ebada göre giyotin kesim (en/boy) — enlemesine dahil.
+        consumedWidthMm: item.widthMm ?? null,
         consumedHeightMm: item.heightMm ?? null,
         ownerCustomerId: owner,
         manager,

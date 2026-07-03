@@ -283,6 +283,9 @@ export interface QuoteItemInput {
   description?: string;
   quantity: number;
   unitPrice: number;
+  // Kaleme özel işlenme/teslim tarihi (YYYY-MM-DD). Dönüşümde işleme işinin
+  // processedAt'ine / satışın saleDate'ine yansır.
+  itemDate?: string;
   billingUnit?: MeasurementType;
   widthMm?: number;
   heightMm?: number;

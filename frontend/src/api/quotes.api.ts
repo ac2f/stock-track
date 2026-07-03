@@ -54,11 +54,14 @@ export async function setQuoteStatus(
 
 export async function convertQuote(
   id: string,
+  opts: { completeProcessing?: boolean } = {},
 ): Promise<{ saleId?: string; processingJobIds: string[] }> {
   const { data } = await api.post<{
     saleId?: string;
     processingJobIds: string[];
-  }>(`/quotes/${id}/convert`);
+  }>(`/quotes/${id}/convert`, {
+    completeProcessing: opts.completeProcessing ?? false,
+  });
   return data;
 }
 

@@ -51,6 +51,17 @@ export interface SchedulerConfig {
   enabled: boolean;
 }
 
+export interface BackupConfig {
+  // Yedeklerin yazılacağı dizin (sunucu diski).
+  dir: string;
+  // Otomatik yedek zamanlaması (cron). Varsayılan: her gün 03:00.
+  cron: string;
+  // pg_dump/psql ikililerinin bulunduğu dizin (boşsa PATH'ten).
+  binDir: string;
+  // Diskte tutulacak azami yedek sayısı (eskiler silinir; 0 = sınırsız).
+  keep: number;
+}
+
 export interface NotificationsConfig {
   telegramBotToken: string;
   telegramOwnerChatId: string;
@@ -69,6 +80,7 @@ export interface RootConfig {
   business: BusinessConfig;
   currency: CurrencyConfig;
   scheduler: SchedulerConfig;
+  backup: BackupConfig;
   notifications: NotificationsConfig;
 }
 
@@ -113,6 +125,12 @@ export default (): RootConfig => ({
   },
   scheduler: {
     enabled: (process.env.SCHEDULER_ENABLED ?? 'true') === 'true',
+  },
+  backup: {
+    dir: process.env.BACKUP_DIR ?? 'backups',
+    cron: process.env.BACKUP_CRON ?? '0 3 * * *',
+    binDir: process.env.BACKUP_PG_BIN_DIR ?? '',
+    keep: parseInt(process.env.BACKUP_KEEP ?? '14', 10),
   },
   notifications: {
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',

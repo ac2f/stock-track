@@ -25,6 +25,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { BackupsModule } from './modules/backups/backups.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -64,6 +65,7 @@ import { HealthController } from './health.controller';
     SettingsModule,
     PortalModule,
     NotificationsModule,
+    BackupsModule,
   ],
   controllers: [HealthController],
 })
