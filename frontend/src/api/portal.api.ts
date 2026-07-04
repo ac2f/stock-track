@@ -3,10 +3,12 @@ import type {
   PortalLedgerEntry,
   PortalSummary,
 } from '../types';
+import { API_URL } from './client';
 
 // Portal uçları PUBLIC'tir: kimlik doğrulama yok → token'lı sade fetch kullanılır
-// (auth interceptor'ı ve /login yönlendirmesi devreye girmez).
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
+// (auth interceptor'ı ve /login yönlendirmesi devreye girmez). Taban adres, ana
+// istemciyle AYNI mantığı paylaşır: üretimde GÖRELİ '/api/v1' → portal, uygulama
+// hangi domain/origin'den açıldıysa API'yi de oradan çağırır (ekstra ayar yok).
 
 async function pget<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`);

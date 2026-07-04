@@ -17,7 +17,7 @@ import type { ApiEnvelope } from '../types';
  * olarak gömülebildiğinden (`??` boş string'i yakalamaz) login isteği yanlışlıkla
  * nginx'e gidip 405 verebiliyordu.
  */
-const API_URL =
+export const API_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV ? 'http://localhost:3000/api/v1' : '/api/v1');
 
