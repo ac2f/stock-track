@@ -4,6 +4,7 @@ import {
   fetchPortalDocuments,
   fetchPortalLedger,
   fetchPortalSummary,
+  PortalError,
 } from '../../api/portal.api';
 
 /**
@@ -31,10 +32,25 @@ export function PortalPage() {
   });
 
   if (summaryQ.isError) {
+    // Token gerçekten geçersizse farklı; API'ye ulaşılamıyorsa farklı mesaj.
+    const err = summaryQ.error;
+    const isInvalid = err instanceof PortalError && err.code === 'invalid';
     return (
       <Shell>
         <div className="card text-center text-slate-500">
-          Bağlantı geçersiz veya iptal edilmiş.
+          {isInvalid ? (
+            'Bağlantı geçersiz veya iptal edilmiş.'
+          ) : (
+            <>
+              <p className="font-medium text-slate-700">
+                Şu an bağlanılamıyor.
+              </p>
+              <p className="mt-1 text-sm">
+                Lütfen birazdan tekrar deneyin. Sorun sürerse bağlantıyı
+                paylaşan işletmeyle iletişime geçin.
+              </p>
+            </>
+          )}
         </div>
       </Shell>
     );

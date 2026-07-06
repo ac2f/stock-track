@@ -646,15 +646,23 @@ function NewQuoteForm({
     const q = stockSearch.trim().toLocaleLowerCase('tr');
     return !q || p.name.toLocaleLowerCase('tr').includes(q);
   });
-  const addSelectedStock = () => {
-    const chosen = ownerStockAll.filter(
-      (p) => selStock.has(p.id) && !items.some((x) => x.plateId === p.id),
-    );
+  // Henüz teklife eklenmemiş (seçilebilir) filtreli malzemeler.
+  const selectableStock = ownerStock.filter(
+    (p) => !items.some((x) => x.plateId === p.id),
+  );
+  const allStockSelected =
+    selectableStock.length > 0 &&
+    selectableStock.every((p) => selStock.has(p.id));
+
+  // Bir dizi plakayı işleme kalemi olarak ekler (tekilleştirir): tabaka (AREA)
+  // ebattan, şerit/rulo vb. kendi ölçü birimiyle.
+  const addStockPlates = (plates: typeof ownerStockAll) => {
+    const chosen = plates.filter((p) => !items.some((x) => x.plateId === p.id));
+    if (!chosen.length) return;
     chosen.forEach(cachePlate);
     setItems((it) => [
       ...it,
       ...chosen.map((p) => {
-        // Tabaka (AREA) → ebattan; şerit/rulo vb. → kendi ölçü birimiyle eklenir.
         const area = !p.measurementType || p.measurementType === 'area';
         return {
           lineKind: 'processing' as const,
@@ -670,6 +678,18 @@ function NewQuoteForm({
     ]);
     setSelStock(new Set());
   };
+  const addSelectedStock = () =>
+    addStockPlates(ownerStockAll.filter((p) => selStock.has(p.id)));
+  // Tek tıkla: arama sonucundaki (filtreli) tüm malzemeleri ekle.
+  const addAllFilteredStock = () => addStockPlates(ownerStock);
+  // Tümünü seç / seçimi temizle (yalnızca seçilebilir/filtreli olanlar).
+  const toggleSelectAllStock = () =>
+    setSelStock((s) => {
+      const n = new Set(s);
+      if (allStockSelected) selectableStock.forEach((p) => n.delete(p.id));
+      else selectableStock.forEach((p) => n.add(p.id));
+      return n;
+    });
 
   const createMut = useMutation({
     mutationFn: (input: CreateQuoteInput) =>
@@ -836,15 +856,36 @@ function NewQuoteForm({
           checkbox ile tek tek işleme kalemi olarak eklenir. */}
       {buyerCustomerId && ownerStockAll.length > 0 && (
         <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-            📦 Müşterinin stoktaki malzemeleri ({ownerStockAll.length})
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              📦 Müşterinin stoktaki malzemeleri ({ownerStockAll.length})
+            </p>
+            <button
+              type="button"
+              className="btn bg-emerald-600 px-2 py-1 text-xs text-white"
+              disabled={selectableStock.length === 0}
+              onClick={addAllFilteredStock}
+              title="Arama sonucundaki tüm malzemeleri tek tıkla ekle"
+            >
+              ⚡ Tümünü işleme ekle ({selectableStock.length})
+            </button>
+          </div>
           <input
             className="input"
             placeholder="Malzeme adına göre ara…"
             value={stockSearch}
             onChange={(e) => setStockSearch(e.target.value)}
           />
+          {selectableStock.length > 0 && (
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={allStockSelected}
+                onChange={toggleSelectAllStock}
+              />
+              Tümünü seç ({selectableStock.length})
+            </label>
+          )}
           <div className="max-h-60 space-y-1 overflow-y-auto">
             {ownerStock.map((p) => {
               const already = items.some((x) => x.plateId === p.id);
