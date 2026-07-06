@@ -76,23 +76,41 @@ function RecentSales() {
   // kendi malında tüm satış, konsinyede komisyon).
   const totalProfit = sales.reduce((s, x) => s + Number(x.businessMargin || 0), 0);
   const totalSales = sales.reduce((s, x) => s + Number(x.saleTotal || 0), 0);
+  // Katla/aç tercihi localStorage'da kalıcıdır → sayfa yenilense de korunur.
+  // Katlıyken yalnızca adet, ciro ve kâr özeti görünür (kartlar gizlenir).
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('st_sales_collapsed') === '1',
+  );
+  const toggle = () =>
+    setCollapsed((v) => {
+      const n = !v;
+      localStorage.setItem('st_sales_collapsed', n ? '1' : '0');
+      return n;
+    });
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-500">
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+          title={collapsed ? 'Satışları göster' : 'Satışları katla'}
+        >
+          <span className="text-xs">{collapsed ? '▸' : '▾'}</span>
           🧾 Malzeme satışları (son 30 gün)
-        </h2>
+        </button>
         {sales.length > 0 && (
           <span className="text-xs text-slate-500">
-            Ciro: <span className="font-semibold">{money.format(totalSales)}</span>{' '}
-            · Kâr:{' '}
+            {sales.length} satış · Ciro:{' '}
+            <span className="font-semibold">{money.format(totalSales)}</span> · Kâr:{' '}
             <span className="font-semibold text-emerald-700">
               {money.format(totalProfit)}
             </span>
           </span>
         )}
       </div>
-      {sales.map((s) => (
+      {!collapsed &&
+        sales.map((s) => (
         <div key={s.id} className="card space-y-1">
           <div className="flex items-center justify-between">
             <div>
@@ -128,8 +146,8 @@ function RecentSales() {
             ))}
           </ul>
         </div>
-      ))}
-      {!sales.length && (
+        ))}
+      {!collapsed && !sales.length && (
         <p className="text-slate-400">Son 30 günde malzeme satışı yok.</p>
       )}
     </div>

@@ -449,7 +449,10 @@ export class ProcessingService {
       .leftJoinAndSelect('plate.template', 'template')
       .leftJoinAndSelect('template.category', 'category')
       .leftJoinAndSelect('template.defaultSize', 'defaultSize')
-      .orderBy('j.processed_at', 'DESC');
+      // ÖNEMLİ: sayfalama (skip/take) + join ile orderBy, entity PROPERTY adıyla
+      // verilmelidir ('processedAt') — ham kolon adı ('processed_at') TypeORM'un
+      // select-birleştirmesinde "databaseName of undefined" hatası (500) veriyordu.
+      .orderBy('j.processedAt', 'DESC');
 
     if (query.customerId) {
       qb.andWhere('j.customer_id = :customerId', { customerId: query.customerId });
