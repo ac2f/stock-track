@@ -1098,11 +1098,20 @@ function NewQuoteForm({
               className="flex-1"
             >
               <input
-                className="input"
+                className={`input ${
+                  !Number(item.unitPrice)
+                    ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-900/20'
+                    : ''
+                }`}
                 type="number"
                 value={item.unitPrice}
                 onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
               />
+              {!Number(item.unitPrice) && (
+                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  ⚠ Birim fiyat 0 — bu kalem ücretsiz sayılır.
+                </p>
+              )}
             </Field>
           </div>
           {/* #2 Kalem notu — cari ekstrede satış açıklamasına eklenir. */}
@@ -1340,6 +1349,16 @@ function NewQuoteForm({
         className="btn-primary w-full"
         disabled={!canSubmit || createMut.isPending}
         onClick={() => {
+          // Birim fiyatı 0 olan kalem(ler) varsa (ücretsiz) kullanıcıdan onay al.
+          const zeroCount = items.filter((it) => !Number(it.unitPrice)).length;
+          if (
+            zeroCount > 0 &&
+            !window.confirm(
+              `${zeroCount} kalemin birim fiyatı 0 (ücretsiz). Devam etmek istediğinize emin misiniz?`,
+            )
+          ) {
+            return;
+          }
           // #1 Sahibi olan SATIŞ kalemleri konsinye kabul edilir: satış tutarı
           // (komisyon hariç) sahibe yansır, borcundan düşülür. Komisyon işletme
           // geliridir, sahibe görünmez. Tek teklif = tek sahip.

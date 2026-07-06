@@ -96,10 +96,13 @@ export function ResponsiveLayout() {
   }, [brandName]);
 
   return (
-    <div className="flex min-h-full flex-col md:flex-row">
-      {/* Masaüstü sidebar — sayfa kaydırılınca ekranda SABİT kalır (sticky):
-          kendi yüksekliği viewport kadar; uzun menüde kendi içinde kayar. */}
-      <aside className="hidden w-60 shrink-0 self-start border-r border-slate-200 bg-white p-4 md:sticky md:top-0 md:block md:h-screen md:overflow-y-auto">
+    // Uygulama kabuğu: satır viewport yüksekliğinde (h-full) SABİT; yalnızca
+    // içerik (main) kendi içinde kayar. Böylece soldaki menü ASLA kaymaz —
+    // sayfa aşağı kaydırılsa bile ekranda sabit kalır (sticky'ye göre daha
+    // güvenilir; scroll penceresi main'in kendisidir).
+    <div className="flex h-full flex-col md:flex-row">
+      {/* Masaüstü sidebar — statik; kendi içinde kayar (uzun menüde). */}
+      <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 md:block">
         <Brand name={brandName} />
         <nav className="mt-6 space-y-1">
           {visible.map((item) => (
@@ -119,8 +122,8 @@ export function ResponsiveLayout() {
         </div>
       </aside>
 
-      {/* İçerik */}
-      <div className="flex flex-1 flex-col">
+      {/* İçerik sütunu — min-h-0: flex çocuğu küçülebilsin ki main kayabilsin. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <Brand name={brandName} />
           <div className="flex items-center gap-2">
@@ -131,7 +134,8 @@ export function ResponsiveLayout() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 pb-24 md:pb-4">
+        {/* Kaydırma yalnızca burada olur → menü/başlık sabit kalır. */}
+        <main className="flex-1 overflow-y-auto p-4 pb-24 md:pb-4">
           <Outlet />
         </main>
       </div>
