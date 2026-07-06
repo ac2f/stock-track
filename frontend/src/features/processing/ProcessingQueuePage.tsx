@@ -11,7 +11,12 @@ import {
 import { openPdf } from '../../api/documents.api';
 import { fetchSales, type Sale } from '../../api/sales.api';
 import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
-import { useListGrouping, GroupToggle } from '../../context/DensityContext';
+import {
+  useListGrouping,
+  useListDensity,
+  GroupToggle,
+  DensityToggle,
+} from '../../context/DensityContext';
 import { GroupSection } from '../../components/GroupSection';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { fetchMaterialCategories } from '../../api/materials.api';
@@ -150,15 +155,36 @@ function ProcessingHistory() {
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
   const [status, setStatus] = useState<'' | ProcessingStatus>('completed');
+  // Geçmişte ürün bulmayı kolaylaştıran süzgeçler: tür (kategori), sahip
+  // (müşteri) ve serbest arama. filterKey → CustomerPicker'ı sıfırlamak için.
+  const [categoryId, setCategoryId] = useState('');
+  const [customerId, setCustomerId] = useState('');
+  const [search, setSearch] = useState('');
+  const [filterKey, setFilterKey] = useState(0);
 
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: fetchMaterialCategories,
+  });
   const { grouped, toggle: toggleGroup } = useListGrouping();
   const { data } = useQuery({
-    queryKey: ['processing-history', from, to, status],
+    queryKey: [
+      'processing-history',
+      from,
+      to,
+      status,
+      categoryId,
+      customerId,
+      search,
+    ],
     queryFn: () =>
       fetchProcessingHistory({
         from,
         to,
         status: status || undefined,
+        categoryId: categoryId || undefined,
+        customerId: customerId || undefined,
+        search: search || undefined,
         page: 1,
         limit: 100,
       }),
@@ -170,29 +196,71 @@ function ProcessingHistory() {
         <h2 className="text-sm font-semibold text-slate-500">Geçmiş işler</h2>
         <GroupToggle grouped={grouped} onToggle={toggleGroup} />
       </div>
-      <div className="card grid grid-cols-3 gap-2">
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs text-slate-500">Başlangıç</span>
-          <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs text-slate-500">Bitiş</span>
-          <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs text-slate-500">Durum</span>
+      <div className="card space-y-2">
+        <input
+          className="input"
+          placeholder="Ara (plaka adı / müşteri)…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Başlangıç</span>
+            <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Bitiş</span>
+            <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Durum</span>
+            <select
+              className="input"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as '' | ProcessingStatus)}
+            >
+              <option value="">Tümü</option>
+              <option value="completed">Tamamlandı</option>
+              <option value="cancelled">İptal</option>
+              <option value="pending">Bekliyor</option>
+              <option value="in_progress">İşleniyor</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
           <select
-            className="input"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as '' | ProcessingStatus)}
+            className="input w-auto"
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
           >
-            <option value="">Tümü</option>
-            <option value="completed">Tamamlandı</option>
-            <option value="cancelled">İptal</option>
-            <option value="pending">Bekliyor</option>
-            <option value="in_progress">İşleniyor</option>
+            <option value="">Tüm malzeme türleri</option>
+            {categories?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
           </select>
-        </label>
+          <div className="min-w-[220px] flex-1">
+            <CustomerPicker
+              key={filterKey}
+              placeholder="Sahibe göre süz (müşteri ara)…"
+              onChange={(id) => setCustomerId(id)}
+            />
+          </div>
+          {(categoryId || customerId || search) && (
+            <button
+              className="btn bg-slate-100 text-xs"
+              onClick={() => {
+                setCategoryId('');
+                setCustomerId('');
+                setSearch('');
+                setFilterKey((k) => k + 1);
+              }}
+            >
+              Filtreyi temizle
+            </button>
+          )}
+        </div>
       </div>
       {grouped ? (
         groupJobs(data?.items ?? []).map(([key, jobs]) => (
@@ -362,6 +430,7 @@ const unitLabel: Record<string, string> = {
 export function ProcessingQueuePage() {
   const qc = useQueryClient();
   const { grouped, toggle: toggleGroup } = useListGrouping();
+  const { mini: miniView, toggle: toggleMini } = useListDensity();
   // #4 Kuyruk filtreleri: malzeme türü (kategori), sahip (müşteri), arama.
   const [categoryId, setCategoryId] = useState('');
   const [filterCustomerId, setFilterCustomerId] = useState('');
@@ -427,9 +496,20 @@ export function ProcessingQueuePage() {
       key={job.id}
       job={job}
       pending={mut.isPending}
+      mini={miniView}
       onAction={(status, opts) => mut.mutate({ id: job.id, status, opts })}
     />
   );
+  // Mini modda işler sıkışık, çizgiyle ayrılmış bir liste olarak; detaylı modda
+  // (varsayılan) her iş ayrı kart olarak gösterilir.
+  const renderJobs = (jobs: ProcessingJob[]) =>
+    miniView ? (
+      <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+        {jobs.map(renderCard)}
+      </div>
+    ) : (
+      <>{jobs.map(renderCard)}</>
+    );
 
   return (
     <div className="space-y-5">
@@ -453,6 +533,7 @@ export function ProcessingQueuePage() {
               {bulkComplete.isPending ? 'Tamamlanıyor…' : '✓ Tümünü Tamamla'}
             </button>
           )}
+          <DensityToggle mini={miniView} onToggle={toggleMini} />
           <GroupToggle grouped={grouped} onToggle={toggleGroup} />
         </div>
       </div>
@@ -514,7 +595,7 @@ export function ProcessingQueuePage() {
       {grouped
         ? groupJobs(allJobs).map(([key, jobs]) => (
             <GroupSection key={key} title={key} count={jobs.length} countLabel="iş">
-              {jobs.map(renderCard)}
+              {renderJobs(jobs)}
             </GroupSection>
           ))
         : groups.map((group) => (
@@ -524,7 +605,7 @@ export function ProcessingQueuePage() {
               count={group.jobs.length}
               countLabel="iş"
             >
-              {group.jobs.map(renderCard)}
+              {renderJobs(group.jobs)}
             </GroupSection>
           ))}
 
@@ -543,10 +624,12 @@ export function ProcessingQueuePage() {
 function QueueJobCard({
   job,
   pending,
+  mini = false,
   onAction,
 }: {
   job: ProcessingJob;
   pending: boolean;
+  mini?: boolean;
   onAction: (status: ProcessingStatus, opts?: CompleteOptions) => void;
 }) {
   const [finalPrice, setFinalPrice] = useState('');
@@ -554,8 +637,65 @@ function QueueJobCard({
   // aynı türden kesik plaka olarak stoğa eklenir (sahiplik korunur).
   const [offW, setOffW] = useState('');
   const [offH, setOffH] = useState('');
+  // #2 "Tamamla" öncesi işlenme/tamamlanma tarihleri (ops.; boş = korunur/şimdi).
+  const [processedAt, setProcessedAt] = useState('');
+  const [completedAt, setCompletedAt] = useState('');
   const isAreaPlate = !job.plate?.measurementType || job.plate.measurementType === 'area';
   const remaining = job.plate && plateRemainingLabel(job.plate);
+
+  // Tamamlama: girilen nihai fiyat, fire ebadı ve (ops.) tarihlerle birlikte.
+  const complete = () =>
+    onAction('completed', {
+      finalAmount: finalPrice !== '' ? Number(finalPrice) : undefined,
+      offcutWidthMm: offW !== '' ? Number(offW) : undefined,
+      offcutHeightMm: offH !== '' ? Number(offH) : undefined,
+      processedAt: processedAt || undefined,
+      completedAt: completedAt || undefined,
+    });
+
+  // Mini mod: tek satır — ad/müşteri + tutar + aksiyonlar (ops. alanlar gizli).
+  if (mini) {
+    return (
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{job.plate?.name ?? '—'}</p>
+          <p className="truncate text-xs text-slate-500">
+            {job.customer?.name ?? 'Müşterisiz'} · {job.quantityValue}{' '}
+            {unitLabel[job.billingUnit] ?? ''}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="mr-1 text-sm font-semibold">
+            {money.format(job.totalCost)}
+          </span>
+          {job.status === 'pending' && (
+            <button
+              className="btn bg-blue-600 px-2 py-1 text-xs text-white"
+              disabled={pending}
+              onClick={() => onAction('in_progress')}
+            >
+              Başlat
+            </button>
+          )}
+          <button
+            className="btn bg-emerald-600 px-2 py-1 text-xs text-white"
+            disabled={pending}
+            onClick={complete}
+          >
+            Tamamla
+          </button>
+          <button
+            className="btn bg-slate-100 px-2 py-1 text-xs"
+            disabled={pending}
+            onClick={() => onAction('cancelled')}
+          >
+            İptal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card space-y-2">
       <div className="flex items-center justify-between">
@@ -634,6 +774,31 @@ function QueueJobCard({
         </div>
       )}
 
+      {/* #2 Tamamla öncesi tarihler (ops.) — boş bırakılırsa işlenme tarihi
+          korunur, tamamlanma "şimdi" olur. */}
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block text-xs">
+          <span className="mb-1 block text-slate-500">İşlenme tarihi (ops.)</span>
+          <input
+            className="input"
+            type="date"
+            value={processedAt}
+            onChange={(e) => setProcessedAt(e.target.value)}
+          />
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-slate-500">
+            Tamamlanma tarihi (ops.)
+          </span>
+          <input
+            className="input"
+            type="date"
+            value={completedAt}
+            onChange={(e) => setCompletedAt(e.target.value)}
+          />
+        </label>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         {job.status === 'pending' && (
           <button
@@ -647,13 +812,7 @@ function QueueJobCard({
         <button
           className="btn bg-emerald-600 text-white"
           disabled={pending}
-          onClick={() =>
-            onAction('completed', {
-              finalAmount: finalPrice !== '' ? Number(finalPrice) : undefined,
-              offcutWidthMm: offW !== '' ? Number(offW) : undefined,
-              offcutHeightMm: offH !== '' ? Number(offH) : undefined,
-            })
-          }
+          onClick={complete}
         >
           Tamamla
         </button>

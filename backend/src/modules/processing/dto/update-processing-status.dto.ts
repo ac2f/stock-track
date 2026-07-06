@@ -1,9 +1,29 @@
-import { IsEnum, IsNumber, IsOptional, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  Min,
+} from 'class-validator';
 import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
 
 export class UpdateProcessingStatusDto {
   @IsEnum(ProcessingStatus)
   status: ProcessingStatus;
+
+  /**
+   * İş tamamlanırken (opsiyonel) işlenme ve tamamlanma tarihleri. "Tamamla"
+   * demeden önce kullanıcı bu tarihleri değiştirebilir; verilmezse işlenme
+   * tarihi korunur, tamamlanma tarihi "şimdi" damgalanır. Yalnızca COMPLETED'da
+   * anlamlıdır ve faturalanmış işte ekstre tarihine de yansır.
+   */
+  @IsOptional()
+  @IsDateString()
+  processedAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  completedAt?: string;
 
   /**
    * İş bitiminde pazarlıkla belirlenen NİHAİ tutar (işlem para biriminde).

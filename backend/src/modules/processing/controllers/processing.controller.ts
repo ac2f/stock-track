@@ -63,6 +63,8 @@ export class ProcessingController {
       finalAmount: dto.finalAmount,
       offcutWidthMm: dto.offcutWidthMm,
       offcutHeightMm: dto.offcutHeightMm,
+      processedAt: dto.processedAt,
+      completedAt: dto.completedAt,
     });
   }
 

@@ -97,8 +97,9 @@ export function ResponsiveLayout() {
 
   return (
     <div className="flex min-h-full flex-col md:flex-row">
-      {/* Masaüstü sidebar */}
-      <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white p-4 md:block">
+      {/* Masaüstü sidebar — sayfa kaydırılınca ekranda SABİT kalır (sticky):
+          kendi yüksekliği viewport kadar; uzun menüde kendi içinde kayar. */}
+      <aside className="hidden w-60 shrink-0 self-start border-r border-slate-200 bg-white p-4 md:sticky md:top-0 md:block md:h-screen md:overflow-y-auto">
         <Brand name={brandName} />
         <nav className="mt-6 space-y-1">
           {visible.map((item) => (

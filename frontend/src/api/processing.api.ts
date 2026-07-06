@@ -31,6 +31,11 @@ export interface ProcessingHistoryFilters {
   status?: ProcessingStatus;
   from?: string;
   to?: string;
+  // Geçmişte ürün bulmayı kolaylaştıran süzgeçler: sahip (müşteri), malzeme
+  // türü (kategori) ve serbest metin (plaka adı / müşteri adı).
+  customerId?: string;
+  categoryId?: string;
+  search?: string;
   page?: number;
   limit?: number;
 }
@@ -51,6 +56,9 @@ export interface CompleteOptions {
    * kesik plaka olarak stoğa eklenir (sahiplik korunur). */
   offcutWidthMm?: number;
   offcutHeightMm?: number;
+  /** "Tamamla" öncesi kullanıcının seçtiği işlenme/tamamlanma tarihleri (ops.). */
+  processedAt?: string;
+  completedAt?: string;
 }
 
 export async function setProcessingStatus(
@@ -65,6 +73,8 @@ export async function setProcessingStatus(
     ...(opts.offcutHeightMm != null
       ? { offcutHeightMm: opts.offcutHeightMm }
       : {}),
+    ...(opts.processedAt ? { processedAt: opts.processedAt } : {}),
+    ...(opts.completedAt ? { completedAt: opts.completedAt } : {}),
   });
   return data;
 }

@@ -6,14 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Between,
-  DataSource,
-  EntityManager,
-  FindOptionsWhere,
-  In,
-  Repository,
-} from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { BusinessConfig } from '../../../config/configuration';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
@@ -229,6 +222,9 @@ export class ProcessingService {
       finalAmount?: number;
       offcutWidthMm?: number;
       offcutHeightMm?: number;
+      // "Tamamla" öncesi kullanıcının seçtiği işlenme/tamamlanma tarihleri (ops.).
+      processedAt?: string;
+      completedAt?: string;
     } = {},
   ): Promise<ProcessingJob> {
     // Fire/kalan parça bağlamı — transaction İÇİNDE (tüketimden önce) yakalanır,
@@ -254,6 +250,16 @@ export class ProcessingService {
       }
 
       if (status === ProcessingStatus.COMPLETED) {
+        // "Tamamla" öncesi tarih düzenlemesi: verilmişse işlenme tarihini güncelle
+        // ve tamamlanma tarihini kullanıcının seçimiyle damgala (yoksa "şimdi").
+        // Bu tarih hem işe hem (faturalanmışsa) cari ekstre hareketine uygulanır.
+        if (opts.processedAt) {
+          job.processedAt = new Date(opts.processedAt);
+        }
+        const completionDate = opts.completedAt
+          ? new Date(opts.completedAt)
+          : job.completedAt ?? new Date();
+
         // Plaka (malzeme türü + ad) ekstre açıklaması için yüklenir.
         const plate = await manager.findOne(MaterialPlate, {
           where: { id: job.plateId },
@@ -354,13 +360,12 @@ export class ProcessingService {
               job.billingUnit,
               job.note,
             ),
-            occurredAt: new Date(),
+            occurredAt: completionDate,
           });
           job.isBilled = true;
         }
-        if (!job.completedAt) {
-          job.completedAt = new Date();
-        }
+        // Tamamlanma tarihini damgala (kullanıcı seçtiyse o tarih, yoksa "şimdi").
+        job.completedAt = completionDate;
       } else if (status === ProcessingStatus.CANCELLED) {
         if (job.stockConsumed && job.warehouseId) {
           const cw = Number(job.consumedWidthMm) || 0;
@@ -432,38 +437,60 @@ export class ProcessingService {
   async findAll(
     query: QueryProcessingJobDto,
   ): Promise<PaginatedResult<ProcessingJob>> {
-    const where: FindOptionsWhere<ProcessingJob> = {};
+    // Geçmiş işler QueryBuilder ile sorgulanır: sahibe (müşteri), malzeme
+    // TÜRÜNE (kategori) ve serbest metne göre süzme + tarih aralığı desteklenir.
+    // (Eager ilişkiler QB'de otomatik yüklenmediğinden açıkça join edilir; tükenip
+    // soft-delete olmuş plakanın adı/kategorisi geçmişte de görünsün diye withDeleted.)
+    const qb = this.jobsRepo
+      .createQueryBuilder('j')
+      .withDeleted()
+      .leftJoinAndSelect('j.customer', 'customer')
+      .leftJoinAndSelect('j.plate', 'plate')
+      .leftJoinAndSelect('plate.template', 'template')
+      .leftJoinAndSelect('template.category', 'category')
+      .leftJoinAndSelect('template.defaultSize', 'defaultSize')
+      .orderBy('j.processed_at', 'DESC');
+
     if (query.customerId) {
-      where.customerId = query.customerId;
+      qb.andWhere('j.customer_id = :customerId', { customerId: query.customerId });
     }
     if (query.plateId) {
-      where.plateId = query.plateId;
+      qb.andWhere('j.plate_id = :plateId', { plateId: query.plateId });
     }
     if (query.machineId) {
-      where.machineId = query.machineId;
+      qb.andWhere('j.machine_id = :machineId', { machineId: query.machineId });
     }
     if (query.status) {
-      where.status = query.status;
+      qb.andWhere('j.status = :status', { status: query.status });
     }
-    if (query.from && query.to) {
-      // `to` gün sonunu kapsasın — aksi halde bugün tamamlanan işler (saat > 00:00)
-      // aralık dışında kalıp geçmiş listesinde görünmüyordu.
-      const toEnd = new Date(query.to);
-      toEnd.setHours(23, 59, 59, 999);
-      where.processedAt = Between(new Date(query.from), toEnd);
+    if (query.categoryId) {
+      qb.andWhere('template.category_id = :categoryId', {
+        categoryId: query.categoryId,
+      });
+    }
+    if (query.search) {
+      qb.andWhere('(plate.name ILIKE :s OR customer.name ILIKE :s)', {
+        s: `%${query.search}%`,
+      });
+    }
+    // Tarih aralığı: sınırlar YEREL gün başlangıcı/bitişine göre uygulanır (yalnız
+    // biri verilse de çalışır). Aksi halde "2026-07-06" UTC gece yarısı sayılıp
+    // sınıra yakın işler listeden düşebiliyordu ("tarih filtresi çalışmıyor").
+    if (query.from) {
+      qb.andWhere('j.processed_at >= :from', {
+        from: new Date(`${query.from.slice(0, 10)}T00:00:00`),
+      });
+    }
+    if (query.to) {
+      qb.andWhere('j.processed_at <= :to', {
+        to: new Date(`${query.to.slice(0, 10)}T23:59:59.999`),
+      });
     }
 
-    const [items, total] = await this.jobsRepo.findAndCount({
-      where,
-      order: { processedAt: 'DESC' },
-      skip: query.skip,
-      take: query.limit,
-      // Müşteri ilişkisi eager değil → geçmiş listesinde adın "Müşterisiz"
-      // görünmemesi için açıkça yüklenir.
-      relations: { customer: true },
-      // Tükenip soft-delete olmuş plakanın adı geçmişte de görünsün.
-      withDeleted: true,
-    });
+    const [items, total] = await qb
+      .skip(query.skip)
+      .take(query.limit)
+      .getManyAndCount();
     return buildPaginatedResult(items, total, query.page, query.limit);
   }
 

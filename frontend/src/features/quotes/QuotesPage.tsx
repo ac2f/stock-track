@@ -24,7 +24,13 @@ import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
-import type { Plate, Quote, QuoteItemInput, QuoteStatus } from '../../types';
+import type {
+  MeasurementType,
+  Plate,
+  Quote,
+  QuoteItemInput,
+  QuoteStatus,
+} from '../../types';
 
 /**
  * Form içi kalem: backend QuoteItemInput + UI-içi sahip (konsinye) seçimi.
@@ -623,40 +629,46 @@ function NewQuoteForm({
     (queueGroups ?? []).flatMap((g) => g.jobs).map((j) => j.plateId),
   );
 
-  // #2b Alıcının SON EKLENEN (bugün/dün) TAM OLMAYAN (kesik) tabakaları —
-  // checkbox ile tek tek seçilip işleme kalemi olarak eklenir.
+  // Alıcının (müşterinin) stoktaki TÜM malzemeleri — tarih sınırı YOK. Ada göre
+  // aranıp checkbox ile tek tek işleme kalemi olarak eklenir (bugün/dün dışındaki
+  // malzemeler de kolayca eklensin diye). ownerCustomerId filtresi zaten yalnızca
+  // o sahibin stoğu > 0 olan (konsinye) malzemelerini döner.
   const { data: buyerPlatesData } = useQuery({
-    queryKey: ['plates', 'buyer-recent', buyerCustomerId],
+    queryKey: ['plates', 'buyer-stock', buyerCustomerId],
     enabled: !!buyerCustomerId,
     queryFn: () =>
-      fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 100 }),
+      fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 200 }),
   });
-  const [selPartials, setSelPartials] = useState<Set<string>>(new Set());
-  const recentDates = (() => {
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    return new Set([iso(new Date()), iso(new Date(Date.now() - 864e5))]);
-  })();
-  const recentPartials = (buyerPlatesData?.items ?? []).filter(
-    (p) => recentDates.has(p.addedAt ?? '') && isPartialSheet(p),
-  );
-  const addSelectedPartials = () => {
-    const chosen = recentPartials.filter(
-      (p) => selPartials.has(p.id) && !items.some((x) => x.plateId === p.id),
+  const [selStock, setSelStock] = useState<Set<string>>(new Set());
+  const [stockSearch, setStockSearch] = useState('');
+  const ownerStockAll = buyerPlatesData?.items ?? [];
+  const ownerStock = ownerStockAll.filter((p) => {
+    const q = stockSearch.trim().toLocaleLowerCase('tr');
+    return !q || p.name.toLocaleLowerCase('tr').includes(q);
+  });
+  const addSelectedStock = () => {
+    const chosen = ownerStockAll.filter(
+      (p) => selStock.has(p.id) && !items.some((x) => x.plateId === p.id),
     );
     chosen.forEach(cachePlate);
     setItems((it) => [
       ...it,
-      ...chosen.map((p) => ({
-        lineKind: 'processing' as const,
-        plateId: p.id,
-        quantity: 1,
-        unitPrice: 0,
-        billingUnit: 'area' as const,
-        widthMm: Number(p.widthMm),
-        heightMm: Number(p.heightMm),
-      })),
+      ...chosen.map((p) => {
+        // Tabaka (AREA) → ebattan; şerit/rulo vb. → kendi ölçü birimiyle eklenir.
+        const area = !p.measurementType || p.measurementType === 'area';
+        return {
+          lineKind: 'processing' as const,
+          plateId: p.id,
+          quantity: 1,
+          unitPrice: 0,
+          billingUnit: (p.measurementType ?? 'area') as MeasurementType,
+          ...(area
+            ? { widthMm: Number(p.widthMm), heightMm: Number(p.heightMm) }
+            : {}),
+        };
+      }),
     ]);
-    setSelPartials(new Set());
+    setSelStock(new Set());
   };
 
   const createMut = useMutation({
@@ -820,46 +832,71 @@ function NewQuoteForm({
         </div>
       )}
 
-      {/* #2b Son eklenen KESİK (tam olmayan) tabakalar — checkbox ile ekle. */}
-      {buyerCustomerId && recentPartials.length > 0 && (
-        <div className="space-y-1 rounded-xl border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-900/20">
-          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-            ✂ Müşterinin son eklenen tam olmayan (kesik) tabakaları
+      {/* Müşterinin stoktaki TÜM malzemeleri (tarih fark etmez) — ada göre aranıp
+          checkbox ile tek tek işleme kalemi olarak eklenir. */}
+      {buyerCustomerId && ownerStockAll.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
+          <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            📦 Müşterinin stoktaki malzemeleri ({ownerStockAll.length})
           </p>
-          {recentPartials.map((p) => {
-            const already = items.some((x) => x.plateId === p.id);
-            return (
-              <label
-                key={p.id}
-                className={`flex items-center gap-2 text-sm ${already ? 'opacity-50' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  disabled={already}
-                  checked={already || selPartials.has(p.id)}
-                  onChange={(e) =>
-                    setSelPartials((s) => {
-                      const n = new Set(s);
-                      if (e.target.checked) n.add(p.id);
-                      else n.delete(p.id);
-                      return n;
-                    })
-                  }
-                />
-                <span>{p.name}</span>
-                <span className="font-semibold text-amber-700 dark:text-amber-400">
-                  {plateRemainingLabel(p)}
-                </span>
-                {already && <span className="text-xs text-slate-400">(eklendi)</span>}
-              </label>
-            );
-          })}
+          <input
+            className="input"
+            placeholder="Malzeme adına göre ara…"
+            value={stockSearch}
+            onChange={(e) => setStockSearch(e.target.value)}
+          />
+          <div className="max-h-60 space-y-1 overflow-y-auto">
+            {ownerStock.map((p) => {
+              const already = items.some((x) => x.plateId === p.id);
+              const partial = isPartialSheet(p);
+              const rem = plateRemainingLabel(p);
+              return (
+                <label
+                  key={p.id}
+                  className={`flex items-center gap-2 text-sm ${already ? 'opacity-50' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={already}
+                    checked={already || selStock.has(p.id)}
+                    onChange={(e) =>
+                      setSelStock((s) => {
+                        const n = new Set(s);
+                        if (e.target.checked) n.add(p.id);
+                        else n.delete(p.id);
+                        return n;
+                      })
+                    }
+                  />
+                  <span className="flex-1 truncate">{p.name}</span>
+                  {rem && (
+                    <span
+                      className={
+                        partial
+                          ? 'shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400'
+                          : 'shrink-0 text-xs text-slate-400'
+                      }
+                    >
+                      {partial ? '✂ ' : ''}
+                      {rem}
+                    </span>
+                  )}
+                  {already && (
+                    <span className="shrink-0 text-xs text-slate-400">(eklendi)</span>
+                  )}
+                </label>
+              );
+            })}
+            {!ownerStock.length && (
+              <p className="text-xs text-slate-400">Eşleşen malzeme yok.</p>
+            )}
+          </div>
           <button
-            className="btn bg-amber-600 text-white"
-            disabled={selPartials.size === 0}
-            onClick={addSelectedPartials}
+            className="btn bg-slate-700 text-white"
+            disabled={selStock.size === 0}
+            onClick={addSelectedStock}
           >
-            Seçilenleri işleme kalemi ekle ({selPartials.size})
+            Seçilenleri işleme kalemi ekle ({selStock.size})
           </button>
         </div>
       )}
