@@ -5,7 +5,24 @@ import { useAuth } from '../context/AuthContext';
 import { useDensity } from '../context/DensityContext';
 import { fetchBusinessSettings } from '../api/settings.api';
 import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
+import { getBrand, setBrand } from '../lib/brand';
+import { LockProvider, useLock } from '../context/LockContext';
 import type { UserRole } from '../types';
+
+/** Arayüzü elle kilitleme düğmesi (yalnızca kilit ayarı etkin ve PIN tanımlıysa). */
+function LockButton({ className = '' }: { className?: string }) {
+  const { lock, ready } = useLock();
+  if (!ready) return null;
+  return (
+    <button
+      onClick={lock}
+      title="Arayüzü kilitle"
+      className={`btn bg-slate-100 ${className}`}
+    >
+      🔒 Kilitle
+    </button>
+  );
+}
 
 /** Genel mini/detaylı mod düğmesi (seçim localStorage'da tutulur, tüm listeler uyar). */
 function DensityModeToggle({ className = '' }: { className?: string }) {
@@ -90,16 +107,20 @@ export function ResponsiveLayout() {
     queryFn: fetchBusinessSettings,
     staleTime: 5 * 60_000,
   });
-  const brandName = business?.name || 'StockTrack';
+  // Yüklenene kadar son bilinen işletme adını (yerel önbellek) göster; yüklenince
+  // hem başlığı güncelle hem de önbelleğe yaz (giriş/portal ekranları da kullanır).
+  const brandName = business?.name || getBrand();
   useEffect(() => {
-    document.title = `${brandName} ERP`;
-  }, [brandName]);
+    if (business?.name) setBrand(business.name);
+    document.title = brandName;
+  }, [business?.name, brandName]);
 
   return (
-    // Uygulama kabuğu: satır viewport yüksekliğinde (h-full) SABİT; yalnızca
-    // içerik (main) kendi içinde kayar. Böylece soldaki menü ASLA kaymaz —
-    // sayfa aşağı kaydırılsa bile ekranda sabit kalır (sticky'ye göre daha
-    // güvenilir; scroll penceresi main'in kendisidir).
+   <LockProvider>
+    {/* Uygulama kabuğu: satır viewport yüksekliğinde (h-full) SABİT; yalnızca
+        içerik (main) kendi içinde kayar. Böylece soldaki menü ASLA kaymaz —
+        sayfa aşağı kaydırılsa bile ekranda sabit kalır (sticky'ye göre daha
+        güvenilir; scroll penceresi main'in kendisidir). */}
     <div className="flex h-full flex-col md:flex-row">
       {/* Masaüstü sidebar — statik; kendi içinde kayar (uzun menüde). */}
       <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 md:block">
@@ -113,6 +134,7 @@ export function ResponsiveLayout() {
           <ThemeToggle className="w-full" />
           <DensityModeToggle className="w-full" />
           <GroupModeToggle className="w-full" />
+          <LockButton className="w-full" />
           <button
             onClick={logout}
             className="btn w-full text-slate-500 hover:text-slate-900"
@@ -130,6 +152,7 @@ export function ResponsiveLayout() {
             <ThemeToggle className="px-2 text-xs" />
             <DensityModeToggle className="px-2 text-xs" />
             <GroupModeToggle className="px-2 text-xs" />
+            <LockButton className="px-2 text-xs" />
             <span className="text-xs text-slate-500">{user?.fullName}</span>
           </div>
         </header>
@@ -147,6 +170,7 @@ export function ResponsiveLayout() {
         ))}
       </nav>
     </div>
+   </LockProvider>
   );
 }
 

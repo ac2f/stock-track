@@ -7,6 +7,7 @@ import { Sale } from '../sales/entities/sale.entity';
 import { ProcessingJob } from '../processing/entities/processing-job.entity';
 import { CustomersService } from '../customers/services/customers.service';
 import { CustomerAccountService } from '../customers/services/customer-account.service';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * Müşteri self-servis portalı — salt-okunur, token doğrulamalı.
@@ -23,6 +24,7 @@ export class PortalService {
     private readonly jobsRepo: Repository<ProcessingJob>,
     private readonly customersService: CustomersService,
     private readonly accountService: CustomerAccountService,
+    private readonly settingsService: SettingsService,
     configService: ConfigService,
   ) {
     this.baseCurrency =
@@ -33,7 +35,10 @@ export class PortalService {
 
   async summary(token: string) {
     const customer = await this.resolve(token);
+    // Portal başlığında "StockTrack" yerine ayarlardaki işletme adı görünsün.
+    const business = await this.settingsService.getBusiness();
     return {
+      businessName: business.name,
       name: customer.name,
       companyName: customer.companyName ?? null,
       currentBalance: Number(customer.currentBalance),

@@ -11,6 +11,7 @@ import {
   restoreBackup,
 } from '../../api/backups.api';
 import { fetchNotifications } from '../../api/notifications.api';
+import { useLock } from '../../context/LockContext';
 
 /** Etiketli form alanı. */
 function Field({
@@ -143,8 +144,110 @@ export function SettingsPage() {
         </button>
       </div>
 
+      <ScreenLockSettings />
       <BackupSection />
       <NotificationsHistory />
+    </div>
+  );
+}
+
+/**
+ * Ekran kilidi ayarları: hareketsizlik süresi + sayısal PIN + etkinleştirme.
+ * Kilit cihaz bazında (localStorage) tutulur; PIN hash'lenerek saklanır.
+ */
+function ScreenLockSettings() {
+  const { config, updateConfig, lock, ready } = useLock();
+  const [enabled, setEnabled] = useState(config.enabled);
+  const [minutes, setMinutes] = useState(String(config.minutes));
+  const [pin, setPin] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = () => {
+    setSaved(false);
+    setErr(null);
+    const mins = Math.max(1, Number(minutes) || 0);
+    // PIN yalnızca değiştirilmek istenirse gönderilir. Etkinleştiriliyor ama hiç
+    // PIN tanımlı değilse yeni PIN zorunludur.
+    const digits = pin.replace(/\D/g, '');
+    if (enabled && !config.pinHash && digits.length < 4) {
+      setErr('Kilidi etkinleştirmek için en az 4 haneli sayısal bir PIN girin.');
+      return;
+    }
+    if (digits && digits.length < 4) {
+      setErr('PIN en az 4 haneli olmalıdır.');
+      return;
+    }
+    updateConfig({
+      enabled,
+      minutes: mins,
+      ...(digits ? { pin: digits } : {}),
+    });
+    setPin('');
+    setSaved(true);
+  };
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">🔒 Ekran kilidi</h2>
+      <p className="text-sm text-slate-500">
+        Belirlenen süre boyunca işlem yapılmazsa arayüz otomatik kilitlenir ve
+        yalnızca PIN ile açılır. PIN {config.pinLen ? `(${config.pinLen} haneli) ` : ''}
+        bu cihazda saklanır (kolaylık amaçlı; gerçek güvenlik katmanı değildir).
+        PIN uzunluğu kadar rakam girildiğinde Enter'a gerek kalmadan doğrulanır.
+      </p>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
+        />
+        Ekran kilidini etkinleştir
+      </label>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            Kilitlenme süresi (dakika)
+          </span>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            value={minutes}
+            onChange={(e) => setMinutes(e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            {config.pinHash ? 'Yeni PIN (değiştirmek için)' : 'PIN (sayısal)'}
+          </span>
+          <input
+            className="input"
+            type="password"
+            inputMode="numeric"
+            autoComplete="new-password"
+            placeholder={config.pinHash ? '•••• (tanımlı)' : 'Örn. 1234'}
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+          />
+        </label>
+      </div>
+
+      {err && <p className="text-sm text-red-600">{err}</p>}
+      {saved && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
+
+      <div className="flex flex-wrap gap-2">
+        <button className="btn-primary" onClick={save}>
+          Kaydet
+        </button>
+        {ready && (
+          <button className="btn bg-slate-100" onClick={lock}>
+            🔒 Şimdi kilitle
+          </button>
+        )}
+      </div>
     </div>
   );
 }

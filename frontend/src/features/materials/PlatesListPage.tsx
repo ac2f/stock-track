@@ -119,6 +119,137 @@ function errMessage(error: unknown, fallback: string): string {
   );
 }
 
+/**
+ * Açılır kategori/renk ürün-türü tarayıcısı. Ürün türleri KATEGORİ ve RENK ile
+ * ayrılır; kategori m² (tabaka) ise türler kendi içinde KALINLIK küçükten büyüğe
+ * sıralanır. Her kategori açılır/kapanır → uzun katalogda hızlı seçim.
+ */
+function TemplateBrowser({
+  templates,
+  selectedId,
+  onPick,
+}: {
+  templates: MaterialTemplate[];
+  selectedId?: string;
+  onPick: (id: string) => void;
+}) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (k: string) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+
+  // Kategoriye göre grupla.
+  const byCat = new Map<string, MaterialTemplate[]>();
+  for (const t of templates) {
+    const k = t.category?.name ?? 'Diğer';
+    const arr = byCat.get(k);
+    if (arr) arr.push(t);
+    else byCat.set(k, [t]);
+  }
+  const cats = [...byCat.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0], 'tr'),
+  );
+
+  const colorLabel = (t: MaterialTemplate): string =>
+    t.defaultColor
+      ? t.defaultColor.code
+        ? `${t.defaultColor.name} (${t.defaultColor.code})`
+        : t.defaultColor.name
+      : 'Renksiz';
+
+  if (!templates.length) {
+    return (
+      <p className="text-xs text-slate-400">
+        Önce katalogdan ürün türü tanımlayın.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {cats.map(([cat, list]) => {
+        const isArea = list.some(
+          (t) =>
+            (t.measurementType ?? t.category?.defaultMeasurementType) === 'area',
+        );
+        // Renge göre alt-grupla.
+        const byColor = new Map<string, MaterialTemplate[]>();
+        for (const t of list) {
+          const c = colorLabel(t);
+          const arr = byColor.get(c);
+          if (arr) arr.push(t);
+          else byColor.set(c, [t]);
+        }
+        const colors = [...byColor.entries()].sort((a, b) =>
+          a[0].localeCompare(b[0], 'tr'),
+        );
+        const byThicknessAsc = (a: MaterialTemplate, b: MaterialTemplate) =>
+          (a.defaultThickness?.valueMm ?? Number.POSITIVE_INFINITY) -
+          (b.defaultThickness?.valueMm ?? Number.POSITIVE_INFINITY);
+        const isOpen = open.has(cat);
+        return (
+          <div
+            key={cat}
+            className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"
+          >
+            <button
+              type="button"
+              onClick={() => toggle(cat)}
+              className="flex w-full items-center justify-between px-3 py-2 text-left"
+            >
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${groupChipClass(cat)}`}
+              >
+                {cat}
+              </span>
+              <span className="text-xs text-slate-400">
+                {list.length} · {isOpen ? '▾' : '▸'}
+              </span>
+            </button>
+            {isOpen && (
+              <div className="space-y-2 px-3 pb-2">
+                {colors.map(([color, ctpls]) => (
+                  <div key={color}>
+                    <p className="mb-1 text-xs font-medium text-slate-500">
+                      🎨 {color}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {(isArea ? [...ctpls].sort(byThicknessAsc) : ctpls).map(
+                        (t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => onPick(t.id)}
+                            title={t.name}
+                            className={`rounded-lg border px-2 py-1 text-xs ${
+                              selectedId === t.id
+                                ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900'
+                                : 'border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            {t.defaultThickness
+                              ? `${t.defaultThickness.valueMm}mm · `
+                              : ''}
+                            {t.name}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function NewPlateForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreatePlateInput>(() => ({
@@ -222,6 +353,16 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             group: t.category?.name ?? 'Diğer',
           }))}
           onChange={(id) => applyTemplateDefaults(id)}
+        />
+      </Field>
+
+      {/* Açılır kategori/renk tarayıcısı — kategori + renk ile ayrılmış, m²
+          türlerde kalınlık küçükten büyüğe sıralı; her kategori açılır/kapanır. */}
+      <Field label="Ya da kategoriye göz atarak seç (açılır · kalınlığa göre sıralı)">
+        <TemplateBrowser
+          templates={templates ?? []}
+          selectedId={form.templateId}
+          onPick={(id) => applyTemplateDefaults(id)}
         />
       </Field>
 

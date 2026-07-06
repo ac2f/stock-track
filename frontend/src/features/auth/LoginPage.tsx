@@ -1,6 +1,7 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getBrand } from '../../lib/brand';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -9,6 +10,10 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Giriş ekranında sekme başlığı da son bilinen işletme adını göstersin.
+  useEffect(() => {
+    document.title = getBrand();
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -37,7 +42,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-full items-center justify-center p-4">
       <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4">
-        <h1 className="text-xl font-bold">StockTrack ERP</h1>
+        <h1 className="text-xl font-bold">{getBrand()}</h1>
         <p className="text-sm text-slate-500">Devam etmek için giriş yapın.</p>
 
         <input

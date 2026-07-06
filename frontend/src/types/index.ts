@@ -365,6 +365,7 @@ export interface ProcessingQueueGroup {
 
 // ── Müşteri Portalı (public) ──
 export interface PortalSummary {
+  businessName?: string | null;
   name: string;
   companyName?: string | null;
   currentBalance: number;

@@ -70,7 +70,7 @@ export function PortalPage() {
   });
 
   return (
-    <Shell>
+    <Shell brand={s.businessName}>
       <div className="card">
         <p className="text-sm text-slate-500">{s.companyName ?? s.name}</p>
         <p className="mt-1 text-xs text-slate-400">Güncel bakiye</p>
@@ -156,12 +156,18 @@ export function PortalPage() {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children,
+  brand,
+}: {
+  children: React.ReactNode;
+  brand?: string | null;
+}) {
   return (
     <div className="min-h-full bg-slate-50 p-4">
       <div className="mx-auto max-w-lg space-y-4">
         <div className="py-2 text-center text-lg font-bold tracking-tight text-slate-900">
-          Stock<span className="text-slate-400">Track</span>
+          {brand?.trim() || 'Hesap Portalı'}
         </div>
         {children}
       </div>
