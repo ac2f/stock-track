@@ -10,6 +10,9 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Yedekleme/geri yükleme pg_dump ve psql ister. Sürüm, docker-compose'daki
+# PostgreSQL 16 sunucusuyla eşleşmeli (pg_dump sunucudan eskiyse reddeder).
+RUN apk add --no-cache postgresql16-client
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist

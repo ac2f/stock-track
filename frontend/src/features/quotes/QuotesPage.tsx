@@ -21,6 +21,7 @@ import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
+import { groupChipClass } from '../../components/GroupSection';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
 import type {
@@ -621,15 +622,19 @@ function NewQuoteForm({
     (queueGroups ?? []).flatMap((g) => g.jobs).map((j) => j.plateId),
   );
 
-  // Alıcının (müşterinin) stoktaki TÜM malzemeleri — tarih sınırı YOK. Ada göre
-  // aranıp checkbox ile tek tek işleme kalemi olarak eklenir (bugün/dün dışındaki
-  // malzemeler de kolayca eklensin diye). ownerCustomerId filtresi zaten yalnızca
-  // o sahibin stoğu > 0 olan (konsinye) malzemelerini döner.
+  // Teklife toplu işleme eklemek için stok kaynağı:
+  //  - 'owner'    → yalnızca ALICI müşteriye ait (konsinye) stok (varsayılan),
+  //  - 'business' → işletmenin kendi stoğu (müşterinin konsinyesi yoksa da seçilebilsin).
+  // Not: bir malzemenin "müşteri adına" görünmesi için stoğa MÜŞTERİYE AİT olarak
+  // girilmiş olması gerekir (Stok ekleme → Sahiplik: Müşteriye ait).
+  const [stockSource, setStockSource] = useState<'owner' | 'business'>('owner');
   const { data: buyerPlatesData } = useQuery({
-    queryKey: ['plates', 'buyer-stock', buyerCustomerId],
+    queryKey: ['plates', 'quote-stock', stockSource, buyerCustomerId],
     enabled: !!buyerCustomerId,
     queryFn: () =>
-      fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 200 }),
+      stockSource === 'owner'
+        ? fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 200 })
+        : fetchPlates({ owner: 'business', page: 1, limit: 200 }),
   });
   const [selStock, setSelStock] = useState<Set<string>>(new Set());
   const [stockSearch, setStockSearch] = useState('');
@@ -638,6 +643,17 @@ function NewQuoteForm({
     const q = stockSearch.trim().toLocaleLowerCase('tr');
     return !q || p.name.toLocaleLowerCase('tr').includes(q);
   });
+  // #kategorilendirme: seçilecek malzemeleri MALZEME TÜRÜNE (kategori) göre grupla.
+  const ownerStockByCategory = (() => {
+    const map = new Map<string, typeof ownerStock>();
+    for (const p of ownerStock) {
+      const k = p.template?.category?.name ?? 'Diğer';
+      const arr = map.get(k);
+      if (arr) arr.push(p);
+      else map.set(k, [p]);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'tr'));
+  })();
   // Henüz teklife eklenmemiş (seçilebilir) filtreli malzemeler.
   const selectableStock = ownerStock.filter(
     (p) => !items.some((x) => x.plateId === p.id),
@@ -775,33 +791,46 @@ function NewQuoteForm({
         />
       </Field>
 
-      {/* Müşterinin stoğu yoksa panelin varlığı görünmez kalmasın diye ipucu. */}
-      {buyerCustomerId && ownerStockAll.length === 0 && (
-        <p className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40">
-          Bu müşteriye ait (konsinye) stokta malzeme bulunamadı. Malzeme müşteri
-          adına stoğa girildiğinde burada parça/tam ayırt etmeden toplu seçip
-          işleme ekleyebilirsiniz.
-        </p>
-      )}
-
-      {/* Müşterinin stoktaki TÜM malzemeleri (parça + tam, tarih fark etmez) —
-          checkbox ile toplu seçilip işleme kalemi olarak eklenir. */}
-      {buyerCustomerId && ownerStockAll.length > 0 && (
+      {/* Stoktan toplu işleme ekleme: müşterinin (konsinye) VEYA işletme stoğundan,
+          MALZEME TÜRÜNE (kategori) göre gruplu, checkbox ile toplu seçim (parça+tam). */}
+      {buyerCustomerId && (
         <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              📦 Müşterinin stoktaki malzemeleri — parça + tam ({ownerStockAll.length})
+              📦 Stoktan işleme ekle — parça + tam ({ownerStockAll.length})
             </p>
             <button
               type="button"
               className="btn bg-emerald-600 px-2 py-1 text-xs text-white"
               disabled={selectableStock.length === 0}
               onClick={addAllFilteredStock}
-              title="Arama sonucundaki tüm malzemeleri tek tıkla ekle"
+              title="Görünen tüm malzemeleri tek tıkla ekle"
             >
               ⚡ Tümünü işleme ekle ({selectableStock.length})
             </button>
           </div>
+
+          {/* Kaynak: müşterinin konsinye stoğu / işletme stoğu */}
+          <div className="flex gap-1 text-xs">
+            {(['owner', 'business'] as const).map((src) => (
+              <button
+                key={src}
+                type="button"
+                onClick={() => {
+                  setStockSource(src);
+                  setSelStock(new Set());
+                }}
+                className={`rounded-lg px-2 py-1 ${
+                  stockSource === src
+                    ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                }`}
+              >
+                {src === 'owner' ? 'Müşterinin malzemeleri' : 'İşletme stoğu'}
+              </button>
+            ))}
+          </div>
+
           <input
             className="input"
             placeholder="Malzeme adına göre ara…"
@@ -818,63 +847,82 @@ function NewQuoteForm({
               Tümünü seç ({selectableStock.length})
             </label>
           )}
-          <div className="max-h-60 space-y-1 overflow-y-auto">
-            {ownerStock.map((p) => {
-              const already = items.some((x) => x.plateId === p.id);
-              const partial = isPartialSheet(p);
-              const rem = plateRemainingLabel(p);
-              return (
-                <label
-                  key={p.id}
-                  className={`flex items-center gap-2 text-sm ${already ? 'opacity-50' : ''}`}
+
+          {/* Malzeme türüne (kategori) göre gruplu liste */}
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {ownerStockByCategory.map(([cat, list]) => (
+              <div key={cat}>
+                <p
+                  className={`mb-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${groupChipClass(cat)}`}
                 >
-                  <input
-                    type="checkbox"
-                    disabled={already}
-                    checked={already || selStock.has(p.id)}
-                    onChange={(e) =>
-                      setSelStock((s) => {
-                        const n = new Set(s);
-                        if (e.target.checked) n.add(p.id);
-                        else n.delete(p.id);
-                        return n;
-                      })
-                    }
-                  />
-                  <span className="flex-1 truncate">{p.name}</span>
-                  {/* Parça / tam ayrımı net görünsün. */}
-                  {(p.measurementType ?? 'area') === 'area' && (
-                    <span
-                      className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
-                        partial
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
-                          : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      {partial ? '✂ parça' : 'tam'}
-                    </span>
-                  )}
-                  {rem && (
-                    <span
-                      className={
-                        partial
-                          ? 'shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400'
-                          : 'shrink-0 text-xs text-slate-400'
-                      }
-                    >
-                      {rem}
-                    </span>
-                  )}
-                  {already && (
-                    <span className="shrink-0 text-xs text-slate-400">(eklendi)</span>
-                  )}
-                </label>
-              );
-            })}
+                  {cat} ({list.length})
+                </p>
+                <div className="space-y-1">
+                  {list.map((p) => {
+                    const already = items.some((x) => x.plateId === p.id);
+                    const partial = isPartialSheet(p);
+                    const rem = plateRemainingLabel(p);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`flex items-center gap-2 text-sm ${already ? 'opacity-50' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={already}
+                          checked={already || selStock.has(p.id)}
+                          onChange={(e) =>
+                            setSelStock((s) => {
+                              const n = new Set(s);
+                              if (e.target.checked) n.add(p.id);
+                              else n.delete(p.id);
+                              return n;
+                            })
+                          }
+                        />
+                        <span className="flex-1 truncate">{p.name}</span>
+                        {(p.measurementType ?? 'area') === 'area' && (
+                          <span
+                            className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
+                              partial
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                                : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                            }`}
+                          >
+                            {partial ? '✂ parça' : 'tam'}
+                          </span>
+                        )}
+                        {rem && (
+                          <span
+                            className={
+                              partial
+                                ? 'shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400'
+                                : 'shrink-0 text-xs text-slate-400'
+                            }
+                          >
+                            {rem}
+                          </span>
+                        )}
+                        {already && (
+                          <span className="shrink-0 text-xs text-slate-400">
+                            (eklendi)
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
             {!ownerStock.length && (
-              <p className="text-xs text-slate-400">Eşleşen malzeme yok.</p>
+              <p className="text-xs text-slate-400">
+                {stockSource === 'owner'
+                  ? 'Bu müşteriye ait (konsinye) stokta malzeme yok. Malzeme, Stok ekleme ekranında “Sahiplik: Müşteriye ait” seçilerek girildiğinde burada görünür. Dilerseniz “İşletme stoğu” sekmesinden seçin.'
+                  : 'İşletme stoğunda uygun malzeme bulunamadı.'}
+              </p>
             )}
           </div>
+
           <button
             className="btn bg-slate-700 text-white"
             disabled={selStock.size === 0}
