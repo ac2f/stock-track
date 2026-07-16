@@ -632,9 +632,11 @@ function NewQuoteForm({
     queryKey: ['plates', 'quote-stock', stockSource, buyerCustomerId],
     enabled: !!buyerCustomerId,
     queryFn: () =>
+      // NOT: limit backend'de en fazla 100'dür (Max(100)); 200 istenirse uç 400
+      // döndürüp paneli boş bırakıyordu ("müşterinin malzemeleri görünmüyor").
       stockSource === 'owner'
-        ? fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 200 })
-        : fetchPlates({ owner: 'business', page: 1, limit: 200 }),
+        ? fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 100 })
+        : fetchPlates({ owner: 'business', page: 1, limit: 100 }),
   });
   const [selStock, setSelStock] = useState<Set<string>>(new Set());
   const [stockSearch, setStockSearch] = useState('');

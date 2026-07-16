@@ -1147,6 +1147,256 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
 }
 
 /**
+ * Toplu işlemler: yukarıdaki filtreye uyan malzemeler checkbox ile seçilip
+ * (1) topluca SAHİPLİK AKTARILIR (kimden→kime; işletme↔müşteri) veya
+ * (2) topluca STOKTAN ÇIKARILIR — çıkarmadan önce her ürün SAHİBİYLE birlikte
+ * tek onay ekranında listelenir. Yalnızca İşletme Sahibi.
+ */
+function BulkOperations({
+  filters,
+  customers,
+}: {
+  filters: PlateFilters;
+  customers: { id: string; name: string }[];
+}) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<null | 'transfer' | 'deplete'>(null);
+  const [fromOwner, setFromOwner] = useState('');
+  const [toOwner, setToOwner] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  // Filtreye uyan malzemeler (bulk için en fazla 100; ana listenin sayfalamasından bağımsız).
+  const { data } = useQuery({
+    queryKey: ['plates', 'bulk', filters],
+    queryFn: () => fetchPlates({ ...filters, page: 1, limit: 100 }),
+    enabled: open,
+  });
+  const plates = data?.items ?? [];
+  const ownerOf = (p: Plate) => (p.owners?.length ? p.owners.join(', ') : 'İşletme');
+  const selected = plates.filter((p) => sel.has(p.id));
+  const allSel = plates.length > 0 && plates.every((p) => sel.has(p.id));
+
+  const toggle = (id: string) =>
+    setSel((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const toggleAll = () =>
+    setSel(allSel ? new Set() : new Set(plates.map((p) => p.id)));
+
+  const run = async (fn: (id: string) => Promise<unknown>, label: string) => {
+    setBusy(true);
+    setMsg(null);
+    let ok = 0;
+    let fail = 0;
+    for (const p of selected) {
+      try {
+        await fn(p.id);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    setBusy(false);
+    setMode(null);
+    setSel(new Set());
+    qc.invalidateQueries({ queryKey: ['plates'] });
+    qc.invalidateQueries({ queryKey: ['customers'] });
+    setMsg(`${ok} malzeme ${label}${fail ? `, ${fail} başarısız` : ''}.`);
+  };
+  const runTransfer = () =>
+    run(
+      (id) =>
+        transferPlateOwnership(id, {
+          fromOwnerCustomerId: fromOwner || undefined,
+          toOwnerCustomerId: toOwner || undefined,
+        }),
+      'aktarıldı',
+    );
+  const runDeplete = () => run((id) => depletePlate(id), 'stoktan çıkarıldı');
+
+  return (
+    <div className="card space-y-2">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between text-left"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="font-semibold">
+          🔀 Toplu sahiplik aktar / stoktan çıkar
+        </span>
+        <span className="text-xs text-slate-400">{open ? '▾' : '▸'}</span>
+      </button>
+      {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+
+      {open && (
+        <>
+          <p className="text-xs text-slate-500">
+            Aşağıdaki liste, yukarıdaki filtrelere uyan malzemeleri gösterir (en
+            fazla 100). Sahibe/türe göre süzüp seçin.
+          </p>
+          {plates.length > 0 && (
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+              <input type="checkbox" checked={allSel} onChange={toggleAll} />
+              Tümünü seç ({plates.length})
+            </label>
+          )}
+          <div className="max-h-72 space-y-1 overflow-y-auto">
+            {plates.map((p) => (
+              <label key={p.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={sel.has(p.id)}
+                  onChange={() => toggle(p.id)}
+                />
+                <span className="flex-1 truncate">{p.name}</span>
+                <span
+                  className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${groupChipClass(
+                    p.template?.category?.name ?? 'Diğer',
+                  )}`}
+                >
+                  {p.template?.category?.name ?? 'Diğer'}
+                </span>
+                <span className="shrink-0 text-xs text-slate-500">
+                  👤 {ownerOf(p)}
+                </span>
+              </label>
+            ))}
+            {!plates.length && (
+              <p className="text-xs text-slate-400">Filtreye uyan malzeme yok.</p>
+            )}
+          </div>
+
+          {mode === null && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="btn bg-slate-800 text-white disabled:opacity-50"
+                disabled={sel.size === 0}
+                onClick={() => {
+                  setMode('transfer');
+                  setMsg(null);
+                }}
+              >
+                Sahiplik aktar ({sel.size})
+              </button>
+              <button
+                className="btn bg-red-600 text-white disabled:opacity-50"
+                disabled={sel.size === 0}
+                onClick={() => {
+                  setMode('deplete');
+                  setMsg(null);
+                }}
+              >
+                Stoktan çıkar ({sel.size})
+              </button>
+            </div>
+          )}
+
+          {mode === 'transfer' && (
+            <div className="space-y-2 rounded-xl border border-slate-300 p-2 dark:border-slate-700">
+              <p className="text-sm font-medium">
+                Sahiplik aktar — {selected.length} malzeme
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs text-slate-500">Kimden</span>
+                  <select
+                    className="input"
+                    value={fromOwner}
+                    onChange={(e) => setFromOwner(e.target.value)}
+                  >
+                    <option value="">İşletme</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs text-slate-500">Kime</span>
+                  <select
+                    className="input"
+                    value={toOwner}
+                    onChange={(e) => setToOwner(e.target.value)}
+                  >
+                    <option value="">İşletme</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {fromOwner === toOwner && (
+                <p className="text-xs text-amber-600">
+                  Kaynak ve hedef sahip aynı olamaz.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  className="btn-primary disabled:opacity-50"
+                  disabled={busy || fromOwner === toOwner}
+                  onClick={runTransfer}
+                >
+                  {busy ? 'Aktarılıyor…' : 'Aktar'}
+                </button>
+                <button className="btn bg-slate-100" onClick={() => setMode(null)}>
+                  İptal
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'deplete' && (
+            <div className="space-y-2 rounded-xl border border-red-300 bg-red-50 p-2 dark:border-red-700 dark:bg-red-900/20">
+              <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+                Stoktan çıkarılacak {selected.length} malzeme — onaylayın
+              </p>
+              <p className="text-xs text-red-700 dark:text-red-300">
+                Bu işlem geri alınamaz; seçilen malzemelerin TÜM stoğu (konsinye
+                dahil) sıfırlanır. Her ürün sahibiyle aşağıda listelenmiştir.
+              </p>
+              <ul className="max-h-56 divide-y divide-red-200 overflow-y-auto rounded-lg border border-red-200 bg-white text-sm dark:divide-red-800 dark:border-red-800 dark:bg-slate-900">
+                {selected.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 px-2 py-1"
+                  >
+                    <span className="truncate">{p.name}</span>
+                    <span className="shrink-0 text-xs text-slate-500">
+                      👤 {ownerOf(p)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex gap-2">
+                <button
+                  className="btn bg-red-600 text-white disabled:opacity-50"
+                  disabled={busy}
+                  onClick={runDeplete}
+                >
+                  {busy ? 'İşleniyor…' : 'Onayla ve stoktan çıkar'}
+                </button>
+                <button className="btn bg-slate-100" onClick={() => setMode(null)}>
+                  İptal
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * Plaka (stok) listesi + gelişmiş filtreleme.
  * Mobil: tek sütun kartlar; masaüstü: çok sütunlu ızgara.
  */
@@ -1288,6 +1538,15 @@ export function PlatesListPage() {
           </label>
         </div>
       </div>
+
+      {/* Toplu sahiplik aktar / stoktan çıkar (İşletme Sahibi) — filtreye uyan
+          malzemeler üzerinde çalışır. */}
+      <RoleGate roles={['owner']}>
+        <BulkOperations
+          filters={filters}
+          customers={customers?.items ?? []}
+        />
+      </RoleGate>
 
       {isLoading ? (
         <p className="text-slate-400">Yükleniyor…</p>
