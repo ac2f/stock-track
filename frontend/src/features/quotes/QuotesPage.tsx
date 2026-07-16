@@ -13,7 +13,6 @@ import { fetchCustomers } from '../../api/customers.api';
 import {
   comparePrices,
   fetchMaterialCategories,
-  fetchMaterialTemplates,
   fetchPlates,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
@@ -604,7 +603,6 @@ function NewQuoteForm({
   });
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
-  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   // #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygulama.
   const [applyPrice, setApplyPrice] = useState('');
   const [applyNote, setApplyNote] = useState('');
@@ -612,12 +610,6 @@ function NewQuoteForm({
   const cachePlate = (p?: Plate) =>
     p && setPlateCache((c) => (c[p.id] ? c : { ...c, [p.id]: p }));
   const getPlate = (id: string): Plate | undefined => plateCache[id];
-
-  // #6 İşleme malzemesi için türlerin standart tabaka ebadı gerekir.
-  const { data: templates } = useQuery({
-    queryKey: ['material-templates'],
-    queryFn: () => fetchMaterialTemplates(),
-  });
 
   // Halihazırda üretim kuyruğunda (PENDING/IN_PROGRESS — başlatılmamış olsa bile)
   // olan plakaların id'leri: kaleme eklenince sarı uyarı gösterilir (engellenmez).
@@ -697,57 +689,6 @@ function NewQuoteForm({
     onSuccess: onDone,
   });
 
-  // #6 Bu müşteriye ait, stokta olan, bugün/dün eklenen ve kalan ebadı tam tabaka
-  // olan tüm malzemeleri tek tıkla işleme kalemi olarak ekle.
-  const bulkMut = useMutation({
-    mutationFn: () =>
-      // ownerCustomerId filtresi zaten yalnızca o sahibin stoğu > 0 olan
-      // (konsinye) malzemelerini döner; ayrı inStock gerekmez (inStock işletme
-      // stoğuna bakar, konsinyede 0'dır).
-      fetchPlates({
-        ownerCustomerId: buyerCustomerId,
-        page: 1,
-        limit: 100,
-      }),
-    onSuccess: (res) => {
-      const iso = (d: Date) => d.toISOString().slice(0, 10);
-      const okDates = new Set([iso(new Date()), iso(new Date(Date.now() - 864e5))]);
-      const stdById = new Map(
-        (templates ?? []).map((t) => [t.id, t.defaultSize] as const),
-      );
-      const already = new Set(items.map((x) => x.plateId));
-      const chosen = res.items.filter((p) => {
-        if (already.has(p.id)) return false;
-        if (!okDates.has(p.addedAt ?? '')) return false;
-        if (!p.templateId) return false;
-        const std = stdById.get(p.templateId);
-        if (!std) return false;
-        // Kalan ebat = standart tabaka ebadı (yani hiç kesilmemiş tam tabaka).
-        return (
-          Number(p.widthMm) === Number(std.widthMm) &&
-          Number(p.heightMm) === Number(std.heightMm)
-        );
-      });
-      if (!chosen.length) {
-        setBulkMsg('Uygun (bugün/dün eklenen, tam tabaka) malzeme bulunamadı.');
-        return;
-      }
-      chosen.forEach(cachePlate);
-      setItems((it) => [
-        ...it,
-        ...chosen.map((p) => ({
-          lineKind: 'processing' as const,
-          plateId: p.id,
-          quantity: 1,
-          unitPrice: 0,
-          billingUnit: 'area' as const,
-          widthMm: Number(p.widthMm),
-          heightMm: Number(p.heightMm),
-        })),
-      ]);
-      setBulkMsg(`${chosen.length} malzeme işleme kalemi olarak eklendi.`);
-    },
-  });
 
   const addItem = (lineKind: 'sale' | 'processing') =>
     setItems((it) => [
@@ -834,31 +775,22 @@ function NewQuoteForm({
         />
       </Field>
 
-      {/* #6 Bu müşterinin bugün/dün eklenen tam tabaka malzemelerini tek tıkla
-          işleme kalemi olarak ekle. */}
-      {buyerCustomerId && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            className="btn bg-indigo-600 text-white"
-            disabled={bulkMut.isPending}
-            onClick={() => {
-              setBulkMsg(null);
-              bulkMut.mutate();
-            }}
-          >
-            ⚡ Müşterinin tam tabakalarını işleme ekle (bugün/dün)
-          </button>
-          {bulkMsg && <span className="text-xs text-slate-500">{bulkMsg}</span>}
-        </div>
+      {/* Müşterinin stoğu yoksa panelin varlığı görünmez kalmasın diye ipucu. */}
+      {buyerCustomerId && ownerStockAll.length === 0 && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40">
+          Bu müşteriye ait (konsinye) stokta malzeme bulunamadı. Malzeme müşteri
+          adına stoğa girildiğinde burada parça/tam ayırt etmeden toplu seçip
+          işleme ekleyebilirsiniz.
+        </p>
       )}
 
-      {/* Müşterinin stoktaki TÜM malzemeleri (tarih fark etmez) — ada göre aranıp
-          checkbox ile tek tek işleme kalemi olarak eklenir. */}
+      {/* Müşterinin stoktaki TÜM malzemeleri (parça + tam, tarih fark etmez) —
+          checkbox ile toplu seçilip işleme kalemi olarak eklenir. */}
       {buyerCustomerId && ownerStockAll.length > 0 && (
         <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              📦 Müşterinin stoktaki malzemeleri ({ownerStockAll.length})
+              📦 Müşterinin stoktaki malzemeleri — parça + tam ({ownerStockAll.length})
             </p>
             <button
               type="button"
@@ -910,6 +842,18 @@ function NewQuoteForm({
                     }
                   />
                   <span className="flex-1 truncate">{p.name}</span>
+                  {/* Parça / tam ayrımı net görünsün. */}
+                  {(p.measurementType ?? 'area') === 'area' && (
+                    <span
+                      className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
+                        partial
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                          : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {partial ? '✂ parça' : 'tam'}
+                    </span>
+                  )}
                   {rem && (
                     <span
                       className={
@@ -918,7 +862,6 @@ function NewQuoteForm({
                           : 'shrink-0 text-xs text-slate-400'
                       }
                     >
-                      {partial ? '✂ ' : ''}
                       {rem}
                     </span>
                   )}
