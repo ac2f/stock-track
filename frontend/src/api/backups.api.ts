@@ -37,3 +37,56 @@ export async function restoreBackup(file: File): Promise<void> {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 }
+
+// ── Şifreli yedeğin Telegram'a gönderimi ──────────────────────────────
+export interface TelegramBackupResult {
+  ok: boolean;
+  action: 'created' | 'updated';
+  messageId: number;
+  dayKey: string;
+  fileName: string;
+  size: number;
+  entryCount: number;
+}
+
+export interface TelegramBackupEntry {
+  at: string;
+  fileName: string;
+  size: number;
+  kind: 'auto' | 'manual';
+}
+
+export interface TelegramBackupState {
+  chatId: string;
+  dayKey: string;
+  messageId: number;
+  pinnedMessageId: number | null;
+  entries: TelegramBackupEntry[];
+  updatedAt: string;
+}
+
+/** Şifreli yedeği elle alıp Telegram'a gönderir (aynı gün mesajını ilerletir). */
+export async function sendBackupToTelegram(): Promise<TelegramBackupResult> {
+  const { data } = await api.post<TelegramBackupResult>('/backups/telegram');
+  return data;
+}
+
+/** O güne ait Telegram yedek durumu (varsa). */
+export async function fetchTelegramBackupState(): Promise<TelegramBackupState | null> {
+  const { data } = await api.get<TelegramBackupState | null>(
+    '/backups/telegram/state',
+  );
+  return data;
+}
+
+/** Şifre çözme (private) anahtarı — .enc yedekleri çözmek için. */
+export async function fetchDecryptionKey(): Promise<{
+  privateKeyPem: string;
+  publicKeyFingerprint: string;
+}> {
+  const { data } = await api.get<{
+    privateKeyPem: string;
+    publicKeyFingerprint: string;
+  }>('/backups/decryption-key');
+  return data;
+}

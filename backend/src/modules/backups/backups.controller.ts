@@ -14,6 +14,8 @@ import type { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { BackupsService } from './backups.service';
+import { BackupCryptoService } from './backup-crypto.service';
+import { TelegramBackupService } from './telegram-backup.service';
 
 /** FileInterceptor bellek-depolamalı dosya (varsayılan) — buffer'lı. */
 interface UploadedBackupFile {
@@ -27,12 +29,44 @@ interface UploadedBackupFile {
 @Roles(UserRole.OWNER)
 @Controller({ path: 'backups', version: '1' })
 export class BackupsController {
-  constructor(private readonly backups: BackupsService) {}
+  constructor(
+    private readonly backups: BackupsService,
+    private readonly crypto: BackupCryptoService,
+    private readonly telegramBackups: TelegramBackupService,
+  ) {}
 
   /** Diskteki kalıcı (otomatik) yedeklerin listesi. */
   @Get()
   list() {
     return this.backups.list();
+  }
+
+  /**
+   * Şifreli yedeği ELLE alıp Telegram'a gönderir (aynı gün mesajını ilerletir).
+   * Web arayüzündeki "Telegram'a gönder" düğmesi bunu çağırır.
+   */
+  @Post('telegram')
+  sendToTelegram() {
+    return this.telegramBackups.runAndSend('manual');
+  }
+
+  /** O güne ait Telegram yedek durumu (mesaj id, gün, yedek dökümü). */
+  @Get('telegram/state')
+  telegramState() {
+    return this.telegramBackups.getState();
+  }
+
+  /**
+   * Şifre çözme (private) anahtarı — web arayüzünde gösterilir. Bu anahtarla,
+   * Telegram'a giden veya indirilen şifreli (.enc) yedekler çözülür.
+   */
+  @Get('decryption-key')
+  async decryptionKey() {
+    const [privateKeyPem, publicKeyFingerprint] = await Promise.all([
+      this.crypto.getPrivateKeyPem(),
+      this.crypto.getPublicKeyFingerprint(),
+    ]);
+    return { privateKeyPem, publicKeyFingerprint };
   }
 
   /** Anlık yedek üretir ve .sql dosyasını indirir. */

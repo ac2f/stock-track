@@ -60,6 +60,16 @@ export interface BackupConfig {
   binDir: string;
   // Diskte tutulacak azami yedek sayısı (eskiler silinir; 0 = sınırsız).
   keep: number;
+  // Şifreli yedeğin Telegram'a otomatik gönderim zamanlaması (cron). Varsayılan: saatlik.
+  telegramCron: string;
+  // Şifreli yedeğin gönderileceği Telegram sohbet kimliği (boşsa owner chat'i).
+  telegramChatId: string;
+  // Yedek şifreleme (public) anahtarının dosya yolu — API'da tutulur.
+  publicKeyFile: string;
+  // Yedek şifre çözme (private) anahtarının dosya yolu — web arayüzünde gösterilir.
+  privateKeyFile: string;
+  // Günlük Telegram yedek mesajının kalıcı durum dosyası (mesaj id, gün, kayıtlar).
+  stateFile: string;
 }
 
 export interface NotificationsConfig {
@@ -131,6 +141,18 @@ export default (): RootConfig => ({
     cron: process.env.BACKUP_CRON ?? '0 3 * * *',
     binDir: process.env.BACKUP_PG_BIN_DIR ?? '',
     keep: parseInt(process.env.BACKUP_KEEP ?? '14', 10),
+    telegramCron: process.env.BACKUP_TELEGRAM_CRON ?? '0 * * * *',
+    telegramChatId:
+      process.env.BACKUP_TELEGRAM_CHAT_ID ??
+      process.env.TELEGRAM_OWNER_CHAT_ID ??
+      '',
+    publicKeyFile:
+      process.env.BACKUP_PUBLIC_KEY_FILE ?? 'backups/backup-key.pub.pem',
+    privateKeyFile:
+      process.env.BACKUP_PRIVATE_KEY_FILE ?? 'backups/backup-key.priv.pem',
+    stateFile:
+      process.env.BACKUP_TELEGRAM_STATE_FILE ??
+      'backups/telegram-backup-state.json',
   },
   notifications: {
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',

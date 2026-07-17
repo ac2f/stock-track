@@ -43,3 +43,8 @@ docker/data/
 # Misc
 *.pem
 .cache/
+
+# Yedekler + yedek anahtar/durum dosyaları (çalışma zamanında üretilir).
+# Yalnızca çalışma-zamanı yedek dizinleri; kaynak modül dizini (src/modules/backups) DEĞİL.
+/backups/
+/backend/backups/

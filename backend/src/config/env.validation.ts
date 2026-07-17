@@ -51,6 +51,13 @@ export const envValidationSchema = Joi.object({
   BACKUP_PG_BIN_DIR: Joi.string().allow('').optional(),
   BACKUP_KEEP: Joi.number().min(0).default(14),
 
+  // Şifreli yedeğin Telegram'a gönderimi
+  BACKUP_TELEGRAM_CRON: Joi.string().default('0 * * * *'),
+  BACKUP_TELEGRAM_CHAT_ID: Joi.string().allow('').optional(),
+  BACKUP_PUBLIC_KEY_FILE: Joi.string().allow('').optional(),
+  BACKUP_PRIVATE_KEY_FILE: Joi.string().allow('').optional(),
+  BACKUP_TELEGRAM_STATE_FILE: Joi.string().allow('').optional(),
+
   // Bildirim (Telegram opsiyonel; boşsa yalnızca Log kanalı)
   TELEGRAM_BOT_TOKEN: Joi.string().allow('').optional(),
   TELEGRAM_OWNER_CHAT_ID: Joi.string().allow('').optional(),
