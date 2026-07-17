@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, Repository } from 'typeorm';
-import { roundMoney } from '../../../common/utils/area.util';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import {
@@ -22,7 +21,9 @@ import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
 import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
+import { SettleDebtDto } from '../dto/apply-discount.dto';
 import { CustomerAccountService } from './customer-account.service';
+import { PaymentsService } from './payments.service';
 
 @Injectable()
 export class CustomersService {
@@ -30,6 +31,7 @@ export class CustomersService {
     @InjectRepository(Customer)
     private readonly customersRepo: Repository<Customer>,
     private readonly accountService: CustomerAccountService,
+    private readonly paymentsService: PaymentsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -227,37 +229,50 @@ export class CustomersService {
   }
 
   /**
-   * #5 Borcu kapatma: müşteri güncel borcunu yuvarlayıp eksik öderse, ödenen tutar
-   * TAHSİLAT, kalan fark İNDİRİM olarak TEK transaction'da işlenir; borç kapanır.
-   * İkisi de ekstrede ayrı satır olarak görünür (son ödemeden sonraki sorgularda da).
+   * #5 Borcu kapatma. Tahsil edilen tutar (varsa) GERÇEK bir ödeme kaydı olarak
+   * (ödeme geçmişinde görünür) ve kalan fark İNDİRİM olarak işlenir; borç kapanır.
+   *  - paidAmount = 0 → hiç para alınmadan borç kapatma: tamamı indirim (ödeme yok).
+   *  - paidAmount > 0 → yöntem (nakit/havale/kart) zorunlu; gerçek ödeme oluşturulur,
+   *    kalan fark aynı işlemde indirim yazılır (PaymentsService içinde).
+   * İkisi de ekstrede ayrı satır olarak görünür.
    */
-  async settleDebt(id: string, paidAmount: number): Promise<Customer> {
+  async settleDebt(id: string, dto: SettleDebtDto): Promise<Customer> {
     const customer = await this.findOne(id);
     const balance = Number(customer.currentBalance);
     if (balance <= 0) {
       throw new BadRequestException('Bu carinin kapatılacak borcu yok.');
     }
-    const paid = Math.min(Math.max(0, paidAmount), balance);
-    const discount = roundMoney(balance - paid);
+    const paid = Math.min(Math.max(0, dto.paidAmount), balance);
+
+    if (paid > 0) {
+      if (!dto.method) {
+        throw new BadRequestException(
+          'Tahsilat girildiğinde ödeme yöntemi (nakit/havale/kart) zorunludur.',
+        );
+      }
+      // Gerçek ödeme + kalan farkın indirimi tek transaction'da (closeDebt=true).
+      await this.paymentsService.create(id, {
+        amount: paid,
+        method: dto.method,
+        receivedById: dto.receivedById,
+        bankAccountId: dto.bankAccountId,
+        cardBusinessName: dto.cardBusinessName,
+        paymentDate: dto.paymentDate,
+        note: dto.note,
+        closeDebt: true,
+      });
+      return this.findOne(id);
+    }
+
+    // Hiç para almadan borç kapatma: güncel borcun tamamı indirim.
     return this.dataSource.transaction(async (manager) => {
-      if (paid > 0) {
-        await this.accountService.applyCredit(manager, {
-          customerId: id,
-          amount: paid,
-          sourceType: LedgerSourceType.PAYMENT,
-          description: 'Tahsilat (borç kapatma)',
-          occurredAt: new Date(),
-        });
-      }
-      if (discount > 0) {
-        await this.accountService.applyCredit(manager, {
-          customerId: id,
-          amount: discount,
-          sourceType: LedgerSourceType.DISCOUNT,
-          description: `İndirim (borç kapatma — tahsilat ${paid})`,
-          occurredAt: new Date(),
-        });
-      }
+      await this.accountService.applyCredit(manager, {
+        customerId: id,
+        amount: balance,
+        sourceType: LedgerSourceType.DISCOUNT,
+        description: dto.note?.trim() || 'İndirim (borç kapatma — para alınmadan)',
+        occurredAt: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
+      });
       return manager.findOneOrFail(Customer, { where: { id } });
     });
   }

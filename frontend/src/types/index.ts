@@ -37,6 +37,18 @@ export interface Payment {
   referenceNo?: string;
   note?: string;
   balanceAfter: number;
+  isDebtClose?: boolean;
+  createdAt?: string;
+}
+
+/** Uyumluluk: eski "borç kapatma" cari hareketi (gerçek ödeme kaydı yok). */
+export interface LegacyDebtClose {
+  ledgerEntryId: string;
+  customerId: string;
+  customerName: string;
+  amount: number;
+  occurredAt: string;
+  description?: string | null;
 }
 
 export interface ExpenseCategory {

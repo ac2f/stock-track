@@ -85,7 +85,7 @@ export class CustomersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SettleDebtDto,
   ) {
-    return this.customersService.settleDebt(id, dto.paidAmount);
+    return this.customersService.settleDebt(id, dto);
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)

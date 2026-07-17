@@ -1,5 +1,10 @@
 import { api } from './client';
-import type { Payment, PaymentDirection, PaymentMethod } from '../types';
+import type {
+  LegacyDebtClose,
+  Payment,
+  PaymentDirection,
+  PaymentMethod,
+} from '../types';
 
 export interface CreatePaymentInput {
   amount: number;
@@ -12,6 +17,7 @@ export interface CreatePaymentInput {
   cardBusinessName?: string; // kart → işletme/POS adı
   referenceNo?: string;
   note?: string;
+  closeDebt?: boolean; // tahsilattan sonra kalan borcu indirimle kapat
 }
 
 export async function fetchPayments(customerId: string): Promise<Payment[]> {
@@ -27,6 +33,68 @@ export async function createPayment(
 ): Promise<{ payment: Payment; currentBalance: number }> {
   const { data } = await api.post<{ payment: Payment; currentBalance: number }>(
     `/customers/${customerId}/payments`,
+    input,
+  );
+  return data;
+}
+
+export interface UpdatePaymentInput {
+  amount?: number;
+  method?: PaymentMethod;
+  paymentDate?: string;
+  receivedById?: string;
+  bankAccountId?: string;
+  cardBusinessName?: string;
+  note?: string;
+}
+
+/** Geçmiş ödemeyi düzenle (backend yalnızca son 3 günü kabul eder). */
+export async function updatePayment(
+  customerId: string,
+  paymentId: string,
+  input: UpdatePaymentInput,
+): Promise<{ payment: Payment; currentBalance: number }> {
+  const { data } = await api.patch<{ payment: Payment; currentBalance: number }>(
+    `/customers/${customerId}/payments/${paymentId}`,
+    input,
+  );
+  return data;
+}
+
+/** Geçmiş ödemeyi sil (backend yalnızca son 3 günü kabul eder). */
+export async function deletePayment(
+  customerId: string,
+  paymentId: string,
+): Promise<{ currentBalance: number }> {
+  const { data } = await api.delete<{ currentBalance: number }>(
+    `/customers/${customerId}/payments/${paymentId}`,
+  );
+  return data;
+}
+
+// ── Uyumluluk: eski "borç kapatma" hareketlerini gerçek ödemeye çevirme ──
+export async function fetchLegacyDebtClosings(): Promise<LegacyDebtClose[]> {
+  const { data } = await api.get<LegacyDebtClose[]>(
+    '/payments/legacy-debt-closings',
+  );
+  return data;
+}
+
+export interface ConvertLegacyDebtCloseInput {
+  method: PaymentMethod;
+  paymentDate?: string;
+  receivedById?: string;
+  bankAccountId?: string;
+  cardBusinessName?: string;
+  note?: string;
+}
+
+export async function convertLegacyDebtClosing(
+  ledgerEntryId: string,
+  input: ConvertLegacyDebtCloseInput,
+): Promise<Payment> {
+  const { data } = await api.post<Payment>(
+    `/payments/legacy-debt-closings/${ledgerEntryId}/convert`,
     input,
   );
   return data;

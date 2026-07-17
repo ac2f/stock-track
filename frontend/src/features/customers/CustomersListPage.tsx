@@ -16,10 +16,12 @@ import {
   type UpdateCustomerInput,
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
+import { fetchEmployees } from '../../api/users.api';
+import { fetchBankAccounts } from '../../api/bank-accounts.api';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
-import type { Customer } from '../../types';
+import type { Customer, PaymentMethod } from '../../types';
 
 const currency = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -564,20 +566,67 @@ function CustomerStatement({
   const currentBalance =
     freshCustomer != null ? Number(freshCustomer.currentBalance) : ledgerBalance;
 
-  // #5 İndirim (borç kapatma/yuvarlama): müşterinin ödediği tutarı gir, kalan
-  // fark "İndirim" olarak ekstreye işlenir ve borç kapanır.
+  // #5 Borç kapatma: müşterinin ödediği tutarı (varsa) ve ödeme yöntemini gir.
+  // Tahsil edilen tutar gerçek bir ödeme olarak kaydedilir (ödeme geçmişinde
+  // görünür), kalan fark "İndirim" olarak ekstreye işlenir ve borç kapanır.
+  // Hiç para almadan kapatmak için tutarı 0 (boş) bırakın → tamamı indirim.
   const [paid, setPaid] = useState('');
+  const [settleMethod, setSettleMethod] = useState<PaymentMethod>('cash');
+  const [settleReceivedById, setSettleReceivedById] = useState('');
+  const [settleBankAccountId, setSettleBankAccountId] = useState('');
+  const [settleCardBusiness, setSettleCardBusiness] = useState('');
+  const [settleDate, setSettleDate] = useState(today);
+  const paidNum = Number(paid) || 0;
   const discountAmount = Math.max(
     0,
-    Math.round((currentBalance - (Number(paid) || 0)) * 100) / 100,
+    Math.round((currentBalance - paidNum) * 100) / 100,
   );
+  const { data: settleEmployees } = useQuery({
+    queryKey: ['employees'],
+    queryFn: fetchEmployees,
+  });
+  const { data: settleBanks } = useQuery({
+    queryKey: ['bank-accounts'],
+    queryFn: fetchBankAccounts,
+  });
+  // Para giriliyorsa yöntem-özel alan zorunlu (ödeme formundaki gibi).
+  const settleMethodReady =
+    paidNum <= 0 ||
+    (settleMethod === 'cash'
+      ? !!settleReceivedById
+      : settleMethod === 'bank_transfer'
+        ? !!settleBankAccountId
+        : true);
   const discountMut = useMutation({
-    mutationFn: () => settleCustomerDebt(customerId, Number(paid) || 0),
+    mutationFn: () =>
+      settleCustomerDebt(customerId, {
+        paidAmount: paidNum,
+        paymentDate: settleDate || undefined,
+        ...(paidNum > 0
+          ? {
+              method: settleMethod,
+              receivedById:
+                settleMethod === 'cash' ? settleReceivedById : undefined,
+              bankAccountId:
+                settleMethod === 'bank_transfer'
+                  ? settleBankAccountId
+                  : undefined,
+              cardBusinessName:
+                settleMethod === 'card'
+                  ? settleCardBusiness || undefined
+                  : undefined,
+            }
+          : {}),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ledger', customerId] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['customers', 'one', customerId] });
+      qc.invalidateQueries({ queryKey: ['payments', customerId] });
       setPaid('');
+      setSettleReceivedById('');
+      setSettleBankAccountId('');
+      setSettleCardBusiness('');
     },
   });
 
@@ -683,9 +732,10 @@ function CustomerStatement({
         </button>
       </div>
 
-      {/* #5 Borcu kapat (indirimle): ödenen tutarı gir; kalan fark "İndirim" olur. */}
+      {/* #5 Borcu kapat: tahsil edilen tutarı ve yöntemini gir; kalan fark
+          "İndirim" olur. Hiç para almadan kapatmak için tutarı boş/0 bırakın. */}
       {currentBalance > 0 && (
-        <div className="space-y-1 border-t border-slate-200 pt-2">
+        <div className="space-y-2 border-t border-slate-200 pt-2">
           <p className="text-xs font-medium text-slate-600">
             Borç kapatma · Güncel borç: {currency.format(currentBalance)}
           </p>
@@ -694,7 +744,7 @@ function CustomerStatement({
               className="input w-36"
               type="number"
               min={0}
-              placeholder="Tahsil edilen"
+              placeholder="Tahsil edilen (0 = para yok)"
               value={paid}
               onChange={(e) => setPaid(e.target.value)}
             />
@@ -705,19 +755,95 @@ function CustomerStatement({
             >
               Tümü
             </button>
+            <input
+              className="input w-auto"
+              type="date"
+              value={settleDate}
+              onChange={(e) => setSettleDate(e.target.value)}
+            />
             <span className="text-xs text-slate-500">
               İndirim:{' '}
               <span className="font-semibold text-amber-600">
                 {currency.format(discountAmount)}
               </span>
             </span>
+          </div>
+
+          {/* Para giriliyorsa ödeme yöntemi (ödeme formundaki gibi). */}
+          {paidNum > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="input w-auto"
+                value={settleMethod}
+                onChange={(e) => setSettleMethod(e.target.value as PaymentMethod)}
+              >
+                <option value="cash">Nakit</option>
+                <option value="bank_transfer">Havale/EFT</option>
+                <option value="card">Kart</option>
+              </select>
+              {settleMethod === 'cash' && (
+                <select
+                  className="input w-auto"
+                  value={settleReceivedById}
+                  onChange={(e) => setSettleReceivedById(e.target.value)}
+                >
+                  <option value="">Parayı alan çalışan…</option>
+                  {settleEmployees?.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.fullName}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {settleMethod === 'bank_transfer' && (
+                <select
+                  className="input w-auto"
+                  value={settleBankAccountId}
+                  onChange={(e) => setSettleBankAccountId(e.target.value)}
+                >
+                  <option value="">Banka hesabı…</option>
+                  {settleBanks?.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.bankName}
+                      {b.iban ? ` · ${b.iban}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {settleMethod === 'card' && (
+                <input
+                  className="input w-auto flex-1"
+                  placeholder="İşletme / POS adı"
+                  value={settleCardBusiness}
+                  onChange={(e) => setSettleCardBusiness(e.target.value)}
+                />
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
             <button
               className="btn bg-amber-600 text-white"
-              disabled={!paid || Number(paid) <= 0 || discountMut.isPending}
-              onClick={() => discountMut.mutate()}
+              disabled={!settleMethodReady || discountMut.isPending}
+              onClick={() => {
+                if (
+                  paidNum <= 0 &&
+                  !window.confirm(
+                    `Hiç para alınmadan ${currency.format(currentBalance)} borç kapatılacak (tamamı indirim). Devam edilsin mi?`,
+                  )
+                ) {
+                  return;
+                }
+                discountMut.mutate();
+              }}
             >
-              Borcu kapat
+              {paidNum > 0 ? 'Borcu kapat (tahsilatla)' : 'Borcu kapat (para almadan)'}
             </button>
+            {paidNum <= 0 && (
+              <span className="text-xs text-slate-400">
+                Tutar 0 → gerçek ödeme oluşmaz, borç indirimle kapanır.
+              </span>
+            )}
           </div>
           {discountMut.isError && (
             <p className="text-xs text-red-600">

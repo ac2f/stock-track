@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNumber,
@@ -58,4 +59,10 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  // "Borç kapa": tahsilattan sonra kalan borç varsa, kalan fark İNDİRİM olarak
+  // yazılıp cari borcu sıfırlanır (yön=incoming iken anlamlıdır).
+  @IsOptional()
+  @IsBoolean()
+  closeDebt?: boolean;
 }

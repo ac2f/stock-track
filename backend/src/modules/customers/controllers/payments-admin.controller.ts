@@ -1,9 +1,18 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { PaymentsService } from '../services/payments.service';
 import { QueryPaymentDto, SettleCashDto } from '../dto/query-payment.dto';
+import { ConvertLegacyDebtCloseDto } from '../dto/convert-legacy-debt-close.dto';
 
 /**
  * Çapraz-müşteri ödeme yönetimi (yalnızca İşletme Sahibi):
@@ -33,5 +42,20 @@ export class PaymentsAdminController {
   @Post('settle')
   settle(@Body() dto: SettleCashDto) {
     return this.paymentsService.settleEmployeeCash(dto.receivedById);
+  }
+
+  // Uyumluluk: eski "borç kapatma" hareketleri (gerçek ödeme kaydı yok).
+  @Get('legacy-debt-closings')
+  legacyDebtClosings() {
+    return this.paymentsService.listLegacyDebtClosings();
+  }
+
+  // Eski bir borç kapatma hareketini gerçek ödemeye çevir (bakiye değişmez).
+  @Post('legacy-debt-closings/:ledgerEntryId/convert')
+  convertLegacyDebtClose(
+    @Param('ledgerEntryId', ParseUUIDPipe) ledgerEntryId: string,
+    @Body() dto: ConvertLegacyDebtCloseDto,
+  ) {
+    return this.paymentsService.convertLegacyDebtClose(ledgerEntryId, dto);
   }
 }

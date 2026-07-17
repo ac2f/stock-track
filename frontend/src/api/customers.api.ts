@@ -120,17 +120,26 @@ export async function applyCustomerDiscount(
   return data;
 }
 
+export interface SettleDebtInput {
+  paidAmount: number;
+  method?: PaymentMethod;
+  paymentDate?: string;
+  receivedById?: string;
+  bankAccountId?: string;
+  cardBusinessName?: string;
+  note?: string;
+}
+
 /**
- * #5 Borcu kapat: tahsil edilen tutar TAHSİLAT, kalan fark İNDİRİM olarak tek
- * işlemde işlenir; borç sıfırlanır. İkisi de ekstrede ayrı satır görünür.
+ * #5 Borcu kapat: tahsil edilen tutar (varsa) GERÇEK bir ödeme olarak (ödeme
+ * geçmişinde görünür), kalan fark İNDİRİM olarak tek işlemde işlenir; borç
+ * sıfırlanır. paidAmount=0 ise hiç para almadan kapatma (tamamı indirim).
  */
 export async function settleCustomerDebt(
   id: string,
-  paidAmount: number,
+  input: SettleDebtInput,
 ): Promise<Customer> {
-  const { data } = await api.post<Customer>(`/customers/${id}/settle`, {
-    paidAmount,
-  });
+  const { data } = await api.post<Customer>(`/customers/${id}/settle`, input);
   return data;
 }
 

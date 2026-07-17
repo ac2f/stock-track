@@ -93,6 +93,10 @@ export class Payment extends BaseEntity {
   })
   balanceAfter: number;
 
+  // Bu ödeme bir "borç kapatma" akışıyla mı alındı (kalan fark indirim yazıldı)?
+  @Column({ name: 'is_debt_close', type: 'boolean', default: false })
+  isDebtClose: boolean;
+
   @Column({ nullable: true })
   note?: string;
 }
