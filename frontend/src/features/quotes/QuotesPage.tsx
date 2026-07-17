@@ -22,6 +22,8 @@ import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { groupChipClass } from '../../components/GroupSection';
+import { Pagination } from '../../components/Pagination';
+import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
 import type {
@@ -188,7 +190,12 @@ export function QuotesPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
-  const [filters, setFilters] = useState<QuoteFilters>({ page: 1, limit: 50 });
+  const [pageSize, setPageSize] = usePageSize('quotes', 20);
+  const [filters, setFilters] = useState<QuoteFilters>({ page: 1, limit: pageSize });
+  const changePageSize = (n: number) => {
+    setPageSize(n);
+    setFilters((f) => ({ ...f, limit: n, page: 1 }));
+  };
   const { mini, toggle: toggleMini } = useListDensity();
 
   const { data, isLoading } = useQuery({
@@ -513,6 +520,16 @@ export function QuotesPage() {
           ))}
           {!data?.items.length && (
             <p className="text-slate-400">Henüz teklif yok.</p>
+          )}
+          {data?.meta && (
+            <Pagination
+              page={data.meta.page}
+              pageCount={data.meta.pageCount}
+              total={data.meta.total}
+              pageSize={pageSize}
+              onPage={(p) => setFilters((f) => ({ ...f, page: p }))}
+              onPageSize={changePageSize}
+            />
           )}
         </div>
       )}

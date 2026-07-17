@@ -17,6 +17,8 @@ import {
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
+import { Pagination } from '../../components/Pagination';
+import { usePageSize } from '../../hooks/usePageSize';
 import type { Customer } from '../../types';
 
 const currency = new Intl.NumberFormat('tr-TR', {
@@ -114,11 +116,16 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
  * Cari listesi + borç durumuna göre filtreleme ve sıralama.
  */
 export function CustomersListPage() {
+  const [pageSize, setPageSize] = usePageSize('customers', 20);
   const [filters, setFilters] = useState<CustomerFilters>({
     page: 1,
-    limit: 20,
+    limit: pageSize,
     sort: 'balance',
   });
+  const changePageSize = (n: number) => {
+    setPageSize(n);
+    setFilters((f) => ({ ...f, limit: n, page: 1 }));
+  };
   const [showForm, setShowForm] = useState(false);
   const { mini, toggle: toggleMini } = useListDensity();
 
@@ -207,25 +214,16 @@ export function CustomersListPage() {
             <p className="text-slate-400">Kayıt bulunamadı.</p>
           )}
 
-          {meta && meta.pageCount > 1 && (
-            <div className="flex items-center justify-between pt-2 text-sm">
-              <button
-                className="btn bg-slate-100"
-                disabled={meta.page <= 1}
-                onClick={() => goPage(meta.page - 1)}
-              >
-                ← Önceki
-              </button>
-              <span className="text-slate-500">
-                Sayfa {meta.page} / {meta.pageCount} · {meta.total} kayıt
-              </span>
-              <button
-                className="btn bg-slate-100"
-                disabled={meta.page >= meta.pageCount}
-                onClick={() => goPage(meta.page + 1)}
-              >
-                Sonraki →
-              </button>
+          {meta && (
+            <div className="pt-2">
+              <Pagination
+                page={meta.page}
+                pageCount={meta.pageCount}
+                total={meta.total}
+                pageSize={pageSize}
+                onPage={goPage}
+                onPageSize={changePageSize}
+              />
             </div>
           )}
         </div>

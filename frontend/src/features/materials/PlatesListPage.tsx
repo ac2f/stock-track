@@ -27,6 +27,8 @@ import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
 import { UnitConverter } from '../../components/UnitConverter';
 import { GroupSection, groupChipClass } from '../../components/GroupSection';
+import { Pagination } from '../../components/Pagination';
+import { usePageSize } from '../../hooks/usePageSize';
 import { isPartialSheet } from '../../lib/plateLabel';
 import {
   useListDensity,
@@ -1401,7 +1403,13 @@ function BulkOperations({
  * Mobil: tek sütun kartlar; masaüstü: çok sütunlu ızgara.
  */
 export function PlatesListPage() {
-  const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: 20 });
+  // Sayfa başına kayıt (kalıcı) + sayfalama: tüm ürünler sayfalar hâlinde görünür.
+  const [pageSize, setPageSize] = usePageSize('plates', 20);
+  const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: pageSize });
+  const changePageSize = (n: number) => {
+    setPageSize(n);
+    setFilters((f) => ({ ...f, limit: n, page: 1 }));
+  };
   const [showForm, setShowForm] = useState(false);
   // Genel mini mod + gruplama ayarlarına uyar; sayfada geçici override edilebilir.
   const { mini: miniView, toggle: toggleMini } = useListDensity();
@@ -1584,6 +1592,17 @@ export function PlatesListPage() {
             <PlateCard key={plate.id} plate={plate} />
           ))}
         </div>
+      )}
+
+      {data?.meta && (
+        <Pagination
+          page={data.meta.page}
+          pageCount={data.meta.pageCount}
+          total={data.meta.total}
+          pageSize={pageSize}
+          onPage={(p) => setFilters((f) => ({ ...f, page: p }))}
+          onPageSize={changePageSize}
+        />
       )}
     </div>
   );

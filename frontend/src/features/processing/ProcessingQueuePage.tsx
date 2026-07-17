@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   deleteProcessingJob,
   fetchProcessingHistory,
@@ -19,6 +19,8 @@ import {
 } from '../../context/DensityContext';
 import { GroupSection } from '../../components/GroupSection';
 import { CustomerPicker } from '../../components/CustomerPicker';
+import { Pagination } from '../../components/Pagination';
+import { usePageSize } from '../../hooks/usePageSize';
 import { fetchMaterialCategories } from '../../api/materials.api';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
@@ -179,6 +181,16 @@ function ProcessingHistory() {
   const [customerId, setCustomerId] = useState('');
   const [search, setSearch] = useState('');
   const [filterKey, setFilterKey] = useState(0);
+  // Sayfalama: sayfa başına kayıt kalıcı; filtre değişince sayfa 1'e döner.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize('queue-history', 20);
+  useEffect(() => {
+    setPage(1);
+  }, [from, to, status, categoryId, customerId, search, pageSize]);
+  const changePageSize = (n: number) => {
+    setPageSize(n);
+    setPage(1);
+  };
 
   const { data: categories } = useQuery({
     queryKey: ['material-categories'],
@@ -194,6 +206,8 @@ function ProcessingHistory() {
       categoryId,
       customerId,
       search,
+      page,
+      pageSize,
     ],
     queryFn: () =>
       fetchProcessingHistory({
@@ -203,8 +217,8 @@ function ProcessingHistory() {
         categoryId: categoryId || undefined,
         customerId: customerId || undefined,
         search: search || undefined,
-        page: 1,
-        limit: 100,
+        page,
+        limit: pageSize,
       }),
   });
 
@@ -292,6 +306,16 @@ function ProcessingHistory() {
         data?.items.map((job) => <HistoryJobCard key={job.id} job={job} />)
       )}
       {!data?.items.length && <p className="text-slate-400">Bu aralıkta iş yok.</p>}
+      {data?.meta && (
+        <Pagination
+          page={data.meta.page}
+          pageCount={data.meta.pageCount}
+          total={data.meta.total}
+          pageSize={pageSize}
+          onPage={setPage}
+          onPageSize={changePageSize}
+        />
+      )}
     </div>
   );
 }
