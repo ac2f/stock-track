@@ -248,7 +248,10 @@ export class QuotesService {
             ? `Teklif ${quote.quoteNo}: ${quote.note.trim()}`
             : `Teklif ${quote.quoteNo} → satış`,
           items: saleLines.map((l) => ({
-            plateId: l.plateId,
+            plateId: l.plateId ?? undefined,
+            // Serbest (stoksuz) kalem: ad + fiyatlama birimi taşınır.
+            itemName: l.plateId ? undefined : l.itemName ?? undefined,
+            billingUnit: l.plateId ? undefined : l.billingUnit ?? undefined,
             quantity: Number(l.quantity),
             unitPrice: Number(l.unitPrice),
             // Kalem notu → cari ekstrede satış açıklamasına eklenir.
@@ -256,7 +259,10 @@ export class QuotesService {
             // Tabaka satışında kesilen ebat → kalan boy otomatik düşülsün.
             widthMm: l.widthMm != null ? Number(l.widthMm) : undefined,
             heightMm: l.heightMm != null ? Number(l.heightMm) : undefined,
-            stockSource: l.stockSource ?? SaleStockSource.BUSINESS,
+            // Serbest kalemde stok kaynağı yok; plaka kaleminde varsayılan kendi stok.
+            stockSource: l.plateId
+              ? l.stockSource ?? SaleStockSource.BUSINESS
+              : undefined,
             ownerSettlement: l.ownerSettlement ?? undefined,
             ownerAmount: l.ownerAmount != null ? Number(l.ownerAmount) : undefined,
             commissionPercent:
@@ -278,7 +284,8 @@ export class QuotesService {
       const processingJobIds: string[] = [];
       for (const l of procLines) {
         const procDto: CreateProcessingJobDto = {
-          plateId: l.plateId,
+          // İşleme kalemi fiziksel bir malzeme gerektirir (plaka zorunlu).
+          plateId: l.plateId!,
           customerId: quote.buyerCustomerId,
           billingUnit: l.billingUnit ?? undefined,
           quantity: Number(l.quantity),
@@ -394,12 +401,18 @@ export class QuotesService {
 
     const items: QuoteItem[] = [];
     for (const itemDto of dto.items) {
-      const plate = await this.platesService.findOne(itemDto.plateId);
+      // Serbest (stoksuz) kalemde plaka yoktur.
+      const plate = itemDto.plateId
+        ? await this.platesService.findOne(itemDto.plateId)
+        : null;
       const lineTotal = this.computeLineTotal(itemDto, plate);
       items.push(
         this.itemsRepo.create({
           lineKind: itemDto.lineKind,
-          plateId: itemDto.plateId,
+          plateId: itemDto.plateId ?? null,
+          itemName: itemDto.plateId
+            ? null
+            : itemDto.itemName?.trim() || 'Malzeme',
           description: itemDto.description,
           quantity: itemDto.quantity,
           unitPrice: itemDto.unitPrice,
@@ -407,9 +420,9 @@ export class QuotesService {
           itemDate: itemDto.itemDate ? new Date(itemDto.itemDate) : null,
           // m²/metre gösterimi ve hesabı için ölçü birimi ve ebatları (gerekirse
           // plakadan) kaleme yansıtılır — satış kaleminde de m² görünür.
-          billingUnit: itemDto.billingUnit ?? plate.measurementType ?? null,
-          widthMm: itemDto.widthMm ?? plate.widthMm ?? null,
-          heightMm: itemDto.heightMm ?? plate.heightMm ?? null,
+          billingUnit: itemDto.billingUnit ?? plate?.measurementType ?? null,
+          widthMm: itemDto.widthMm ?? plate?.widthMm ?? null,
+          heightMm: itemDto.heightMm ?? plate?.heightMm ?? null,
           lengthMeters: itemDto.lengthMeters ?? null,
           stockSource: itemDto.stockSource ?? null,
           ownerSettlement: itemDto.ownerSettlement ?? null,
@@ -456,12 +469,12 @@ export class QuotesService {
       measurementType?: MeasurementType;
       widthMm?: number | null;
       heightMm?: number | null;
-    },
+    } | null,
   ): number {
     const billingUnit =
-      item.billingUnit ?? plate.measurementType ?? MeasurementType.AREA;
-    const widthMm = item.widthMm ?? plate.widthMm ?? null;
-    const heightMm = item.heightMm ?? plate.heightMm ?? null;
+      item.billingUnit ?? plate?.measurementType ?? MeasurementType.AREA;
+    const widthMm = item.widthMm ?? plate?.widthMm ?? null;
+    const heightMm = item.heightMm ?? plate?.heightMm ?? null;
     // m² seçili ama ebat yoksa adet bazına düş (güvenli geri dönüş).
     if (
       billingUnit === MeasurementType.AREA &&

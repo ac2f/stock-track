@@ -26,12 +26,17 @@ export class QuoteItem extends BaseEntity {
   @Column({ name: 'line_kind', type: 'enum', enum: QuoteLineKind })
   lineKind: QuoteLineKind;
 
-  @ManyToOne(() => MaterialPlate, { eager: true, onDelete: 'RESTRICT' })
+  // Serbest (stoksuz) kalemde plaka yoktur → nullable.
+  @ManyToOne(() => MaterialPlate, { eager: true, nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'plate_id' })
-  plate: MaterialPlate;
+  plate?: MaterialPlate | null;
 
-  @Column({ name: 'plate_id' })
-  plateId: string;
+  @Column({ name: 'plate_id', nullable: true })
+  plateId?: string | null;
+
+  /** Serbest (stoksuz) kalemde malzeme adı; plaka seçilen kalemde null. */
+  @Column({ name: 'item_name', nullable: true })
+  itemName?: string | null;
 
   @Column({ nullable: true })
   description?: string;

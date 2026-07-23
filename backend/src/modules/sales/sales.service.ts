@@ -101,8 +101,12 @@ export class SalesService {
     opts: { allowNegativeStock?: boolean } = {},
   ): Promise<{ result: SaleResult; event: SaleCreatedEvent }> {
     await this.customersService.findOne(dto.buyerCustomerId);
+    // Serbest (stoksuz, plakasız) kalemin stockSource'u yoktur → sahip gerektirmez.
     const needsOwner = dto.items.some(
-      (i) => i.stockSource !== SaleStockSource.BUSINESS,
+      (i) =>
+        !!i.plateId &&
+        i.stockSource != null &&
+        i.stockSource !== SaleStockSource.BUSINESS,
     );
     if (needsOwner && !dto.ownerCustomerId) {
       throw new BadRequestException(
@@ -117,16 +121,21 @@ export class SalesService {
     const saleDate = dto.saleDate ? new Date(dto.saleDate) : new Date();
 
     // Kalemlerin plakalarını yükle (m² bazlı fiyatlama ölçüm tipine göre yapılır).
+    // Serbest (plakasız) kalemler atlanır.
     const plateById = new Map<string, MaterialPlate>();
     for (const it of dto.items) {
-      if (!plateById.has(it.plateId)) {
+      if (it.plateId && !plateById.has(it.plateId)) {
         plateById.set(it.plateId, await this.platesService.findOne(it.plateId));
       }
     }
 
     // Kalem hesapları (işlem para biriminde).
     const computedItems = dto.items.map((item) =>
-      this.computeItem(item, !!dto.ownerCustomerId, plateById.get(item.plateId)),
+      this.computeItem(
+        item,
+        !!dto.ownerCustomerId,
+        item.plateId ? plateById.get(item.plateId) : undefined,
+      ),
     );
     const saleTotal = roundMoney(
       computedItems.reduce((s, i) => s + i.lineTotal, 0),
@@ -167,16 +176,23 @@ export class SalesService {
       : null;
 
     const items: SaleItem[] = dto.items.map((item, idx) => {
-      const plate = plateById.get(item.plateId);
+      const plate = item.plateId ? plateById.get(item.plateId) : undefined;
+      const adhoc = !item.plateId;
       return manager.create(SaleItem, {
-        plateId: item.plateId,
+        plateId: item.plateId ?? null,
+        // Serbest kalemde ad + fiyatlama birimi saklanır (fiş/ekstre için).
+        itemName: adhoc ? item.itemName?.trim() || 'Malzeme' : null,
+        billingUnit: adhoc
+          ? item.billingUnit ?? MeasurementType.PIECE
+          : null,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         // Tabaka satışında satılan ebadı kalemde sakla (fiş/raporda m² göstermek için).
         widthMm: item.widthMm ?? plate?.widthMm ?? null,
         heightMm: item.heightMm ?? plate?.heightMm ?? null,
         lineTotal: computedItems[idx].lineTotal,
-        stockSource: item.stockSource,
+        // Serbest kalemin stok kaynağı yoktur; plaka kaleminde verilmezse kendi stok.
+        stockSource: adhoc ? null : item.stockSource ?? SaleStockSource.BUSINESS,
         ownerSettlement: item.ownerSettlement ?? null,
         commissionPercent: item.commissionPercent ?? null,
         ownerAmount: computedItems[idx].ownerAmount,
@@ -202,8 +218,15 @@ export class SalesService {
     const savedSale = await manager.save(sale);
 
     // Stok hareketleri (kaynağa göre). Tabaka (AREA) malzemede satılan parçanın
-    // boyu kadar kalan ebat otomatik düşülür; diğerlerinde adet düşülür.
-    for (const item of dto.items) {
+    // boyu kadar kalan ebat otomatik düşülür; diğerlerinde adet düşülür. Fiilen
+    // düşülen miktar (eksen/adet) kalemde saklanır → satış geri alınınca (teklif
+    // silme) stok tam olarak sahibine/eksene iade edilebilsin.
+    for (let idx = 0; idx < dto.items.length; idx++) {
+      const item = dto.items[idx];
+      const saleItem = items[idx];
+      if (!item.plateId) {
+        continue; // serbest (stoksuz) kalem → stok hareketi yok
+      }
       if (item.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) {
         continue; // stok takip edilmiyor
       }
@@ -211,7 +234,7 @@ export class SalesService {
         item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
           ? dto.ownerCustomerId ?? null
           : null;
-      await this.platesService.consume({
+      const cut = await this.platesService.consume({
         plateId: item.plateId,
         warehouseId: warehouse!.id,
         quantity: item.quantity,
@@ -222,6 +245,11 @@ export class SalesService {
         manager,
         allowNegative: opts.allowNegativeStock ?? false,
       });
+      saleItem.consumedWidthMm = cut.widthReducedMm || null;
+      saleItem.consumedHeightMm = cut.heightReducedMm || null;
+      saleItem.consumedQuantity =
+        cut.widthReducedMm || cut.heightReducedMm ? 0 : item.quantity;
+      await manager.save(saleItem);
     }
 
     // Alıcı borçlanır (DEBIT, baz tutarda). Açıklamaya kalem özetini (ürün,
@@ -263,10 +291,12 @@ export class SalesService {
 
   /**
    * #2 Bir satışı geri alır (teklif silinirken çağrılır):
+   *  - STOK İADE EDİLİR: her kalem, tüketildiği biçimde (tabaka ekseni / adet-metre)
+   *    ve tüketildiği sahibe (işletme / konsinye müşterisi) stoğa geri eklenir.
+   *    Takipsiz üçüncü kişi malzemesi ve serbest (stoksuz) kalemlerde stok hareketi
+   *    yoktur → iadede de atlanır.
    *  - alıcı borcu (DEBIT) ve sahip payı (CREDIT) defter hareketlerini kaldırır,
    *  - satışı fiziksel siler (kalemler CASCADE).
-   * STOK İADE EDİLMEZ: satılan/tüketilen malzeme stoğa geri eklenmez (kullanıcı
-   * talebi) — aksi halde geri eklenen miktarın sahipliği işletmeye geçiyordu.
    * Bakiyeyi YENİDEN HESAPLAMAZ — etkilenen müşteri id'lerini döner; çağıran toplu
    * halde recomputeBalances çağırmalıdır.
    */
@@ -276,6 +306,50 @@ export class SalesService {
       withDeleted: true,
     });
     if (!sale) return [];
+
+    // Stoğu iade et (satışı silmeden önce — kalemler hâlâ elimizde).
+    for (const it of sale.items ?? []) {
+      if (!it.plateId) continue; // serbest (stoksuz) kalem
+      if (it.stockSource === SaleStockSource.THIRD_PARTY_UNTRACKED) continue;
+      const owner =
+        it.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
+          ? sale.ownerCustomerId ?? null
+          : null;
+      const cw = Number(it.consumedWidthMm) || 0;
+      const ch = Number(it.consumedHeightMm) || 0;
+      const plate = await manager.findOne(MaterialPlate, {
+        where: { id: it.plateId },
+        withDeleted: true,
+      });
+      if (plate?.measurementType === MeasurementType.AREA) {
+        // Tabaka: izlenen düşülen ekseni geri ekle. Eski (izlenmemiş) satışlarda
+        // en iyi tahminle satılan boyu geri ekle (tam-en yatay şerit varsayımı).
+        if (cw > 0 || ch > 0) {
+          await this.platesService.restoreSheet(it.plateId, cw, ch, manager);
+        } else {
+          await this.platesService.restoreSheet(
+            it.plateId,
+            0,
+            Number(it.heightMm) || 0,
+            manager,
+          );
+        }
+      } else if (sale.warehouseId) {
+        // Adet/metre: fiilen düşülen miktarı sahibine geri ekle (şerit sınırsız
+        // olduğundan negatif bakiye de düzeltilir → allowNegative).
+        const refund = Number(it.consumedQuantity) || Number(it.quantity);
+        if (refund > 0) {
+          await this.platesService.adjustStock(
+            it.plateId,
+            sale.warehouseId,
+            refund,
+            owner,
+            manager,
+            true,
+          );
+        }
+      }
+    }
 
     await this.accountService.removeBySource(
       manager,
@@ -334,7 +408,15 @@ export class SalesService {
   ): { lineTotal: number; ownerAmount: number } {
     const lineTotal = this.lineTotalFor(item, plate);
 
-    if (item.stockSource === SaleStockSource.BUSINESS) {
+    // Serbest (stoksuz) kalem: sahip payı yok, tümü işletme geliri.
+    if (!item.plateId) {
+      return { lineTotal, ownerAmount: 0 };
+    }
+
+    if (
+      item.stockSource == null ||
+      item.stockSource === SaleStockSource.BUSINESS
+    ) {
       return { lineTotal, ownerAmount: 0 };
     }
 
@@ -385,12 +467,13 @@ export class SalesService {
       maximumFractionDigits: 2,
     });
     const parts = items.map((item) => {
-      const plate = plateById.get(item.plateId);
-      const baseName = plate?.name ?? 'Malzeme';
+      const plate = item.plateId ? plateById.get(item.plateId) : undefined;
+      const baseName = plate?.name ?? (item.itemName?.trim() || 'Malzeme');
       // Malzeme TÜRÜ (Pleksi/Kompozit…) ekstrede görünsün.
       const type = plate?.template?.category?.name;
       const name = type ? `${type} ${baseName}` : baseName;
-      const unit = plate?.measurementType ?? MeasurementType.PIECE;
+      const unit =
+        plate?.measurementType ?? item.billingUnit ?? MeasurementType.PIECE;
       const widthMm = item.widthMm ?? plate?.widthMm ?? null;
       const heightMm = item.heightMm ?? plate?.heightMm ?? null;
       // Kalem notu (varsa) açıklamaya eklenir → cari ekstrede görünür.
@@ -416,7 +499,9 @@ export class SalesService {
    * güvenli geri dönüş yapılır.
    */
   private lineTotalFor(item: SaleItemDto, plate?: MaterialPlate): number {
-    const unit = plate?.measurementType ?? MeasurementType.PIECE;
+    // Plaka varsa ölçüm tipi ondan; serbest kalemde kalemin billingUnit'inden.
+    const unit =
+      plate?.measurementType ?? item.billingUnit ?? MeasurementType.PIECE;
     const widthMm = item.widthMm ?? plate?.widthMm ?? null;
     const heightMm = item.heightMm ?? plate?.heightMm ?? null;
     if (unit === MeasurementType.AREA && widthMm && heightMm) {

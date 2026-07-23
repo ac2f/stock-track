@@ -47,10 +47,12 @@ function saleItemMeasure(it: {
   widthMm?: number | null;
   heightMm?: number | null;
   quantity: number;
-  plate?: { measurementType?: string };
+  billingUnit?: string | null;
+  plate?: { measurementType?: string } | null;
 }): string {
+  const unit = it.plate?.measurementType ?? it.billingUnit;
   // Şerit/rulo (LENGTH): miktar metredir — "adet" değil.
-  if (it.plate?.measurementType === 'length') {
+  if (unit === 'length') {
     return `${Number(it.quantity).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} m`;
   }
   const w = Number(it.widthMm);
@@ -140,7 +142,7 @@ function RecentSales() {
             {s.items.map((it, idx) => (
               <li key={idx} className="flex justify-between">
                 <span>
-                  {it.plate?.name ?? '—'} · {saleItemMeasure(it)} ×{' '}
+                  {it.plate?.name ?? it.itemName ?? '—'} · {saleItemMeasure(it)} ×{' '}
                   {money.format(Number(it.unitPrice))}
                 </span>
                 <span>{money.format(Number(it.lineTotal))}</span>

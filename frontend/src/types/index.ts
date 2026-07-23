@@ -291,7 +291,10 @@ export type MeasurementType = 'area' | 'length' | 'piece' | 'weight';
 
 export interface QuoteItemInput {
   lineKind: QuoteLineKind;
-  plateId: string;
+  // Stoktan seçilen malzemede plaka kimliği; serbest (stoksuz) kalemde boş.
+  plateId?: string;
+  // Serbest (stoksuz) kalemde malzeme adı — fiş/ekstrede görünür.
+  itemName?: string;
   description?: string;
   quantity: number;
   unitPrice: number;

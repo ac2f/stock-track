@@ -30,10 +30,11 @@ export function computeQuantityValue(input: QuantityInput): number {
       return totalAreaM2(Number(input.widthMm), Number(input.heightMm), quantity);
     }
     case MeasurementType.LENGTH: {
+      // Metre bazlı işlemede lengthMeters verilmemişse quantity'yi metre kabul et
+      // (satış tarafındaki fallback ile tutarlı) — "lengthMeters zorunludur"
+      // hatası vermeden şerit/rulo işi kuyruğa eklenebilsin.
       if (input.lengthMeters == null) {
-        throw new BadRequestException(
-          'Metre bazlı işleme için lengthMeters (metre) zorunludur.',
-        );
+        return round(quantity, 4);
       }
       return round(input.lengthMeters * quantity, 4);
     }

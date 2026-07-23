@@ -2,12 +2,15 @@ import { api } from './client';
 import type { Paginated } from '../types';
 
 export interface SaleItemRow {
-  plateId: string;
+  plateId?: string | null;
+  // Serbest (stoksuz) kalemde malzeme adı ve fiyatlama birimi.
+  itemName?: string | null;
+  billingUnit?: 'area' | 'length' | 'piece' | 'weight' | null;
   plate?: {
     name: string;
     // Şerit/rulo satışında miktarın "m" olarak gösterilmesi için.
     measurementType?: 'area' | 'length' | 'piece' | 'weight';
-  };
+  } | null;
   quantity: number;
   widthMm?: number | null;
   heightMm?: number | null;

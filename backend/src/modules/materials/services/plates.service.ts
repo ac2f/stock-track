@@ -502,14 +502,19 @@ export class PlatesService {
       return this.reduceSheet(plate, cutW, cutH, qty, manager, allowNegative);
     }
 
-    // AREA dışı: klasik adet düşüşü.
+    // AREA dışı: klasik adet düşüşü. Şerit/rulo (LENGTH) malzeme "sınırsız
+    // uzunluk" gibi kullanılır: stok yetersiz olsa da düşüş engellenmez (miktar
+    // negatife/backorder düşebilir, izlenmeye devam eder) → "Yetersiz stok" hatası
+    // vermez. Diğer tiplerde çağıranın allowNegative tercihi geçerlidir.
+    const unlimited =
+      allowNegative || plate?.measurementType === MeasurementType.LENGTH;
     await this.adjustStock(
       plateId,
       warehouseId,
       -quantity,
       ownerCustomerId,
       manager,
-      allowNegative,
+      unlimited,
     );
     return { widthReducedMm: 0, heightReducedMm: 0 };
   }

@@ -42,6 +42,8 @@ import type {
 type FormItem = QuoteItemInput & {
   ownerCustomerId?: string;
   ownerMode?: 'auto' | 'business' | 'customer';
+  // Serbest (stoksuz) satış kalemi: plaka seçmeden ad/ölçü/fiyat ile satış.
+  adhoc?: boolean;
 };
 
 /**
@@ -576,6 +578,9 @@ function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
   return {
     lineKind: it.lineKind,
     plateId: it.plateId,
+    // Serbest (stoksuz) kalem: plakasız kaydedilmiş satış kalemi.
+    adhoc: it.lineKind === 'sale' && !it.plateId,
+    itemName: it.itemName,
     description: it.description,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
@@ -627,7 +632,8 @@ function NewQuoteForm({
 
   const cachePlate = (p?: Plate) =>
     p && setPlateCache((c) => (c[p.id] ? c : { ...c, [p.id]: p }));
-  const getPlate = (id: string): Plate | undefined => plateCache[id];
+  const getPlate = (id?: string): Plate | undefined =>
+    id ? plateCache[id] : undefined;
 
   // Halihazırda üretim kuyruğunda (PENDING/IN_PROGRESS — başlatılmamış olsa bile)
   // olan plakaların id'leri: kaleme eklenince sarı uyarı gösterilir (engellenmez).
@@ -690,16 +696,20 @@ function NewQuoteForm({
     setItems((it) => [
       ...it,
       ...chosen.map((p) => {
-        const area = !p.measurementType || p.measurementType === 'area';
+        const mt = (p.measurementType ?? 'area') as MeasurementType;
         return {
           lineKind: 'processing' as const,
           plateId: p.id,
           quantity: 1,
           unitPrice: 0,
-          billingUnit: (p.measurementType ?? 'area') as MeasurementType,
-          ...(area
+          billingUnit: mt,
+          // Tabaka: en/boy; şerit (LENGTH): kalan uzunluk (metre) ön-dolar,
+          // yükseklik KULLANILMAZ. Diğer tiplerde ölçü girilmez.
+          ...(mt === 'area'
             ? { widthMm: Number(p.widthMm), heightMm: Number(p.heightMm) }
-            : {}),
+            : mt === 'length'
+              ? { lengthMeters: Number(p.quantityInStock) || undefined }
+              : {}),
         };
       }),
     ]);
@@ -751,7 +761,30 @@ function NewQuoteForm({
     cachePlate(plate);
     // Tabaka satışı tamamen ebattan hesaplandığından adet 1'e sabitlenir.
     const areaSale = lineKind === 'sale' && plate?.measurementType === 'area';
-    patch(i, { plateId, ...(areaSale ? { quantity: 1 } : {}) });
+    const p: Partial<FormItem> = { plateId };
+    if (areaSale) p.quantity = 1;
+    // #2 İşleme kaleminde faturalama birimi, seçilen malzemenin ölçüm tipinden
+    // gelir: şeritte (LENGTH) METRE, tabakada (AREA) en/boy. Şeritte kalan uzunluk
+    // (metre) ön-doldurulur ve yükseklik/ebat KULLANILMAZ (yükseklik = uzunluk
+    // karışıklığını önler).
+    if (lineKind === 'processing' && plate) {
+      const mt = (plate.measurementType ?? 'area') as MeasurementType;
+      p.billingUnit = mt;
+      if (mt === 'length') {
+        p.lengthMeters = Number(plate.quantityInStock) || undefined;
+        p.widthMm = undefined;
+        p.heightMm = undefined;
+      } else if (mt === 'area') {
+        p.widthMm = plate.widthMm != null ? Number(plate.widthMm) : undefined;
+        p.heightMm = plate.heightMm != null ? Number(plate.heightMm) : undefined;
+        p.lengthMeters = undefined;
+      } else {
+        p.widthMm = undefined;
+        p.heightMm = undefined;
+        p.lengthMeters = undefined;
+      }
+    }
+    patch(i, p);
     if (lineKind === 'sale') {
       setAskFor(plateId ? { index: i, plateId } : null);
     }
@@ -774,7 +807,8 @@ function NewQuoteForm({
   const canSubmit =
     buyerCustomerId &&
     items.length > 0 &&
-    items.every((i) => i.plateId) &&
+    // Her kalem ya bir plaka seçmeli ya da serbest (stoksuz) kalemde ad girmeli.
+    items.every((i) => i.plateId || (i.adhoc && i.itemName?.trim())) &&
     !ownerConflict;
 
   // Teklif henüz oluşturulmadan satır tutarları + genel toplam (canlı tahmin).
@@ -962,6 +996,13 @@ function NewQuoteForm({
       {items.map((item, i) => {
         const plate = getPlate(item.plateId);
         const preview = quoteLinePreview(item, plate);
+        // Satış kaleminin ölçü birimi: serbest kalemde kalemin billingUnit'i,
+        // plaka seçilmişse plakanın ölçüm tipi. Adet/ebat alanlarını bu belirler.
+        const saleUnit: MeasurementType | undefined = item.adhoc
+          ? item.billingUnit ?? 'area'
+          : plate?.measurementType;
+        const isLengthSale = item.lineKind === 'sale' && saleUnit === 'length';
+        const isAreaSale = item.lineKind === 'sale' && saleUnit === 'area';
         return (
         <div key={i} className="rounded-xl border border-slate-200 p-2 space-y-2 dark:border-slate-700">
           <div className="flex items-center justify-between text-xs text-slate-500">
@@ -975,9 +1016,36 @@ function NewQuoteForm({
             </button>
           </div>
 
+          {/* #5 Serbest (stoksuz) kalem: yalnızca satış kaleminde. Açıkken plaka
+              seçilmez; ad/ölçü/fiyat girilir, stok hareketi olmaz. */}
+          {item.lineKind === 'sale' && (
+            <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={!!item.adhoc}
+                onChange={(e) =>
+                  patch(i, {
+                    adhoc: e.target.checked,
+                    plateId: '',
+                    ownerCustomerId: undefined,
+                    ownerMode: 'auto',
+                    itemName: e.target.checked ? item.itemName ?? '' : undefined,
+                    billingUnit: e.target.checked
+                      ? item.billingUnit ?? 'area'
+                      : undefined,
+                    quantity: 1,
+                  })
+                }
+              />
+              Stoksuz (serbest) kalem — stoktan seçmeden ad/ölçü/fiyat gir
+            </label>
+          )}
+
           {/* Malzeme kaynağı: işletme stoğu / müşteri (konsinye) / tümü.
               Satış kaleminde müşteri seçilirse konsinye (sahip payı) hesabı
               uygulanır; işleme kaleminde yalnızca arama/filtre kolaylığıdır. */}
+          {!item.adhoc && (
+          <>
           <Field
             label={
               item.lineKind === 'sale'
@@ -1038,7 +1106,7 @@ function NewQuoteForm({
               excludeOwnerCustomerId={
                 item.lineKind === 'sale' ? buyerCustomerId || undefined : undefined
               }
-              value={item.plateId}
+              value={item.plateId ?? ''}
               selectedPlate={getPlate(item.plateId)}
               // #7 Bu teklifte başka bir kaleme zaten eklenmiş plakalar ayrı
               // renkte gösterilir (aynı özellikli tabakaları ayırt etmek için).
@@ -1047,12 +1115,74 @@ function NewQuoteForm({
                   items
                     .filter((_, idx) => idx !== i)
                     .map((x) => x.plateId)
-                    .filter(Boolean),
+                    .filter((v): v is string => !!v),
                 )
               }
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />
           </Field>
+          </>
+          )}
+
+          {/* #5 Serbest (stoksuz) kalem alanları: ad + fiyatlama birimi (+ ebat). */}
+          {item.adhoc && (
+            <div className="space-y-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50">
+              <Field label="Malzeme adı (serbest)">
+                <input
+                  className="input"
+                  placeholder="Örn. 3mm Pleksi levha"
+                  value={item.itemName ?? ''}
+                  onChange={(e) => patch(i, { itemName: e.target.value })}
+                />
+              </Field>
+              <Field label="Fiyatlama birimi">
+                <select
+                  className="input w-auto"
+                  value={item.billingUnit ?? 'area'}
+                  onChange={(e) =>
+                    patch(i, {
+                      billingUnit: e.target.value as QuoteItemInput['billingUnit'],
+                      quantity: 1,
+                    })
+                  }
+                >
+                  <option value="area">m²</option>
+                  <option value="length">metre</option>
+                  <option value="piece">adet</option>
+                </select>
+              </Field>
+              {item.billingUnit === 'area' && (
+                <div className="flex gap-2">
+                  <Field label="En (mm)" className="flex-1">
+                    <input
+                      className="input"
+                      type="number"
+                      placeholder="en (mm)"
+                      value={item.widthMm ?? ''}
+                      onChange={(e) =>
+                        patch(i, {
+                          widthMm: e.target.value ? Number(e.target.value) : undefined,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Boy (mm)" className="flex-1">
+                    <input
+                      className="input"
+                      type="number"
+                      placeholder="boy (mm)"
+                      value={item.heightMm ?? ''}
+                      onChange={(e) =>
+                        patch(i, {
+                          heightMm: e.target.value ? Number(e.target.value) : undefined,
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bu plaka halihazırda üretim kuyruğunda mı? Engellenmez, ama sarı ve
               belirgin bir uyarı gösterilir (başlat'a basılmamış olsa bile). */}
@@ -1093,7 +1223,7 @@ function NewQuoteForm({
                   <button
                     className="btn bg-blue-600 text-white"
                     onClick={() => {
-                      addProcessingForPlate(item.plateId);
+                      addProcessingForPlate(item.plateId!);
                       setAskFor(null);
                     }}
                   >
@@ -1111,7 +1241,7 @@ function NewQuoteForm({
                 hesaplanır. Şerit/rulo (LENGTH) SATIŞINDA yalnızca METRE girilir
                 (metre quantity alanında taşınır; satır = metre × TL/m).
                 Diğer satış/işleme kalemlerinde adet girilir. */}
-            {item.lineKind === 'sale' && plate?.measurementType === 'length' ? (
+            {isLengthSale ? (
               <Field label="Uzunluk (metre)" className="flex-1">
                 <input
                   className="input"
@@ -1124,7 +1254,7 @@ function NewQuoteForm({
                 />
               </Field>
             ) : (
-              !(item.lineKind === 'sale' && plate?.measurementType === 'area') && (
+              !isAreaSale && (
                 <Field label="Adet" className="flex-1">
                   <input
                     className="input"
@@ -1139,9 +1269,9 @@ function NewQuoteForm({
             <Field
               label={
                 item.lineKind === 'sale'
-                  ? plate?.measurementType === 'area'
+                  ? saleUnit === 'area'
                     ? 'Birim satış fiyatı (TL/m²)'
-                    : plate?.measurementType === 'length'
+                    : saleUnit === 'length'
                       ? 'Birim satış fiyatı (TL/metre)'
                       : 'Birim satış fiyatı'
                   : 'Birim işleme ücreti'
@@ -1415,11 +1545,24 @@ function NewQuoteForm({
           // geliridir, sahibe görünmez. Tek teklif = tek sahip.
           const ownerCustomerId = distinctOwners[0];
           const mapped: QuoteItemInput[] = items.map((it) => {
-            // ownerMode yalnızca arayüz filtresi — backend'e gönderilmez.
-            const { ownerCustomerId: oid, ownerMode: _mode, ...rest } = it;
+            // ownerMode/adhoc yalnızca arayüz durumu — backend'e gönderilmez.
+            const { ownerCustomerId: oid, ownerMode: _mode, adhoc, ...rest } = it;
+            const base: QuoteItemInput = {
+              ...rest,
+              plateId: it.plateId || undefined,
+            };
+            // #5 Serbest (stoksuz) kalem: plaka yok; ad + billingUnit gönderilir,
+            // stok kaynağı/sahip uygulanmaz.
+            if (adhoc) {
+              return {
+                ...base,
+                itemName: it.itemName?.trim() || 'Malzeme',
+                stockSource: undefined,
+              };
+            }
             if (it.lineKind === 'sale' && oid) {
               return {
-                ...rest,
+                ...base,
                 stockSource: 'consignment_tracked',
                 ownerSettlement: 'commission_percent',
                 commissionPercent: Math.min(
@@ -1428,7 +1571,7 @@ function NewQuoteForm({
                 ),
               };
             }
-            return rest;
+            return base;
           });
           createMut.mutate({
             buyerCustomerId,

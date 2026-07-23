@@ -73,7 +73,7 @@ export class DocumentHtmlService {
     const business = await this.settings.getBusiness();
     const sale = await this.salesService.findOne(saleId);
     const rows = (sale.items ?? []).map((it) => [
-      it.plate?.name ?? it.plateId.slice(0, 8),
+      it.plate?.name ?? it.itemName ?? it.plateId?.slice(0, 8) ?? '—',
       this.num(it.quantity),
       `${this.money.format(Number(it.unitPrice))}`,
       `${this.money.format(Number(it.lineTotal))}`,

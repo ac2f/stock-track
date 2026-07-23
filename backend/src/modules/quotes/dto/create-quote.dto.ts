@@ -24,8 +24,16 @@ export class QuoteItemDto {
   @IsEnum(QuoteLineKind)
   lineKind: QuoteLineKind;
 
+  // Stoktaki bir malzeme seçildiğinde plaka kimliği. Serbest (stoksuz) kalemde
+  // boş bırakılır; bu durumda itemName + ölçü/fiyat ile satılır.
+  @IsOptional()
   @IsUUID()
-  plateId: string;
+  plateId?: string;
+
+  // Serbest (stoksuz) kalemde malzemenin adı — fiş/ekstrede görünür.
+  @IsOptional()
+  @IsString()
+  itemName?: string;
 
   @IsOptional()
   @IsString()

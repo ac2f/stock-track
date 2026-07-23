@@ -17,10 +17,24 @@ import {
   OwnerSettlementType,
   SaleStockSource,
 } from '../../../common/enums/sale-source.enum';
+import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 export class SaleItemDto {
+  // Stoktaki malzeme seçildiğinde plaka kimliği. Serbest (stoksuz) satış
+  // kaleminde boş bırakılır → stok hareketi olmaz, yalnızca cariye yansır.
+  @IsOptional()
   @IsUUID()
-  plateId: string;
+  plateId?: string;
+
+  // Serbest (stoksuz) kalemde malzemenin adı — fiş/ekstrede görünür.
+  @IsOptional()
+  @IsString()
+  itemName?: string;
+
+  // Serbest kalemde fiyatlama birimi (m²/metre/adet). Plaka varsa ölçüm tipinden gelir.
+  @IsOptional()
+  @IsEnum(MeasurementType)
+  billingUnit?: MeasurementType;
 
   @IsNumber()
   @Min(0.01)
@@ -30,8 +44,10 @@ export class SaleItemDto {
   @Min(0)
   unitPrice: number;
 
+  // Plaka seçilen kalemde stok kaynağı zorunludur; serbest kalemde verilmez.
+  @IsOptional()
   @IsEnum(SaleStockSource)
-  stockSource: SaleStockSource;
+  stockSource?: SaleStockSource;
 
   // Kalem notu — cari ekstrede satış açıklamasına eklenir.
   @IsOptional()

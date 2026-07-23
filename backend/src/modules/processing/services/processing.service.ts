@@ -644,16 +644,41 @@ export class ProcessingService {
   }
 
   /**
-   * Bir işin cari etkisini geri alır (silme/teklif iptali için ortak).
-   * STOK İADE EDİLMEZ: silinen iş, tüketilmiş malzemeyi stoğa geri eklemez
-   * (kullanıcı talebi) — aksi halde geri eklenen miktarın sahipliği işletmeye
-   * geçip konsinye takibini bozuyordu. Yalnızca cari hareket defterden kaldırılır
-   * → borç ekstreden düşer. Cari bakiyeyi YENİDEN HESAPLAMAZ — çağıran yapar.
+   * Bir işin etkilerini geri alır (silme/teklif iptali için ortak):
+   *  - STOK İADE EDİLİR: iş için fiilen tüketilen stok, tüketildiği biçimde
+   *    (tabaka ekseni en/boy ya da adet) geri eklenir — iptal (CANCELLED) yolundaki
+   *    mantıkla aynı. Böylece teklif/iş silinince malzeme stoğa döner.
+   *  - Cari hareket defterden kaldırılır → borç ekstreden düşer.
+   * Cari bakiyeyi YENİDEN HESAPLAMAZ — çağıran yapar.
    */
   private async reverseJobEffects(
     manager: EntityManager,
     job: ProcessingJob,
   ): Promise<void> {
+    if (job.stockConsumed && job.warehouseId) {
+      const cw = Number(job.consumedWidthMm) || 0;
+      const ch = Number(job.consumedHeightMm) || 0;
+      if (cw > 0 || ch > 0) {
+        // Tabaka işi: düşülen ekseni (en/boy) tabakaya geri ekle.
+        await this.platesService.restoreSheet(job.plateId, cw, ch, manager);
+      } else {
+        // Adet/metre işi: fiilen düşülen miktarı işletme stoğuna geri ekle.
+        const refund = Number(job.consumedQuantity) || Number(job.quantity);
+        if (refund > 0) {
+          await this.platesService.adjustStock(
+            job.plateId,
+            job.warehouseId,
+            refund,
+            null,
+            manager,
+          );
+        }
+      }
+      job.consumedWidthMm = null;
+      job.consumedHeightMm = null;
+      job.consumedQuantity = 0;
+      job.stockConsumed = false;
+    }
     if (job.customerId) {
       await this.accountService.removeBySource(
         manager,

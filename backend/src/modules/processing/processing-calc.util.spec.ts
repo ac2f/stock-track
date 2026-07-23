@@ -51,12 +51,22 @@ describe('processing-calc.util — computeQuantityValue', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('LENGTH: lengthMeters yoksa hata verir', () => {
-    expect(() =>
+  it('LENGTH: lengthMeters yoksa quantity metre kabul edilir (hata vermez)', () => {
+    expect(
       computeQuantityValue({
         billingUnit: MeasurementType.LENGTH,
-        quantity: 1,
+        quantity: 3,
       }),
-    ).toThrow(BadRequestException);
+    ).toBe(3);
+  });
+
+  it('LENGTH: lengthMeters verilirse uzunluk × adet', () => {
+    expect(
+      computeQuantityValue({
+        billingUnit: MeasurementType.LENGTH,
+        quantity: 2,
+        lengthMeters: 1.5,
+      }),
+    ).toBe(3);
   });
 });

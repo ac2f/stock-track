@@ -92,7 +92,7 @@ export class QuoteDocumentService {
       return [
         i + 1,
         it.lineKind === QuoteLineKind.SALE ? 'Satis' : 'Isleme',
-        it.plate?.name ?? '',
+        it.plate?.name ?? it.itemName ?? '',
         UNIT_LABELS[m.unit],
         m.value,
         Number(it.unitPrice),
@@ -115,7 +115,7 @@ export class QuoteDocumentService {
     return [
       '<tr>',
       `<td>${index}</td>`,
-      `<td><strong>${esc(it.plate?.name ?? '—')}</strong> <span class="muted">(${kind})</span>${desc}</td>`,
+      `<td><strong>${esc(it.plate?.name ?? it.itemName ?? '—')}</strong> <span class="muted">(${kind})</span>${desc}</td>`,
       `<td>${UNIT_LABELS[m.unit]}</td>`,
       `<td class="num">${this.money.format(m.value)}</td>`,
       `<td class="num">${this.money.format(Number(it.unitPrice))}</td>`,
