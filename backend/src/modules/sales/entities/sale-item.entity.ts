@@ -23,11 +23,11 @@ export class SaleItem extends BaseEntity {
   @JoinColumn({ name: 'plate_id' })
   plate?: MaterialPlate | null;
 
-  @Column({ name: 'plate_id', nullable: true })
+  @Column({ name: 'plate_id', type: 'uuid', nullable: true })
   plateId?: string | null;
 
   /** Serbest (stoksuz) kalemde malzeme adı; plaka seçilen kalemde null. */
-  @Column({ name: 'item_name', nullable: true })
+  @Column({ name: 'item_name', type: 'varchar', nullable: true })
   itemName?: string | null;
 
   /** Serbest kalemde fiyatlama birimi (m²/metre/adet); plaka varsa null (ölçüm tipinden gelir). */
