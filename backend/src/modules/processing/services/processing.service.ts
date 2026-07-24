@@ -82,7 +82,17 @@ export class ProcessingService {
     dto: CreateProcessingJobDto,
     processedById: string,
   ): Promise<ProcessingJob> {
-    const plate = await this.platesService.findOne(dto.plateId);
+    // Plakayı transaction İÇİNDE ve withDeleted ile yükle: aynı teklifte aynı
+    // malzeme HEM satılıp (tabaka tamamen tükenince plaka soft-delete olur) HEM
+    // işlendiğinde, satış plakayı kaldırmış olsa bile işleme kalemi kuyruğa
+    // eklenebilsin (işleme dönüşümde ertelenir; yalnızca plaka bilgisi gerekir).
+    const plate = await manager.findOne(MaterialPlate, {
+      where: { id: dto.plateId },
+      withDeleted: true,
+    });
+    if (!plate) {
+      throw new NotFoundException('Stok kalemi bulunamadı.');
+    }
     const quantity = dto.quantity ?? 1;
     const billingUnit =
       dto.billingUnit ?? plate.measurementType ?? MeasurementType.AREA;

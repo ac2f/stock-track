@@ -175,55 +175,17 @@ export class SalesService {
           )
       : null;
 
-    const items: SaleItem[] = dto.items.map((item, idx) => {
-      const plate = item.plateId ? plateById.get(item.plateId) : undefined;
-      const adhoc = !item.plateId;
-      return manager.create(SaleItem, {
-        plateId: item.plateId ?? null,
-        // Serbest kalemde ad + fiyatlama birimi saklanır (fiş/ekstre için).
-        itemName: adhoc ? item.itemName?.trim() || 'Malzeme' : null,
-        billingUnit: adhoc
-          ? item.billingUnit ?? MeasurementType.PIECE
-          : null,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        // Tabaka satışında satılan ebadı kalemde sakla (fiş/raporda m² göstermek için).
-        widthMm: item.widthMm ?? plate?.widthMm ?? null,
-        heightMm: item.heightMm ?? plate?.heightMm ?? null,
-        lineTotal: computedItems[idx].lineTotal,
-        // Serbest kalemin stok kaynağı yoktur; plaka kaleminde verilmezse kendi stok.
-        stockSource: adhoc ? null : item.stockSource ?? SaleStockSource.BUSINESS,
-        ownerSettlement: item.ownerSettlement ?? null,
-        commissionPercent: item.commissionPercent ?? null,
-        ownerAmount: computedItems[idx].ownerAmount,
-      });
-    });
-
-    const sale = manager.create(Sale, {
-      buyerCustomerId: dto.buyerCustomerId,
-      ownerCustomerId: dto.ownerCustomerId,
-      soldById,
-      warehouseId: warehouse?.id,
-      saleDate,
-      currency,
-      exchangeRate,
-      saleTotal,
-      ownerAmount,
-      businessMargin,
-      baseSaleTotal,
-      baseOwnerAmount,
-      note: dto.note,
-      items,
-    });
-    const savedSale = await manager.save(sale);
-
-    // Stok hareketleri (kaynağa göre). Tabaka (AREA) malzemede satılan parçanın
-    // boyu kadar kalan ebat otomatik düşülür; diğerlerinde adet düşülür. Fiilen
-    // düşülen miktar (eksen/adet) kalemde saklanır → satış geri alınınca (teklif
-    // silme) stok tam olarak sahibine/eksene iade edilebilsin.
+    // Stok hareketleri (kaynağa göre) — kalemler oluşturulmadan ÖNCE yapılır ki
+    // fiilen düşülen miktar (eksen/adet) kaleme yazılıp tek kayıtla saklanabilsin
+    // (satış geri alınınca stok tam iade edilir). Tabaka (AREA) malzemede satılan
+    // parçanın boyu kadar kalan ebat düşülür; diğerlerinde adet.
+    const consumed = dto.items.map(() => ({
+      widthMm: null as number | null,
+      heightMm: null as number | null,
+      quantity: 0,
+    }));
     for (let idx = 0; idx < dto.items.length; idx++) {
       const item = dto.items[idx];
-      const saleItem = items[idx];
       if (!item.plateId) {
         continue; // serbest (stoksuz) kalem → stok hareketi yok
       }
@@ -245,12 +207,58 @@ export class SalesService {
         manager,
         allowNegative: opts.allowNegativeStock ?? false,
       });
-      saleItem.consumedWidthMm = cut.widthReducedMm || null;
-      saleItem.consumedHeightMm = cut.heightReducedMm || null;
-      saleItem.consumedQuantity =
-        cut.widthReducedMm || cut.heightReducedMm ? 0 : item.quantity;
-      await manager.save(saleItem);
+      consumed[idx] = {
+        widthMm: cut.widthReducedMm || null,
+        heightMm: cut.heightReducedMm || null,
+        quantity: cut.widthReducedMm || cut.heightReducedMm ? 0 : item.quantity,
+      };
     }
+
+    const items: SaleItem[] = dto.items.map((item, idx) => {
+      const plate = item.plateId ? plateById.get(item.plateId) : undefined;
+      const adhoc = !item.plateId;
+      return manager.create(SaleItem, {
+        plateId: item.plateId ?? null,
+        // Serbest kalemde ad + fiyatlama birimi saklanır (fiş/ekstre için).
+        itemName: adhoc ? item.itemName?.trim() || 'Malzeme' : null,
+        billingUnit: adhoc
+          ? item.billingUnit ?? MeasurementType.PIECE
+          : null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        // Tabaka satışında satılan ebadı kalemde sakla (fiş/raporda m² göstermek için).
+        widthMm: item.widthMm ?? plate?.widthMm ?? null,
+        heightMm: item.heightMm ?? plate?.heightMm ?? null,
+        lineTotal: computedItems[idx].lineTotal,
+        // Serbest kalemin stok kaynağı yoktur; plaka kaleminde verilmezse kendi stok.
+        stockSource: adhoc ? null : item.stockSource ?? SaleStockSource.BUSINESS,
+        ownerSettlement: item.ownerSettlement ?? null,
+        commissionPercent: item.commissionPercent ?? null,
+        ownerAmount: computedItems[idx].ownerAmount,
+        // Stok iadesi için fiilen düşülen miktar (yukarıda hesaplandı).
+        consumedWidthMm: consumed[idx].widthMm,
+        consumedHeightMm: consumed[idx].heightMm,
+        consumedQuantity: consumed[idx].quantity,
+      });
+    });
+
+    const sale = manager.create(Sale, {
+      buyerCustomerId: dto.buyerCustomerId,
+      ownerCustomerId: dto.ownerCustomerId,
+      soldById,
+      warehouseId: warehouse?.id,
+      saleDate,
+      currency,
+      exchangeRate,
+      saleTotal,
+      ownerAmount,
+      businessMargin,
+      baseSaleTotal,
+      baseOwnerAmount,
+      note: dto.note,
+      items,
+    });
+    const savedSale = await manager.save(sale);
 
     // Alıcı borçlanır (DEBIT, baz tutarda). Açıklamaya kalem özetini (ürün,
     // miktar/m², birim fiyat) ekle ki cari ekstrede satış detayı görünsün (#4).
