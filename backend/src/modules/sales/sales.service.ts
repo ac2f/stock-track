@@ -101,21 +101,6 @@ export class SalesService {
     opts: { allowNegativeStock?: boolean } = {},
   ): Promise<{ result: SaleResult; event: SaleCreatedEvent }> {
     await this.customersService.findOne(dto.buyerCustomerId);
-    // Serbest (stoksuz, plakasız) kalemin stockSource'u yoktur → sahip gerektirmez.
-    const needsOwner = dto.items.some(
-      (i) =>
-        !!i.plateId &&
-        i.stockSource != null &&
-        i.stockSource !== SaleStockSource.BUSINESS,
-    );
-    if (needsOwner && !dto.ownerCustomerId) {
-      throw new BadRequestException(
-        'Üçüncü kişi malzemesi satışında malzeme sahibi (ownerCustomerId) zorunludur.',
-      );
-    }
-    if (dto.ownerCustomerId) {
-      await this.customersService.findOne(dto.ownerCustomerId);
-    }
 
     const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
     const saleDate = dto.saleDate ? new Date(dto.saleDate) : new Date();
@@ -129,11 +114,36 @@ export class SalesService {
       }
     }
 
+    // Kalemlerin sahipliğini stok gerçeğine göre düzelt: müşteriye ait her
+    // malzeme konsinye sayılır (bkz. resolveOwnership). Bundan sonraki tüm
+    // hesaplar/stok hareketleri `saleItems` üzerinden yürür.
+    const { items: saleItems, ownerCustomerId } = await this.resolveOwnership(
+      dto,
+      plateById,
+      manager,
+    );
+
+    // Serbest (stoksuz, plakasız) kalemin stockSource'u yoktur → sahip gerektirmez.
+    const needsOwner = saleItems.some(
+      (i) =>
+        !!i.plateId &&
+        i.stockSource != null &&
+        i.stockSource !== SaleStockSource.BUSINESS,
+    );
+    if (needsOwner && !ownerCustomerId) {
+      throw new BadRequestException(
+        'Üçüncü kişi malzemesi satışında malzeme sahibi (ownerCustomerId) zorunludur.',
+      );
+    }
+    if (ownerCustomerId) {
+      await this.customersService.findOne(ownerCustomerId);
+    }
+
     // Kalem hesapları (işlem para biriminde).
-    const computedItems = dto.items.map((item) =>
+    const computedItems = saleItems.map((item) =>
       this.computeItem(
         item,
-        !!dto.ownerCustomerId,
+        !!ownerCustomerId,
         item.plateId ? plateById.get(item.plateId) : undefined,
       ),
     );
@@ -160,7 +170,7 @@ export class SalesService {
         ? (await this.currencyService.convert(ownerAmount, currency, base, saleDate)).amount
         : 0;
 
-    const needsWarehouse = dto.items.some(
+    const needsWarehouse = saleItems.some(
       (i) =>
         i.stockSource === SaleStockSource.BUSINESS ||
         i.stockSource === SaleStockSource.CONSIGNMENT_TRACKED,
@@ -179,13 +189,13 @@ export class SalesService {
     // fiilen düşülen miktar (eksen/adet) kaleme yazılıp tek kayıtla saklanabilsin
     // (satış geri alınınca stok tam iade edilir). Tabaka (AREA) malzemede satılan
     // parçanın boyu kadar kalan ebat düşülür; diğerlerinde adet.
-    const consumed = dto.items.map(() => ({
+    const consumed = saleItems.map(() => ({
       widthMm: null as number | null,
       heightMm: null as number | null,
       quantity: 0,
     }));
-    for (let idx = 0; idx < dto.items.length; idx++) {
-      const item = dto.items[idx];
+    for (let idx = 0; idx < saleItems.length; idx++) {
+      const item = saleItems[idx];
       if (!item.plateId) {
         continue; // serbest (stoksuz) kalem → stok hareketi yok
       }
@@ -194,7 +204,7 @@ export class SalesService {
       }
       const owner =
         item.stockSource === SaleStockSource.CONSIGNMENT_TRACKED
-          ? dto.ownerCustomerId ?? null
+          ? ownerCustomerId ?? null
           : null;
       const cut = await this.platesService.consume({
         plateId: item.plateId,
@@ -214,7 +224,7 @@ export class SalesService {
       };
     }
 
-    const items: SaleItem[] = dto.items.map((item, idx) => {
+    const items: SaleItem[] = saleItems.map((item, idx) => {
       const plate = item.plateId ? plateById.get(item.plateId) : undefined;
       const adhoc = !item.plateId;
       return manager.create(SaleItem, {
@@ -244,7 +254,7 @@ export class SalesService {
 
     const sale = manager.create(Sale, {
       buyerCustomerId: dto.buyerCustomerId,
-      ownerCustomerId: dto.ownerCustomerId,
+      ownerCustomerId,
       soldById,
       warehouseId: warehouse?.id,
       saleDate,
@@ -267,15 +277,16 @@ export class SalesService {
       amount: baseSaleTotal,
       sourceType: LedgerSourceType.SALE,
       sourceId: savedSale.id,
-      description: this.saleDescription(dto.items, plateById, currency, dto.note),
+      description: this.saleDescription(saleItems, plateById, currency, dto.note),
       occurredAt: saleDate,
     });
 
-    // Üçüncü kişi sahibi alacaklanır (CREDIT, baz tutarda).
+    // Üçüncü kişi sahibi alacaklanır (CREDIT, baz tutarda) — TÜM konsinye
+    // kalemlerin payı toplanarak tek harekette.
     let ownerBalance: number | undefined;
-    if (dto.ownerCustomerId && baseOwnerAmount > 0) {
+    if (ownerCustomerId && baseOwnerAmount > 0) {
       ownerBalance = await this.accountService.applyCredit(manager, {
-        customerId: dto.ownerCustomerId,
+        customerId: ownerCustomerId,
         amount: baseOwnerAmount,
         sourceType: LedgerSourceType.SALE,
         sourceId: savedSale.id,
@@ -289,12 +300,92 @@ export class SalesService {
       event: {
         saleId: savedSale.id,
         buyerCustomerId: dto.buyerCustomerId,
-        ownerCustomerId: dto.ownerCustomerId,
+        ownerCustomerId,
         baseSaleTotal,
         baseOwnerAmount,
         businessMargin: roundMoney(baseSaleTotal - baseOwnerAmount),
       },
     };
+  }
+
+  /**
+   * Kalemlerin sahipliğini STOK GERÇEĞİNE göre belirler.
+   *
+   * Arayüz, bir kalemi yalnızca kullanıcı "müşteri malzemesi" kaynağını elle
+   * seçtiğinde konsinye olarak işaretliyordu; aynı müşterinin diğer malzemeleri
+   * karışık listeden seçildiğinde kalem "işletme stoğu" olarak gidiyor ve
+   * sahibinin carisine YANSIMIYORDU. Sonuç: birden çok malzemesi satılan
+   * müşterinin bakiyesinden yalnızca tek kalemin tutarı düşüyordu.
+   *
+   * Burada her plakalı kalem için stok seviyelerindeki gerçek sahip bulunur;
+   * malzeme bir müşteriye aitse (ve işletmenin o kalemde stoğu yoksa) kalem
+   * konsinye kabul edilir. Böylece satılan HER malzeme sahibinin hesabına
+   * geçer. Yöntem verilmemişse komisyon %0 uygulanır → satış tutarının tamamı
+   * sahibin borcundan düşer.
+   *
+   * Dönen `ownerCustomerId`, kalemlerden tespit edilen (ya da istekte gelen)
+   * tek sahiptir; satış modeli tek sahip taşıdığından farklı müşterilere ait
+   * malzemeler aynı satışta birleştirilemez.
+   */
+  private async resolveOwnership(
+    dto: CreateSaleDto,
+    plateById: Map<string, MaterialPlate>,
+    manager: EntityManager,
+  ): Promise<{ items: SaleItemDto[]; ownerCustomerId?: string }> {
+    const ownersByPlate = await this.platesService.consignmentOwners(
+      [...plateById.keys()],
+      manager,
+    );
+
+    // Kalemin (varsa) tek konsinye sahibi: işletmenin de stoğu varsa ya da
+    // birden çok müşteriye aitse belirsizdir → elle işaretlemeye bırakılır.
+    const ownerOf = (plateId: string): string | undefined => {
+      if (Number(plateById.get(plateId)?.quantityInStock ?? 0) > 0) {
+        return undefined;
+      }
+      const owners = ownersByPlate.get(plateId) ?? [];
+      return owners.length === 1 ? owners[0] : undefined;
+    };
+
+    const detected = new Set<string>();
+    const items = dto.items.map((item) => {
+      if (!item.plateId) return item;
+      const owner = ownerOf(item.plateId);
+      const marked =
+        item.stockSource != null &&
+        item.stockSource !== SaleStockSource.BUSINESS;
+      if (marked) {
+        // Elle işaretlenmiş kalem: sahibi istekten (dto) gelir.
+        return item;
+      }
+      if (!owner) return item;
+      detected.add(owner);
+      return {
+        ...item,
+        stockSource: SaleStockSource.CONSIGNMENT_TRACKED,
+        ownerSettlement:
+          item.ownerSettlement ?? OwnerSettlementType.COMMISSION_PERCENT,
+        commissionPercent: item.commissionPercent ?? 0,
+      };
+    });
+
+    if (detected.size > 1) {
+      throw new BadRequestException(
+        'Bir satışta yalnızca tek malzeme sahibi olabilir; farklı müşterilere ait malzemeleri ayrı satışlarda kaydedin.',
+      );
+    }
+    const [detectedOwner] = detected;
+    if (
+      detectedOwner &&
+      dto.ownerCustomerId &&
+      detectedOwner !== dto.ownerCustomerId
+    ) {
+      throw new BadRequestException(
+        'Satıştaki malzemeler farklı müşterilere ait; her sahibin malzemesini ayrı satışta kaydedin.',
+      );
+    }
+
+    return { items, ownerCustomerId: dto.ownerCustomerId ?? detectedOwner };
   }
 
   /**

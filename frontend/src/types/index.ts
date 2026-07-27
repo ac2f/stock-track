@@ -208,6 +208,9 @@ export interface Plate {
   addedAt?: string; // edinme/stoğa giriş tarihi (YYYY-MM-DD)
   processedAt?: string; // işlenme tarihi (YYYY-MM-DD)
   owners?: string[]; // dinamik sahip(ler): "İşletme" ve/veya müşteri adları
+  // Konsinye sahibi müşteri id'leri (adların kimliği) — satış kaleminde sahibin
+  // otomatik belirlenmesi için.
+  ownerCustomerIds?: string[];
   templateId?: string;
   template?: {
     category: MaterialCategory;

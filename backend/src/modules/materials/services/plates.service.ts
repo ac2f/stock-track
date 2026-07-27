@@ -273,33 +273,76 @@ export class PlatesService {
   /**
    * Her plakaya güncel sahip(ler)ini ekler (dinamik): işletme stoğu varsa
    * "İşletme", konsinye seviyeleri varsa o müşterilerin adları. Liste/başlıkta
-   * "kimin nesi" görünmesi için kullanılır.
+   * "kimin nesi" görünmesi için kullanılır. Adların yanında müşteri id'leri de
+   * (`ownerCustomerIds`) taşınır — satış kaleminde sahibin otomatik seçilmesi
+   * için arayüzün kimliğe ihtiyacı var.
    */
   private async attachOwners(plates: MaterialPlate[]): Promise<void> {
     if (!plates.length) return;
     const ids = plates.map((p) => p.id);
-    const rows: { plate_id: string; name: string }[] = await this.dataSource.query(
-      `SELECT DISTINCT sl.plate_id, c.name
+    const rows: { plate_id: string; owner_customer_id: string; name: string }[] =
+      await this.dataSource.query(
+        `SELECT DISTINCT sl.plate_id, sl.owner_customer_id, c.name
          FROM stock_levels sl
          JOIN customers c ON c.id = sl.owner_customer_id
         WHERE sl.plate_id = ANY($1)
           AND sl.owner_customer_id IS NOT NULL
           AND sl.quantity > 0
           AND sl.deleted_at IS NULL`,
-      [ids],
-    );
-    const consignByPlate = new Map<string, string[]>();
+        [ids],
+      );
+    const consignByPlate = new Map<string, { id: string; name: string }[]>();
     for (const r of rows) {
       const list = consignByPlate.get(r.plate_id) ?? [];
-      list.push(r.name);
+      list.push({ id: r.owner_customer_id, name: r.name });
       consignByPlate.set(r.plate_id, list);
     }
     for (const plate of plates) {
+      const consign = consignByPlate.get(plate.id) ?? [];
       const owners: string[] = [];
       if (Number(plate.quantityInStock) > 0) owners.push('İşletme');
-      owners.push(...(consignByPlate.get(plate.id) ?? []));
-      (plate as MaterialPlate & { owners?: string[] }).owners = owners;
+      owners.push(...consign.map((c) => c.name));
+      const decorated = plate as MaterialPlate & {
+        owners?: string[];
+        ownerCustomerIds?: string[];
+      };
+      decorated.owners = owners;
+      decorated.ownerCustomerIds = consign.map((c) => c.id);
     }
+  }
+
+  /**
+   * Verilen kalemlerin GERÇEK konsinye sahiplerini (stok seviyelerinden) döner:
+   * plateId → stoğu bulunan müşteri id'leri.
+   *
+   * Satışta kalemin kime ait olduğunu belirlemek için kullanılır: arayüz kalemi
+   * "işletme stoğu" olarak işaretlemiş olsa bile, stok fiilen bir müşteriye
+   * aitse o kalem konsinyedir ve sahibinin carisine yansımalıdır.
+   */
+  async consignmentOwners(
+    plateIds: string[],
+    manager?: EntityManager,
+  ): Promise<Map<string, string[]>> {
+    const byPlate = new Map<string, string[]>();
+    if (!plateIds.length) return byPlate;
+    const repo = manager
+      ? manager.getRepository(StockLevel)
+      : this.stockLevelsRepo;
+    const rows = await repo
+      .createQueryBuilder('sl')
+      .select('sl.plate_id', 'plateId')
+      .addSelect('sl.owner_customer_id', 'ownerCustomerId')
+      .where('sl.plate_id IN (:...plateIds)', { plateIds })
+      .andWhere('sl.owner_customer_id IS NOT NULL')
+      .andWhere('sl.quantity > 0')
+      .distinct(true)
+      .getRawMany<{ plateId: string; ownerCustomerId: string }>();
+    for (const row of rows) {
+      const list = byPlate.get(row.plateId) ?? [];
+      if (!list.includes(row.ownerCustomerId)) list.push(row.ownerCustomerId);
+      byPlate.set(row.plateId, list);
+    }
+    return byPlate;
   }
 
   async findOne(id: string): Promise<MaterialPlate> {

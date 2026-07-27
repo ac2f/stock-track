@@ -40,11 +40,28 @@ import type {
  * malzemeleri) · 'business' (işletme stoğu) · 'customer' (aranan müşteri).
  */
 type FormItem = QuoteItemInput & {
+  /**
+   * Kalemin KONSİNYE SAHİBİ — seçilen malzemenin gerçek sahibinden türetilir
+   * (elle seçime bağlı değildir). Dolu ise satış tutarı sahibin borcundan düşer.
+   */
   ownerCustomerId?: string;
   ownerMode?: 'auto' | 'business' | 'customer';
+  /** Yalnızca liste filtresi: 'customer' kaynağında aranan müşteri. */
+  ownerFilterId?: string;
   // Serbest (stoksuz) satış kalemi: plaka seçmeden ad/ölçü/fiyat ile satış.
   adhoc?: boolean;
 };
+
+/**
+ * Seçilen malzemenin (tek) konsinye sahibi: işletmenin de stoğu varsa ya da
+ * malzeme birden çok müşteriye aitse belirsizdir → sahip türetilmez.
+ */
+function plateOwnerCustomerId(plate?: Plate): string | undefined {
+  if (!plate) return undefined;
+  if (Number(plate.quantityInStock) > 0) return undefined;
+  const ids = plate.ownerCustomerIds ?? [];
+  return ids.length === 1 ? ids[0] : undefined;
+}
 
 /**
  * Plaka seçici (gerekirse sahibe göre filtreli). Sahip verilirse yalnızca o
@@ -594,6 +611,7 @@ function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
     commissionPercent:
       it.commissionPercent != null ? Number(it.commissionPercent) : undefined,
     ownerCustomerId: consignment ? quote.ownerCustomerId ?? undefined : undefined,
+    ownerFilterId: consignment ? quote.ownerCustomerId ?? undefined : undefined,
     ownerMode: consignment ? 'customer' : 'auto',
   };
 }
@@ -763,6 +781,13 @@ function NewQuoteForm({
     const areaSale = lineKind === 'sale' && plate?.measurementType === 'area';
     const p: Partial<FormItem> = { plateId };
     if (areaSale) p.quantity = 1;
+    // Satış kaleminde sahip, seçilen malzemenin GERÇEK sahibinden gelir: müşteri
+    // malzemesi karışık ("Tümü") listeden seçilse de konsinye sayılır ve tutarı
+    // sahibinin borcundan düşer. Aksi halde aynı müşterinin ikinci, üçüncü
+    // malzemesi "işletme stoğu" gibi kaydolup carisine hiç yansımıyordu.
+    if (lineKind === 'sale') {
+      p.ownerCustomerId = plateOwnerCustomerId(plate);
+    }
     // #2 İşleme kaleminde faturalama birimi, seçilen malzemenin ölçüm tipinden
     // gelir: şeritte (LENGTH) METRE, tabakada (AREA) en/boy. Şeritte kalan uzunluk
     // (metre) ön-doldurulur ve yükseklik/ebat KULLANILMAZ (yükseklik = uzunluk
@@ -790,9 +815,14 @@ function NewQuoteForm({
     }
   };
 
-  // #1 Sahip (konsinye) değişince o kalemin plakasını sıfırla (sahibin malzemeleri yeniden listelenir).
+  // #1 Sahip (konsinye) filtresi değişince o kalemin plakasını sıfırla (sahibin
+  // malzemeleri yeniden listelenir). Kalemin sahibi malzeme seçilince belirlenir.
   const onOwnerPick = (i: number, ownerId: string) =>
-    patch(i, { ownerCustomerId: ownerId || undefined, plateId: '' });
+    patch(i, {
+      ownerFilterId: ownerId || undefined,
+      ownerCustomerId: undefined,
+      plateId: '',
+    });
 
   // Tek teklifte tek malzeme sahibi (satış modeli gereği).
   const distinctOwners = [
@@ -1028,6 +1058,7 @@ function NewQuoteForm({
                     adhoc: e.target.checked,
                     plateId: '',
                     ownerCustomerId: undefined,
+                    ownerFilterId: undefined,
                     ownerMode: 'auto',
                     itemName: e.target.checked ? item.itemName ?? '' : undefined,
                     billingUnit: e.target.checked
@@ -1060,6 +1091,7 @@ function NewQuoteForm({
                 onChange={(e) =>
                   patch(i, {
                     ownerMode: e.target.value as FormItem['ownerMode'],
+                    ownerFilterId: undefined,
                     ownerCustomerId: undefined,
                     plateId: '',
                   })
@@ -1093,7 +1125,7 @@ function NewQuoteForm({
               // işlemede alıcının malzemeleri EN ÜSTTE gruplanır (#5).
               businessOnly={item.ownerMode === 'business'}
               ownerCustomerId={
-                item.ownerMode === 'business' ? undefined : item.ownerCustomerId
+                item.ownerMode === 'business' ? undefined : item.ownerFilterId
               }
               preferOwnerName={
                 item.lineKind === 'processing' &&
@@ -1545,8 +1577,14 @@ function NewQuoteForm({
           // geliridir, sahibe görünmez. Tek teklif = tek sahip.
           const ownerCustomerId = distinctOwners[0];
           const mapped: QuoteItemInput[] = items.map((it) => {
-            // ownerMode/adhoc yalnızca arayüz durumu — backend'e gönderilmez.
-            const { ownerCustomerId: oid, ownerMode: _mode, adhoc, ...rest } = it;
+            // ownerMode/ownerFilterId/adhoc yalnızca arayüz durumu — gönderilmez.
+            const {
+              ownerCustomerId: oid,
+              ownerMode: _mode,
+              ownerFilterId: _filter,
+              adhoc,
+              ...rest
+            } = it;
             const base: QuoteItemInput = {
               ...rest,
               plateId: it.plateId || undefined,
