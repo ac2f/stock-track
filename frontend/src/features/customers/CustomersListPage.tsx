@@ -4,6 +4,7 @@ import {
   addCustomerLedgerEntry,
   createCustomer,
   deleteCustomer,
+  deleteCustomerLedgerEntry,
   fetchCustomer,
   fetchCustomerLedger,
   fetchCustomers,
@@ -18,10 +19,11 @@ import {
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchEmployees } from '../../api/users.api';
 import { fetchBankAccounts } from '../../api/bank-accounts.api';
+import { useAuth } from '../../context/AuthContext';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
-import type { Customer, PaymentMethod } from '../../types';
+import type { Customer, CustomerLedgerEntry, PaymentMethod } from '../../types';
 
 const currency = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -506,6 +508,36 @@ const SOURCE_LABELS: Record<string, string> = {
   manual_adjustment: 'Manuel',
 };
 
+/** Elle girildiği için ekstreden geri alınabilen hareket kaynakları. */
+const REVERSIBLE_SOURCES = ['payment', 'discount', 'manual_adjustment'];
+/** Çalışan bir hareketi kaç gün içinde geri alabilir (Sahip için sınır yok). */
+const UNDO_WINDOW_DAYS = 3;
+
+/**
+ * Bir ekstre satırının geri alınıp alınamayacağı (backend de aynı kuralı
+ * uygular; burada yalnızca düğmeyi göstermek/gizlemek için).
+ */
+function undoBlockReason(
+  entry: CustomerLedgerEntry,
+  isOwner: boolean,
+): string | null {
+  if (!REVERSIBLE_SOURCES.includes(entry.sourceType)) {
+    return 'Bu hareket işleme/satış/açılış kaydından doğar; ilgili kaydı silin.';
+  }
+  if (entry.sourceType === 'manual_adjustment' && !isOwner) {
+    return 'Manuel hareketi yalnızca İşletme Sahibi geri alabilir.';
+  }
+  if (isOwner) return null;
+  const created = entry.createdAt ? new Date(entry.createdAt).getTime() : null;
+  if (
+    created == null ||
+    Date.now() - created > UNDO_WINDOW_DAYS * 24 * 60 * 60 * 1000
+  ) {
+    return `Yalnızca son ${UNDO_WINDOW_DAYS} gün içinde girilen hareketler geri alınabilir; İşletme Sahibi'ne başvurun.`;
+  }
+  return null;
+}
+
 /**
  * #8b Cari ekstre: hareketler tarihe göre kronolojik; yürüyen bakiye yeniden
  * hesaplanır. Geçmiş tarihli borç/ödeme eklenebilir (description ödeme yerini taşır).
@@ -518,6 +550,8 @@ function CustomerStatement({
   customerName: string;
 }) {
   const qc = useQueryClient();
+  const { hasRole } = useAuth();
+  const isOwner = hasRole('owner');
   const today = new Date().toISOString().slice(0, 10);
   const [entryType, setEntryType] = useState<'debit' | 'credit'>('debit');
   const [amount, setAmount] = useState('');
@@ -550,6 +584,41 @@ function CustomerStatement({
       setDesc('');
     },
   });
+
+  // Yanlış girilen hareketi geri al (ödeme/indirim/manuel). Ödemeye bağlı
+  // hareketlerde ödemenin kendisi de silinir → ödeme geçmişini de tazele.
+  const [undoingId, setUndoingId] = useState<string | null>(null);
+  const undoMut = useMutation({
+    mutationFn: (entryId: string) =>
+      deleteCustomerLedgerEntry(customerId, entryId),
+    onSettled: () => setUndoingId(null),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ledger', customerId] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customers', 'one', customerId] });
+      qc.invalidateQueries({ queryKey: ['payments', customerId] });
+      qc.invalidateQueries({ queryKey: ['cash-collections'] });
+    },
+  });
+
+  function undoEntry(entry: CustomerLedgerEntry) {
+    const label = SOURCE_LABELS[entry.sourceType] ?? entry.sourceType;
+    const extra =
+      entry.sourceType === 'payment' && entry.sourceId
+        ? ' Bu hareketin ödeme kaydı da silinir; borç kapatma indirimi varsa o da geri alınır.'
+        : '';
+    if (
+      !window.confirm(
+        `${entry.occurredAt?.slice(0, 10)} tarihli "${label}" hareketi (${currency.format(
+          Number(entry.amount),
+        )}) geri alınacak.${extra} Cari bakiyesi yeniden hesaplanır. Devam edilsin mi?`,
+      )
+    ) {
+      return;
+    }
+    setUndoingId(entry.id);
+    undoMut.mutate(entry.id);
+  }
 
   // Kronolojik sırala + yürüyen bakiyeyi yeniden hesapla.
   const rows = [...(ledger ?? [])].sort((a, b) =>
@@ -663,28 +732,48 @@ function CustomerStatement({
               <th className="py-1 text-right">Borç</th>
               <th className="py-1 text-right">Ödeme/Alacak</th>
               <th className="py-1 text-right">Bakiye</th>
+              <th className="py-1 text-right">İşlem</th>
             </tr>
           </thead>
           <tbody>
-            {computed.map((e) => (
-              <tr key={e.id} className="border-t border-slate-100">
-                <td className="py-1">{e.occurredAt?.slice(0, 10)}</td>
-                <td className="py-1">
-                  {SOURCE_LABELS[e.sourceType] ?? e.sourceType}
-                  {e.description ? ` · ${e.description}` : ''}
-                </td>
-                <td className="py-1 text-right text-red-600">
-                  {e.entryType === 'debit' ? currency.format(Number(e.amount)) : ''}
-                </td>
-                <td className="py-1 text-right text-emerald-700">
-                  {e.entryType === 'credit' ? currency.format(Number(e.amount)) : ''}
-                </td>
-                <td className="py-1 text-right font-medium">{currency.format(e.running)}</td>
-              </tr>
-            ))}
+            {computed.map((e) => {
+              const blocked = undoBlockReason(e, isOwner);
+              return (
+                <tr key={e.id} className="border-t border-slate-100">
+                  <td className="py-1">{e.occurredAt?.slice(0, 10)}</td>
+                  <td className="py-1">
+                    {SOURCE_LABELS[e.sourceType] ?? e.sourceType}
+                    {e.description ? ` · ${e.description}` : ''}
+                  </td>
+                  <td className="py-1 text-right text-red-600">
+                    {e.entryType === 'debit' ? currency.format(Number(e.amount)) : ''}
+                  </td>
+                  <td className="py-1 text-right text-emerald-700">
+                    {e.entryType === 'credit' ? currency.format(Number(e.amount)) : ''}
+                  </td>
+                  <td className="py-1 text-right font-medium">{currency.format(e.running)}</td>
+                  <td className="py-1 text-right">
+                    {blocked ? (
+                      <span className="text-slate-300" title={blocked}>
+                        —
+                      </span>
+                    ) : (
+                      <button
+                        className="btn bg-red-50 px-2 py-1 text-xs text-red-600"
+                        title="Yanlış girilen bu hareketi geri al (sil)"
+                        disabled={undoMut.isPending}
+                        onClick={() => undoEntry(e)}
+                      >
+                        {undoingId === e.id ? '…' : 'Geri al'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {!computed.length && (
               <tr>
-                <td colSpan={5} className="py-2 text-center text-slate-400">
+                <td colSpan={6} className="py-2 text-center text-slate-400">
                   Hareket yok.
                 </td>
               </tr>
@@ -692,6 +781,12 @@ function CustomerStatement({
           </tbody>
         </table>
       </div>
+      {undoMut.isError && (
+        <p className="text-xs text-red-600">
+          {(undoMut.error as { response?: { data?: { message?: string } } })?.response?.data
+            ?.message ?? 'Hareket geri alınamadı.'}
+        </p>
+      )}
 
       {/* Geçmiş tarihli borç/ödeme ekle */}
       <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">

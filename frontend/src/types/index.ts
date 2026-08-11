@@ -72,9 +72,13 @@ export interface CustomerLedgerEntry {
   id: string;
   entryType: 'debit' | 'credit';
   sourceType: string;
+  /** Hareketi doğuran kayıt (ör. ödeme id'si); serbest hareketlerde boş. */
+  sourceId?: string | null;
   amount: number;
   balanceAfter: number;
   occurredAt: string;
+  /** Kaydın girildiği an — "geri alma" süre penceresi buna göre işler. */
+  createdAt?: string;
   description?: string | null;
 }
 

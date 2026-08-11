@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
@@ -66,6 +67,18 @@ export class CustomersController {
     @Body() dto: CreateLedgerEntryDto,
   ) {
     return this.customersService.addLedgerEntry(id, dto);
+  }
+
+  // Yanlış girilen cari hareketini geri al (ödeme/indirim/manuel).
+  // Çalışan yalnızca son günlerdekini, Sahip her zaman geri alabilir.
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Delete(':id/ledger/:entryId')
+  removeLedgerEntry(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('entryId', ParseUUIDPipe) entryId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.customersService.removeLedgerEntry(id, entryId, role);
   }
 
   // #5 İndirim (borç kapatma/yuvarlama) — ekstrede "İndirim" olarak görünür.

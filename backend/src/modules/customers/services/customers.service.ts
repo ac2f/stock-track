@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
+import { UserRole } from '../../../common/enums/user-role.enum';
 import {
   buildPaginatedResult,
   PaginatedResult,
@@ -23,13 +25,30 @@ import { QueryCustomerDto } from '../dto/query-customer.dto';
 import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
 import { SettleDebtDto } from '../dto/apply-discount.dto';
 import { CustomerAccountService } from './customer-account.service';
-import { PaymentsService } from './payments.service';
+import {
+  EDIT_WINDOW_DAYS,
+  isUnrestrictedActor,
+  PaymentsService,
+} from './payments.service';
+
+/**
+ * Ekstreden doğrudan geri alınabilen (silinebilen) hareket kaynakları.
+ * Diğerleri (açılış/işleme/satış) kendi kaydından doğar; ekstreden silinmeleri
+ * kaynak kayıtla defterin ayrışmasına yol açardı → ilgili kayıt silinmelidir.
+ */
+const REVERSIBLE_SOURCES: readonly LedgerSourceType[] = [
+  LedgerSourceType.PAYMENT,
+  LedgerSourceType.DISCOUNT,
+  LedgerSourceType.MANUAL_ADJUSTMENT,
+];
 
 @Injectable()
 export class CustomersService {
   constructor(
     @InjectRepository(Customer)
     private readonly customersRepo: Repository<Customer>,
+    @InjectRepository(CustomerLedgerEntry)
+    private readonly ledgerRepo: Repository<CustomerLedgerEntry>,
     private readonly accountService: CustomerAccountService,
     private readonly paymentsService: PaymentsService,
     private readonly dataSource: DataSource,
@@ -205,6 +224,68 @@ export class CustomersService {
       }
       return manager.findOneOrFail(Customer, { where: { id } });
     });
+  }
+
+  /**
+   * Yanlışlıkla girilmiş bir cari hareketini GERİ ALIR (siler) ve bakiyeyi
+   * baştan hesaplar. Ekstredeki "Geri al" düğmesinin karşılığıdır.
+   *
+   * Kurallar:
+   *  - Yalnızca elle girilen hareketler geri alınabilir: ödeme/tahsilat,
+   *    indirim (borç kapatma) ve manuel düzeltme. Açılış/işleme/satış
+   *    hareketleri kendi kaydından doğar; kaynak kayıt silinmelidir.
+   *  - Hareket gerçek bir ödemeye bağlıysa (source_id) ödemenin KENDİSİ silinir
+   *    → ödeme geçmişinde de kalmaz, borç kapatma indirimi varsa o da geri alınır.
+   *  - Manuel düzeltmeyi yalnızca İşletme Sahibi geri alabilir (ekleyebilen de o).
+   *  - Çalışan yalnızca son {@link EDIT_WINDOW_DAYS} gün içindeki hareketleri
+   *    geri alabilir; Sahip için süre sınırı yoktur.
+   */
+  async removeLedgerEntry(
+    customerId: string,
+    entryId: string,
+    actorRole?: string,
+  ): Promise<{ currentBalance: number }> {
+    await this.findOne(customerId);
+    const entry = await this.ledgerRepo.findOne({
+      where: { id: entryId, customerId },
+    });
+    if (!entry) {
+      throw new NotFoundException('Cari hareketi bulunamadı.');
+    }
+
+    if (!REVERSIBLE_SOURCES.includes(entry.sourceType)) {
+      throw new BadRequestException(
+        'Bu hareket bir işleme/satış/açılış kaydından doğduğu için ekstreden silinemez. İlgili kaydı (işleme, satış vb.) silin.',
+      );
+    }
+    if (
+      entry.sourceType === LedgerSourceType.MANUAL_ADJUSTMENT &&
+      actorRole !== UserRole.OWNER
+    ) {
+      throw new ForbiddenException(
+        'Manuel cari hareketini yalnızca İşletme Sahibi geri alabilir.',
+      );
+    }
+    if (!isUnrestrictedActor(actorRole)) {
+      const ageMs = Date.now() - new Date(entry.createdAt).getTime();
+      if (ageMs > EDIT_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+        throw new ForbiddenException(
+          `Yalnızca son ${EDIT_WINDOW_DAYS} gün içinde girilmiş hareketler geri alınabilir. Daha eski kayıtlar için İşletme Sahibi'ne başvurun.`,
+        );
+      }
+    }
+
+    // Gerçek bir ödemeye bağlı hareket → ödemeyi sil (bağlı indirim dahil).
+    if (entry.sourceType === LedgerSourceType.PAYMENT && entry.sourceId) {
+      return this.paymentsService.remove(customerId, entry.sourceId, actorRole);
+    }
+
+    // Serbest hareket (indirim / manuel / eski borç kapatma) → yalnızca bu satır.
+    const currentBalance = await this.dataSource.transaction(async (manager) => {
+      await manager.delete(CustomerLedgerEntry, { id: entry.id });
+      return this.accountService.recomputeBalances(manager, customerId);
+    });
+    return { currentBalance };
   }
 
   /**

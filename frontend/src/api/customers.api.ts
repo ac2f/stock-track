@@ -105,6 +105,22 @@ export async function addCustomerLedgerEntry(
   return data;
 }
 
+/**
+ * Yanlış girilen cari hareketini geri alır (siler) — ödeme/tahsilat, indirim
+ * (borç kapatma) ve manuel hareketler için. Hareket gerçek bir ödemeye bağlıysa
+ * ödemenin kendisi de silinir; borç kapatma indirimi varsa o da geri alınır.
+ * Güncel bakiye yeniden hesaplanıp döner.
+ */
+export async function deleteCustomerLedgerEntry(
+  id: string,
+  entryId: string,
+): Promise<{ currentBalance: number }> {
+  const { data } = await api.delete<{ currentBalance: number }>(
+    `/customers/${id}/ledger/${entryId}`,
+  );
+  return data;
+}
+
 export interface DiscountInput {
   amount: number;
   description?: string;

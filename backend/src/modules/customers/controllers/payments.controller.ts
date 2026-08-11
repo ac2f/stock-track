@@ -9,6 +9,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
@@ -36,24 +37,28 @@ export class PaymentsController {
     return this.paymentsService.list(customerId);
   }
 
-  // Yalnızca son 3 gün içinde kaydedilmiş ödemeler düzenlenebilir.
+  // Çalışan yalnızca son 3 günü düzenleyebilir; Sahip için süre sınırı yok.
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Patch(':paymentId')
   update(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Param('paymentId', ParseUUIDPipe) paymentId: string,
     @Body() dto: UpdatePaymentDto,
+    @CurrentUser('role') role: string,
   ) {
-    return this.paymentsService.update(customerId, paymentId, dto);
+    return this.paymentsService.update(customerId, paymentId, dto, role);
   }
 
-  // Yalnızca son 3 gün içinde kaydedilmiş ödemeler silinebilir.
+  // Yanlış girilen ödemeyi geri al: bağlı cari hareketleri (borç kapatma
+  // indirimi dahil) silinir, bakiye eski haline döner. Çalışan yalnızca son
+  // 3 gün içindekini, Sahip her zaman silebilir.
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Delete(':paymentId')
   remove(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @CurrentUser('role') role: string,
   ) {
-    return this.paymentsService.remove(customerId, paymentId);
+    return this.paymentsService.remove(customerId, paymentId, role);
   }
 }

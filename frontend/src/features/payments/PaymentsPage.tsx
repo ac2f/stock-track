@@ -25,10 +25,15 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import type { Employee, BankAccount, Payment, PaymentMethod } from '../../types';
 
-/** Bir ödeme, kaydından sonra en fazla bu kadar gün düzenlenebilir/silinebilir. */
+/**
+ * Bir ödeme, kaydından sonra en fazla bu kadar gün düzenlenebilir/silinebilir.
+ * İşletme Sahibi bu pencereyle sınırlı değildir — yanlışlıkla girilmiş bir
+ * tahsilat sonradan fark edilse de geri alınabilsin (backend de aynı kuralda).
+ */
 const EDIT_WINDOW_DAYS = 3;
 
-function isEditable(p: Payment): boolean {
+function isEditable(p: Payment, isOwner: boolean): boolean {
+  if (isOwner) return true;
   if (!p.createdAt) return false;
   const ageMs = Date.now() - new Date(p.createdAt).getTime();
   return ageMs <= EDIT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -450,9 +455,10 @@ function PaymentRow({
   onChanged: (balance: number) => void;
 }) {
   const qc = useQueryClient();
+  const { hasRole } = useAuth();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<UpdatePaymentInput>({});
-  const editable = isEditable(p);
+  const editable = isEditable(p, hasRole('owner'));
 
   const startEdit = () => {
     setForm({
@@ -472,6 +478,9 @@ function PaymentRow({
     qc.invalidateQueries({ queryKey: ['payments', customerId] });
     qc.invalidateQueries({ queryKey: ['customers'] });
     qc.invalidateQueries({ queryKey: ['customers', 'one', customerId] });
+    // Ekstre ve çalışan kasası da bu ödemeyi içeriyordu.
+    qc.invalidateQueries({ queryKey: ['ledger', customerId] });
+    qc.invalidateQueries({ queryKey: ['cash-collections'] });
   };
 
   const updateMut = useMutation({
@@ -524,19 +533,36 @@ function PaymentRow({
               </button>
               <button
                 className="btn bg-red-50 text-xs text-red-600"
+                title="Yanlışlıkla girilen bu ödemeyi geri al (sil)"
                 disabled={deleteMut.isPending}
                 onClick={() => {
-                  if (confirm('Bu ödeme silinsin mi? Cari bakiyesi yeniden hesaplanır.')) {
+                  const extra = p.isDebtClose
+                    ? ' Bu bir "borç kapama" tahsilatı: kapatmada yazılan indirim de geri alınır, borç eski haline döner.'
+                    : '';
+                  if (
+                    confirm(
+                      `${money.format(Number(p.amount))} tutarındaki bu ${
+                        p.direction === 'incoming' ? 'tahsilat' : 'ödeme'
+                      } silinsin mi?${extra} Cari bakiyesi yeniden hesaplanır.`,
+                    )
+                  ) {
                     deleteMut.mutate();
                   }
                 }}
               >
-                Sil
+                {deleteMut.isPending ? 'Siliniyor…' : 'Sil'}
               </button>
             </>
           )}
         </div>
       </div>
+
+      {deleteMut.isError && (
+        <p className="mt-1 text-xs text-red-600">
+          {(deleteMut.error as { response?: { data?: { message?: string } } })?.response?.data
+            ?.message ?? 'Ödeme silinemedi.'}
+        </p>
+      )}
 
       {editing && (
         <div className="mt-2 space-y-2 rounded-lg border border-slate-200 p-2">

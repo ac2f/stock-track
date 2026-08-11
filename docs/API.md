@@ -154,8 +154,11 @@ kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda d
 | GET | `/customers` | 👥 | Filtre: `?search=&hasDebt=true&minDebt=&sort=balance` |
 | GET | `/customers/:id` | 👥 | Müşteri + anlık borç |
 | GET | `/customers/:id/ledger` | 👥 | Cari hareket dökümü (geçmiş) |
+| DELETE | `/customers/:id/ledger/:entryId` | 🧑‍🔧 | Yanlış hareketi geri al (ödeme/indirim/manuel). Ödemeye bağlıysa ödeme kaydı + borç kapatma indirimi de silinir. Çalışan yalnızca son 3 gün, Sahip her zaman. Yanıt: `{ currentBalance }` |
 | POST | `/customers/:id/payments` | 🧑‍🔧 | Ödeme al (nakit→çalışan / havale→banka zorunlu) |
 | GET | `/customers/:id/payments` | 👥 | Ödeme geçmişi |
+| PATCH | `/customers/:id/payments/:paymentId` | 🧑‍🔧 | Ödemeyi düzelt; borç kapatma indirimi ters yönde dengelenir |
+| DELETE | `/customers/:id/payments/:paymentId` | 🧑‍🔧 | Ödemeyi geri al; bağlı cari hareketleri (borç kapatma indirimi dahil) silinir |
 
 `POST /customers/:id/payments` gövdesi (nakit):
 ```json

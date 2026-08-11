@@ -7,8 +7,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
+import { UserRole } from '../../../common/enums/user-role.enum';
 import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
@@ -28,8 +29,17 @@ export interface PaymentResult {
   currentBalance: number;
 }
 
-/** Geçmiş ödemede düzenleme/silme için izin verilen azami yaş (gün). */
-const EDIT_WINDOW_DAYS = 3;
+/**
+ * Geçmiş ödemede/cari hareketinde düzenleme-silme için izin verilen azami yaş
+ * (gün). İşletme Sahibi bu pencereyle sınırlı değildir: yanlışlıkla girilmiş
+ * bir kayıt sonradan fark edilse de geri alınabilir.
+ */
+export const EDIT_WINDOW_DAYS = 3;
+
+/** Kaydı düzenleyen/silen kişi yaş penceresinden muaf mı (Sahip mi)? */
+export function isUnrestrictedActor(actorRole?: string): boolean {
+  return actorRole === UserRole.OWNER;
+}
 
 export interface LegacyDebtClose {
   ledgerEntryId: string;
@@ -127,6 +137,8 @@ export class PaymentsService {
           : await this.accountService.applyDebit(manager, movement);
 
       // "Borç kapa": tahsilattan sonra kalan borç varsa kalan fark İNDİRİM olur.
+      // İndirim hareketi ödemeye BAĞLANIR (sourceId) → ödeme silindiğinde
+      // indirim de birlikte geri alınır, borç eski haline döner.
       if (closeDebt && direction === PaymentDirection.INCOMING) {
         const remaining = roundMoney(balanceAfter);
         if (remaining > 0) {
@@ -134,6 +146,7 @@ export class PaymentsService {
             customerId,
             amount: remaining,
             sourceType: LedgerSourceType.DISCOUNT,
+            sourceId: saved.id,
             description: `İndirim (borç kapatma — tahsilat ${roundMoney(baseAmount)})`,
             occurredAt,
           });
@@ -312,20 +325,22 @@ export class PaymentsService {
   }
 
   /**
-   * Bir ödemeyi düzenler (yalnızca son {@link EDIT_WINDOW_DAYS} gün içinde
-   * kaydedilmiş olanlar). Tutar/yöntem/tarih/not değişebilir; bağlı cari
-   * hareketi de güncellenir ve yürüyen bakiye yeniden hesaplanır.
+   * Bir ödemeyi düzenler (Çalışan için yalnızca son {@link EDIT_WINDOW_DAYS}
+   * gün içinde kaydedilmiş olanlar; Sahip için süre sınırı yok). Tutar/yöntem/
+   * tarih/not değişebilir; bağlı cari hareketi de güncellenir ve yürüyen bakiye
+   * yeniden hesaplanır.
    */
   async update(
     customerId: string,
     paymentId: string,
     dto: UpdatePaymentDto,
+    actorRole?: string,
   ): Promise<PaymentResult> {
     const payment = await this.paymentsRepo.findOne({
       where: { id: paymentId, customerId },
     });
     if (!payment) throw new NotFoundException('Ödeme bulunamadı.');
-    this.assertEditable(payment);
+    this.assertEditable(payment, actorRole);
 
     // Yeni değerleri hesapla (verilmeyen alanlar korunur).
     const method = dto.method ?? payment.method;
@@ -359,6 +374,8 @@ export class PaymentsService {
         this.currencyService.baseCurrency,
         occurredAt,
       );
+
+    const previousBaseAmount = Number(payment.baseAmount);
 
     const currentBalance = await this.dataSource.transaction(async (manager) => {
       payment.method = method;
@@ -394,6 +411,18 @@ export class PaymentsService {
         },
       );
 
+      // "Borç kapatma" ödemesinde tahsilat + indirim toplamı, kapatılan borca
+      // eşitti. Tahsilat düzeltilince indirim de ters yönde dengelenir; aksi
+      // halde aradaki fark defterden düşer (borç yanlış kapalı kalırdı).
+      if (payment.isDebtClose) {
+        await this.rebalanceDebtCloseDiscount(
+          manager,
+          payment.id,
+          roundMoney(baseAmount - previousBaseAmount),
+          { occurredAt, paidBaseAmount: baseAmount },
+        );
+      }
+
       return this.accountService.recomputeBalances(manager, customerId);
     });
 
@@ -402,21 +431,37 @@ export class PaymentsService {
   }
 
   /**
-   * Bir ödemeyi siler (yalnızca son {@link EDIT_WINDOW_DAYS} gün içinde
-   * kaydedilmiş olanlar). Bağlı cari hareketi de silinir ve bakiye yeniden
-   * hesaplanır. (Borç kapatma indirimleri ayrı hareket olduğundan korunur.)
+   * Bir ödemeyi siler — yanlış girilen tahsilatı/ödemeyi GERİ ALMA yolu.
+   * (Çalışan için yalnızca son {@link EDIT_WINDOW_DAYS} gün içinde kaydedilmiş
+   * olanlar; Sahip için süre sınırı yok.)
+   *
+   * Ödemenin doğurduğu TÜM cari hareketleri birlikte silinir:
+   *  - PAYMENT hareketi (tahsilat/ödeme),
+   *  - "borç kapatma" akışında yazılmış, bu ödemeye bağlı İNDİRİM hareketi.
+   * Ardından bakiye baştan hesaplanır → cari, ödeme öncesi haline döner.
    */
-  async remove(customerId: string, paymentId: string): Promise<{ currentBalance: number }> {
+  async remove(
+    customerId: string,
+    paymentId: string,
+    actorRole?: string,
+  ): Promise<{ currentBalance: number }> {
     const payment = await this.paymentsRepo.findOne({
       where: { id: paymentId, customerId },
     });
     if (!payment) throw new NotFoundException('Ödeme bulunamadı.');
-    this.assertEditable(payment);
+    this.assertEditable(payment, actorRole);
 
     const currentBalance = await this.dataSource.transaction(async (manager) => {
       await this.accountService.removeBySource(
         manager,
         LedgerSourceType.PAYMENT,
+        payment.id,
+      );
+      // Borç kapatma indirimi bu ödemeye bağlıysa o da geri alınır; aksi halde
+      // tahsilat silinince borç geri gelmez, indirim borcu kapalı tutardı.
+      await this.accountService.removeBySource(
+        manager,
+        LedgerSourceType.DISCOUNT,
         payment.id,
       );
       await manager.delete(Payment, { id: payment.id });
@@ -426,12 +471,46 @@ export class PaymentsService {
     return { currentBalance };
   }
 
-  private assertEditable(payment: Payment): void {
+  /**
+   * Bir borç kapatma ödemesine bağlı İNDİRİM hareketini, tahsilattaki
+   * {@link delta} kadar ters yönde günceller → (tahsilat + indirim) toplamı
+   * sabit kalır. İndirim sıfıra/negatife düşerse hareket tamamen kaldırılır
+   * (tahsilat borcu zaten karşılıyor demektir).
+   */
+  private async rebalanceDebtCloseDiscount(
+    manager: EntityManager,
+    paymentId: string,
+    delta: number,
+    ctx: { occurredAt: Date; paidBaseAmount: number },
+  ): Promise<void> {
+    if (delta === 0) return;
+    const repo = manager.getRepository(CustomerLedgerEntry);
+    const discounts = await repo.find({
+      where: { sourceType: LedgerSourceType.DISCOUNT, sourceId: paymentId },
+    });
+    if (!discounts.length) return;
+
+    const total = discounts.reduce((sum, d) => sum + Number(d.amount), 0);
+    const adjusted = roundMoney(total - delta);
+    if (adjusted <= 0) {
+      await repo.remove(discounts);
+      return;
+    }
+    const [kept, ...extras] = discounts;
+    kept.amount = adjusted;
+    kept.occurredAt = ctx.occurredAt;
+    kept.description = `İndirim (borç kapatma — tahsilat ${roundMoney(ctx.paidBaseAmount)})`;
+    await repo.save(kept);
+    if (extras.length) await repo.remove(extras);
+  }
+
+  private assertEditable(payment: Payment, actorRole?: string): void {
+    if (isUnrestrictedActor(actorRole)) return;
     const ageMs = Date.now() - new Date(payment.createdAt).getTime();
     const maxMs = EDIT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     if (ageMs > maxMs) {
       throw new ForbiddenException(
-        `Yalnızca son ${EDIT_WINDOW_DAYS} gün içinde kaydedilmiş ödemeler düzenlenebilir/silinebilir.`,
+        `Yalnızca son ${EDIT_WINDOW_DAYS} gün içinde kaydedilmiş ödemeler düzenlenebilir/silinebilir. Daha eski kayıtlar için İşletme Sahibi'ne başvurun.`,
       );
     }
   }
