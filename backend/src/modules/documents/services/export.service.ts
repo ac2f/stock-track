@@ -110,7 +110,8 @@ export class ExportService {
       { header: 'Alacak', key: 'credit', width: 14, style: this.money },
       { header: 'Bakiye', key: 'balance', width: 16, style: this.money },
     ];
-    [...ledger].reverse().forEach((e) =>
+    // Kronolojik sıra ve yürüyen bakiye getLedger'da hazırlanır.
+    ledger.forEach((e) =>
       ws.addRow({
         date: new Date(e.occurredAt).toLocaleDateString('tr-TR'),
         description: e.description ?? e.sourceType,
@@ -135,7 +136,7 @@ export class ExportService {
     const customer = await this.customersService.findOne(customerId);
     const ledger = await this.customersService.getLedger(customerId);
     const header = ['Tarih', 'Açıklama', 'Borç', 'Alacak', 'Bakiye'];
-    const rows: (string | number)[][] = [...ledger].reverse().map((e) => {
+    const rows: (string | number)[][] = ledger.map((e) => {
       const label = LEDGER_SOURCE_LABELS[e.sourceType] ?? e.sourceType;
       const desc = e.description ? `${label} · ${e.description}` : label;
       return [

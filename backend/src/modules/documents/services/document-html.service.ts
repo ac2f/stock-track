@@ -159,8 +159,9 @@ export class DocumentHtmlService {
   async customerStatementHtml(customerId: string): Promise<string> {
     const business = await this.settings.getBusiness();
     const customer = await this.customersService.findOne(customerId);
+    // Ekstre kronolojik gelir (eskiden yeniye) ve bakiyesi yeniden yürütülmüştür.
     const ledger = await this.customersService.getLedger(customerId);
-    const rows = [...ledger].reverse().map((e) => {
+    const rows = ledger.map((e) => {
       const label = LEDGER_SOURCE_LABELS[e.sourceType] ?? e.sourceType;
       const desc = e.description ? `${label} · ${e.description}` : label;
       return [

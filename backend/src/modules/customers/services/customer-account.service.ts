@@ -199,11 +199,36 @@ export class CustomerAccountService {
     return running;
   }
 
-  /** Müşterinin cari defter dökümü (geçmişe dönük izlenebilirlik). */
-  listLedger(customerId: string): Promise<CustomerLedgerEntry[]> {
-    return this.ledgerRepo.find({
+  /**
+   * Müşterinin cari defter dökümü — KRONOLOJİK (eskiden yeniye) sırada ve
+   * yürüyen bakiyesi baştan hesaplanmış olarak.
+   *
+   * `balance_after` sütunu, hareketin DEFTERE YAZILDIĞI andaki bakiyedir.
+   * Geçmiş tarihli bir hareket (ör. 11.08 tarihli iş, 12.08 tarihli işten
+   * sonra faturalanınca) araya girdiğinde bu anlık görüntü kronolojik sırayla
+   * uyuşmaz; ekstre tarihe göre dizilince bakiye sütunu zıplar. Bu yüzden
+   * ekstre için bakiye her zaman burada yeniden yürütülür → aşağı doğru
+   * tutarlı birikir ve son satır güncel bakiyeye eşit çıkar.
+   *
+   * Yalnızca döndürülen nesneler üzerinde hesaplanır; veritabanına yazmaz
+   * (kalıcı düzeltme {@link recomputeBalances} işidir).
+   */
+  async listLedger(customerId: string): Promise<CustomerLedgerEntry[]> {
+    const entries = await this.ledgerRepo.find({
       where: { customerId },
-      order: { occurredAt: 'DESC' },
+      // Aynı güne düşen hareketlerde sıra kayıt anına göre sabitlenir.
+      order: { occurredAt: 'ASC', createdAt: 'ASC' },
     });
+
+    let running = 0;
+    for (const entry of entries) {
+      const amount = roundMoney(Number(entry.amount));
+      running = roundMoney(
+        running +
+          (entry.entryType === LedgerEntryType.DEBIT ? amount : -amount),
+      );
+      entry.balanceAfter = running;
+    }
+    return entries;
   }
 }

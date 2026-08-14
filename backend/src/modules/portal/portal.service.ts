@@ -49,7 +49,8 @@ export class PortalService {
   async ledger(token: string) {
     const customer = await this.resolve(token);
     const entries = await this.accountService.listLedger(customer.id);
-    return entries.slice(0, 50).map((e) => ({
+    // Defter kronolojiktir (eskiden yeniye); son 50 hareketi sırasını bozmadan al.
+    return entries.slice(-50).map((e) => ({
       date: e.occurredAt,
       type: e.entryType,
       sourceType: e.sourceType,
