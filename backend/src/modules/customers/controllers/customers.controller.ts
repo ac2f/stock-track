@@ -19,6 +19,7 @@ import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
 import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
 import { ApplyDiscountDto, SettleDebtDto } from '../dto/apply-discount.dto';
+import { QueryStatementDto } from '../dto/query-statement.dto';
 import { CustomersService } from '../services/customers.service';
 
 @ApiTags('customers')
@@ -53,10 +54,23 @@ export class CustomersController {
     return this.customersService.findOne(id);
   }
 
-  // Cari hareket dökümü (geçmişe dönük borç izleme).
+  // Cari hareket dökümü (tüm geçmiş).
   @Get(':id/ledger')
   ledger(@Param('id', ParseUUIDPipe) id: string) {
     return this.customersService.getLedger(id);
+  }
+
+  /**
+   * Dönemlenmiş cari ekstre. Varsayılan: borcun en son kapandığı andan bugüne.
+   * `?scope=all` tüm geçmişi, `?from=&to=` serbest aralığı verir (borç
+   * kapanmadan öncesi de görülebilir). Dönem başı bakiyesi devir olarak döner.
+   */
+  @Get(':id/statement')
+  statement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryStatementDto,
+  ) {
+    return this.customersService.getStatement(id, query);
   }
 
   // #8b Cariye elle (geçmiş tarihli) borç/alacak hareketi ekle (yalnızca Sahip).

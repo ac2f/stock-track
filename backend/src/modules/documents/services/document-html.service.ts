@@ -4,6 +4,10 @@ import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum'
 import { SalesService } from '../../sales/sales.service';
 import { ProcessingService } from '../../processing/services/processing.service';
 import { CustomersService } from '../../customers/services/customers.service';
+import {
+  CustomerStatement,
+  QueryStatementDto,
+} from '../../customers/dto/query-statement.dto';
 import { ExpensesService } from '../../expenses/expenses.service';
 import { FinancialReportsService } from '../../reports/services/financial-reports.service';
 import { QueryExpenseDto } from '../../expenses/dto/expense.dto';
@@ -156,12 +160,20 @@ export class DocumentHtmlService {
   }
 
   // ── Cari hesap ekstresi ─────────────────────────────────────────────
-  async customerStatementHtml(customerId: string): Promise<string> {
+  async customerStatementHtml(
+    customerId: string,
+    query: QueryStatementDto = {},
+  ): Promise<string> {
     const business = await this.settings.getBusiness();
     const customer = await this.customersService.findOne(customerId);
-    // Ekstre kronolojik gelir (eskiden yeniye) ve bakiyesi yeniden yürütülmüştür.
-    const ledger = await this.customersService.getLedger(customerId);
-    const rows = ledger.map((e) => {
+    // Varsayılan dönem: borcun en son kapandığı andan bugüne (kronolojik,
+    // bakiyesi yeniden yürütülmüş). Dönem başı bakiyesi devir satırı olur.
+    const statement = await this.customersService.getStatement(
+      customerId,
+      query,
+    );
+
+    const rows = statement.entries.map((e) => {
       const label = LEDGER_SOURCE_LABELS[e.sourceType] ?? e.sourceType;
       const desc = e.description ? `${label} · ${e.description}` : label;
       return [
@@ -172,12 +184,26 @@ export class DocumentHtmlService {
         this.money.format(Number(e.balanceAfter)),
       ];
     });
+    if (statement.hasEarlier) {
+      rows.unshift([
+        statement.lastSettledAt && statement.scope === 'since-settlement'
+          ? this.date(statement.lastSettledAt)
+          : '',
+        'Devir (önceki dönemden bakiye)',
+        '',
+        '',
+        this.money.format(statement.openingBalance),
+      ]);
+    }
 
     return this.layout({
       business,
       docTitle: 'CARİ HESAP EKSTRESİ',
       pageTitle: `Ekstre ${customer.name}`,
-      meta: [['Tarih', this.date(new Date())]],
+      meta: [
+        ['Tarih', this.date(new Date())],
+        ['Dönem', this.statementPeriodLabel(statement)],
+      ],
       parties: [this.partyOf('Cari', customer)],
       sections: [
         {
@@ -186,16 +212,25 @@ export class DocumentHtmlService {
           rows,
           foot: [
             [
-              'Güncel bakiye',
-              this.cur(
-                Number(customer.currentBalance),
-                business.defaultCurrency,
-              ),
+              'Dönem sonu bakiye',
+              this.cur(statement.closingBalance, business.defaultCurrency),
             ],
           ],
         },
       ],
     });
+  }
+
+  /** Ekstre başlığında görünen dönem açıklaması. */
+  private statementPeriodLabel(s: CustomerStatement): string {
+    const end = s.to ? this.date(s.to) : 'bugün';
+    if (s.scope === 'since-settlement' && s.lastSettledAt) {
+      return `Son borç kapatma (${this.date(s.lastSettledAt)}) sonrası — ${end}`;
+    }
+    if (s.scope === 'custom') {
+      return `${s.from ? this.date(s.from) : 'başlangıç'} — ${end}`;
+    }
+    return `Tüm hareketler — ${end}`;
   }
 
   // ── Gider raporu ────────────────────────────────────────────────────

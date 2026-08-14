@@ -6,7 +6,7 @@ import {
   deleteCustomer,
   deleteCustomerLedgerEntry,
   fetchCustomer,
-  fetchCustomerLedger,
+  fetchCustomerStatement,
   fetchCustomers,
   issuePortalLink,
   revokePortalLink,
@@ -558,9 +558,31 @@ function CustomerStatement({
   const [date, setDate] = useState(today);
   const [desc, setDesc] = useState('');
 
-  const { data: ledger } = useQuery({
-    queryKey: ['ledger', customerId],
-    queryFn: () => fetchCustomerLedger(customerId),
+  // Dönem seçimi: varsayılan olarak borcun en son kapandığı andan bugüne.
+  // "Tümü" tüm geçmişi, tarih alanları serbest aralığı gösterir (kapanmadan
+  // önceki döneme de bakılabilir).
+  const [scope, setScope] = useState<'since-settlement' | 'all'>(
+    'since-settlement',
+  );
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
+  const statementQuery = {
+    ...(rangeFrom ? { from: rangeFrom } : {}),
+    ...(rangeTo ? { to: rangeTo } : {}),
+    ...(rangeFrom ? {} : { scope }),
+  };
+  // CSV/PDF bağlantıları da ekrandakiyle aynı dönemi çıkarsın.
+  const statementParams = (() => {
+    const params = new URLSearchParams(
+      Object.entries(statementQuery).filter(([, v]) => v) as [string, string][],
+    );
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  })();
+
+  const { data: statement } = useQuery({
+    queryKey: ['ledger', customerId, statementQuery],
+    queryFn: () => fetchCustomerStatement(customerId, statementQuery),
   });
   // Yetkili bakiye backend'den (settle bunu esas alır); ledger toplamıyla
   // ıraksarsa bile borç kapatma doğru çalışsın.
@@ -620,16 +642,12 @@ function CustomerStatement({
     undoMut.mutate(entry.id);
   }
 
-  // Kronolojik sırala + yürüyen bakiyeyi yeniden hesapla.
-  const rows = [...(ledger ?? [])].sort((a, b) =>
-    a.occurredAt < b.occurredAt ? -1 : a.occurredAt > b.occurredAt ? 1 : 0,
-  );
-  let running = 0;
-  const computed = rows.map((e) => {
-    running += e.entryType === 'debit' ? Number(e.amount) : -Number(e.amount);
-    return { ...e, running };
-  });
-  const ledgerBalance = computed.length ? computed[computed.length - 1].running : 0;
+  // Hareketler backend'den kronolojik ve yürüyen bakiyesi hesaplanmış gelir.
+  const computed = (statement?.entries ?? []).map((e) => ({
+    ...e,
+    running: Number(e.balanceAfter),
+  }));
+  const ledgerBalance = statement?.closingBalance ?? 0;
   // Borç kapatma için backend'in cache'li bakiyesini esas al (settle onu kullanır);
   // henüz gelmemişse ledger toplamına düş.
   const currentBalance =
@@ -707,22 +725,102 @@ function CustomerStatement({
 
   return (
     <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2">
-      <div className="flex justify-end gap-2">
-        <button
-          className="btn bg-slate-100 text-xs"
-          onClick={() =>
-            downloadFile(`/customers/${customerId}/statement.csv`, `ekstre-${fileSlug}.csv`)
-          }
-        >
-          CSV
-        </button>
-        <button
-          className="btn bg-slate-100 text-xs"
-          onClick={() => openPdf(`/customers/${customerId}/statement`)}
-        >
-          PDF
-        </button>
+      {/* Dönem seçimi — çıktılar (CSV/PDF) da bu dönemi kullanır. */}
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block text-xs">
+            <span className="mb-1 block text-slate-500">Dönem</span>
+            <select
+              className="input w-auto"
+              value={rangeFrom || rangeTo ? 'custom' : scope}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'custom') {
+                  // Serbest aralığa geç: başlangıcı son kapatma tarihine kur.
+                  setRangeFrom(statement?.lastSettledAt?.slice(0, 10) ?? '');
+                  return;
+                }
+                setRangeFrom('');
+                setRangeTo('');
+                setScope(v as 'since-settlement' | 'all');
+              }}
+            >
+              <option value="since-settlement">Son borç kapatmadan bugüne</option>
+              <option value="all">Tüm hareketler</option>
+              <option value="custom">Tarih aralığı seç…</option>
+            </select>
+          </label>
+          {(rangeFrom || rangeTo) && (
+            <>
+              <label className="block text-xs">
+                <span className="mb-1 block text-slate-500">Başlangıç</span>
+                <input
+                  className="input w-auto"
+                  type="date"
+                  value={rangeFrom}
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block text-slate-500">Bitiş</span>
+                <input
+                  className="input w-auto"
+                  type="date"
+                  value={rangeTo}
+                  onChange={(e) => setRangeTo(e.target.value)}
+                />
+              </label>
+              <button
+                className="btn bg-slate-100 text-xs"
+                onClick={() => {
+                  setRangeFrom('');
+                  setRangeTo('');
+                }}
+              >
+                Sıfırla
+              </button>
+            </>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button
+            className="btn bg-slate-100 text-xs"
+            onClick={() =>
+              downloadFile(
+                `/customers/${customerId}/statement.csv${statementParams}`,
+                `ekstre-${fileSlug}.csv`,
+              )
+            }
+          >
+            CSV
+          </button>
+          <button
+            className="btn bg-slate-100 text-xs"
+            onClick={() =>
+              openPdf(`/customers/${customerId}/statement${statementParams}`)
+            }
+          >
+            PDF
+          </button>
+        </div>
       </div>
+
+      {/* Hangi dönemin gösterildiği açıkça yazılsın. */}
+      <p className="text-xs text-slate-500">
+        {statement?.scope === 'since-settlement' && statement.lastSettledAt ? (
+          <>
+            Borç en son <b>{statement.lastSettledAt.slice(0, 10)}</b> tarihinde
+            kapanmış; o tarihten sonraki hareketler gösteriliyor.
+          </>
+        ) : statement?.scope === 'custom' ? (
+          <>Seçilen tarih aralığındaki hareketler gösteriliyor.</>
+        ) : (
+          <>Tüm hareketler gösteriliyor.</>
+        )}
+        {statement?.hasEarlier
+          ? ` Öncesinde ${statement.totalCount - statement.entries.length} hareket daha var (devir satırına bakın).`
+          : ''}
+      </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="text-left text-slate-500">
@@ -736,6 +834,25 @@ function CustomerStatement({
             </tr>
           </thead>
           <tbody>
+            {/* Dönem başı devri — ekstre kendi içinde tutarlı kalsın. */}
+            {statement?.hasEarlier && (
+              <tr className="border-t border-slate-100 bg-slate-50">
+                <td className="py-1">
+                  {statement.scope === 'since-settlement'
+                    ? statement.lastSettledAt?.slice(0, 10)
+                    : ''}
+                </td>
+                <td className="py-1 italic text-slate-500">
+                  Devir (önceki dönemden bakiye)
+                </td>
+                <td className="py-1" />
+                <td className="py-1" />
+                <td className="py-1 text-right font-medium">
+                  {currency.format(statement.openingBalance)}
+                </td>
+                <td className="py-1" />
+              </tr>
+            )}
             {computed.map((e) => {
               const blocked = undoBlockReason(e, isOwner);
               return (
@@ -774,7 +891,9 @@ function CustomerStatement({
             {!computed.length && (
               <tr>
                 <td colSpan={6} className="py-2 text-center text-slate-400">
-                  Hareket yok.
+                  {statement?.scope === 'since-settlement' && statement.hasEarlier
+                    ? 'Son borç kapatmadan bu yana hareket yok — borç kapalı.'
+                    : 'Hareket yok.'}
                 </td>
               </tr>
             )}

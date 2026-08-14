@@ -3,6 +3,7 @@ import { Workbook } from 'exceljs';
 import { FinancialReportsService } from '../../reports/services/financial-reports.service';
 import { InventoryReportsService } from '../../reports/services/inventory-reports.service';
 import { CustomersService } from '../../customers/services/customers.service';
+import { QueryStatementDto } from '../../customers/dto/query-statement.dto';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 
 /** Cari hareket kaynağının Türkçe etiketleri (ekstre çıktılarında). */
@@ -98,9 +99,15 @@ export class ExportService {
     return this.toBuffer(wb);
   }
 
-  async customerLedgerXlsx(customerId: string): Promise<Buffer> {
+  async customerLedgerXlsx(
+    customerId: string,
+    query: QueryStatementDto = {},
+  ): Promise<Buffer> {
     const customer = await this.customersService.findOne(customerId);
-    const ledger = await this.customersService.getLedger(customerId);
+    const statement = await this.customersService.getStatement(
+      customerId,
+      query,
+    );
     const wb = new Workbook();
     const ws = wb.addWorksheet('Cari Ekstre');
     ws.columns = [
@@ -110,8 +117,15 @@ export class ExportService {
       { header: 'Alacak', key: 'credit', width: 14, style: this.money },
       { header: 'Bakiye', key: 'balance', width: 16, style: this.money },
     ];
-    // Kronolojik sıra ve yürüyen bakiye getLedger'da hazırlanır.
-    ledger.forEach((e) =>
+    // Dönem başı bakiyesi devir satırı olarak en üstte.
+    if (statement.hasEarlier) {
+      ws.addRow({
+        description: 'Devir (önceki dönemden bakiye)',
+        balance: statement.openingBalance,
+      });
+    }
+    // Kronolojik sıra ve yürüyen bakiye getStatement'ta hazırlanır.
+    statement.entries.forEach((e) =>
       ws.addRow({
         date: new Date(e.occurredAt).toLocaleDateString('tr-TR'),
         description: e.description ?? e.sourceType,
@@ -121,8 +135,8 @@ export class ExportService {
       }),
     );
     ws.addRow({
-      description: `${customer.name} — Güncel bakiye`,
-      balance: Number(customer.currentBalance),
+      description: `${customer.name} — Dönem sonu bakiye`,
+      balance: statement.closingBalance,
     });
     this.styleHeader(ws);
     return this.toBuffer(wb);
@@ -132,11 +146,17 @@ export class ExportService {
    * Cari ekstreyi CSV (Excel'de açılabilir, noktalı virgülle ayrılmış) üretir.
    * UTF-8 BOM eklenir ki Excel Türkçe karakterleri doğru göstersin.
    */
-  async customerLedgerCsv(customerId: string): Promise<string> {
+  async customerLedgerCsv(
+    customerId: string,
+    query: QueryStatementDto = {},
+  ): Promise<string> {
     const customer = await this.customersService.findOne(customerId);
-    const ledger = await this.customersService.getLedger(customerId);
+    const statement = await this.customersService.getStatement(
+      customerId,
+      query,
+    );
     const header = ['Tarih', 'Açıklama', 'Borç', 'Alacak', 'Bakiye'];
-    const rows: (string | number)[][] = ledger.map((e) => {
+    const rows: (string | number)[][] = statement.entries.map((e) => {
       const label = LEDGER_SOURCE_LABELS[e.sourceType] ?? e.sourceType;
       const desc = e.description ? `${label} · ${e.description}` : label;
       return [
@@ -147,7 +167,22 @@ export class ExportService {
         Number(e.balanceAfter),
       ];
     });
-    rows.push(['', `${customer.name} — Güncel bakiye`, '', '', Number(customer.currentBalance)]);
+    if (statement.hasEarlier) {
+      rows.unshift([
+        '',
+        'Devir (önceki dönemden bakiye)',
+        '',
+        '',
+        statement.openingBalance,
+      ]);
+    }
+    rows.push([
+      '',
+      `${customer.name} — Dönem sonu bakiye`,
+      '',
+      '',
+      statement.closingBalance,
+    ]);
     return (
       '﻿' +
       [header, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n')

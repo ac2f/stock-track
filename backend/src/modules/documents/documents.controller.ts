@@ -10,6 +10,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { QueryStatementDto } from '../customers/dto/query-statement.dto';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { QueryExpenseDto } from '../expenses/dto/expense.dto';
 import { ExportService } from './services/export.service';
@@ -86,23 +87,26 @@ export class DocumentsController {
   }
 
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  // Dönem: varsayılan son borç kapatmadan bugüne; ?scope=all veya ?from=&to=.
   @Get('customers/:id/statement')
   async statement(
     @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryStatementDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<string> {
     res.set({ 'Content-Type': HTML });
-    return this.html.customerStatementHtml(id);
+    return this.html.customerStatementHtml(id, query);
   }
 
-  // Cari ekstrenin CSV (tablo) çıktısı — Excel'de açılır.
+  // Cari ekstrenin CSV (tablo) çıktısı — Excel'de açılır. Dönem yukarıdaki gibi.
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Get('customers/:id/statement.csv')
   async statementCsv(
     @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryStatementDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const csv = await this.exports.customerLedgerCsv(id);
+    const csv = await this.exports.customerLedgerCsv(id, query);
     return this.stream(
       res,
       Buffer.from(csv, 'utf-8'),

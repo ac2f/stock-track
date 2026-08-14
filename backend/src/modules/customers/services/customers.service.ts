@@ -10,6 +10,7 @@ import { Brackets, DataSource, Repository } from 'typeorm';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import { UserRole } from '../../../common/enums/user-role.enum';
+import { roundMoney } from '../../../common/utils/area.util';
 import {
   buildPaginatedResult,
   PaginatedResult,
@@ -24,6 +25,11 @@ import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
 import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
 import { SettleDebtDto } from '../dto/apply-discount.dto';
+import {
+  CustomerStatement,
+  QueryStatementDto,
+  StatementScope,
+} from '../dto/query-statement.dto';
 import { CustomerAccountService } from './customer-account.service';
 import {
   EDIT_WINDOW_DAYS,
@@ -41,6 +47,13 @@ const REVERSIBLE_SOURCES: readonly LedgerSourceType[] = [
   LedgerSourceType.DISCOUNT,
   LedgerSourceType.MANUAL_ADJUSTMENT,
 ];
+
+/** Verilen tarihin gün sonu (23:59:59.999) — bitiş filtresi o günü kapsasın. */
+function endOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
 
 @Injectable()
 export class CustomersService {
@@ -196,10 +209,82 @@ export class CustomersService {
     });
   }
 
-  /** Cari defter dökümü. */
+  /** Cari defter dökümü (tüm hareketler, kronolojik). */
   async getLedger(id: string) {
     await this.findOne(id);
     return this.accountService.listLedger(id);
+  }
+
+  /**
+   * Cari ekstresini bir DÖNEM için hazırlar.
+   *
+   * Varsayılan dönem: borcun en son kapandığı andan bugüne. "Borcun kapandığı
+   * an", yürüyen bakiyenin en son SIFIRA indiği harekettir — borç ister
+   * tahsilatla ister indirimle kapatılmış olsun fark etmez. Böylece ekstre
+   * çıktısı kapanmış geçmişi tekrarlamaz, yalnızca güncel borcun nasıl
+   * biriktiğini gösterir.
+   *
+   * `from`/`to` verilirse o aralık kullanılır (kapanmadan öncesi de görülebilir);
+   * `scope=all` ile tüm geçmiş listelenir. Pencerenin başındaki bakiye DEVİR
+   * olarak döner → ekstre her durumda kendi içinde tutarlıdır.
+   */
+  async getStatement(
+    id: string,
+    query: QueryStatementDto = {},
+  ): Promise<CustomerStatement> {
+    await this.findOne(id);
+    const all = await this.accountService.listLedger(id);
+
+    // Bakiyenin en son sıfırlandığı hareket = en son borç kapatma.
+    let settledIndex = -1;
+    all.forEach((entry, i) => {
+      if (roundMoney(Number(entry.balanceAfter)) === 0) settledIndex = i;
+    });
+    const lastSettledAt =
+      settledIndex >= 0 ? new Date(all[settledIndex].occurredAt) : null;
+
+    const fromDate = query.from ? new Date(query.from) : null;
+    // Bitiş tarihi gün SONUNU kapsasın (o güne ait hareketler dışarıda kalmasın).
+    const toDate = query.to ? endOfDay(new Date(query.to)) : null;
+
+    let startIndex = 0;
+    let scope: StatementScope;
+    if (fromDate) {
+      scope = 'custom';
+      startIndex = all.findIndex((e) => new Date(e.occurredAt) >= fromDate);
+      if (startIndex < 0) startIndex = all.length;
+    } else if (query.scope !== 'all' && settledIndex >= 0) {
+      scope = 'since-settlement';
+      startIndex = settledIndex + 1;
+    } else {
+      scope = 'all';
+    }
+
+    let endIndex = all.length;
+    if (toDate) {
+      const firstAfter = all.findIndex((e) => new Date(e.occurredAt) > toDate);
+      if (firstAfter >= 0) endIndex = firstAfter;
+      if (endIndex < startIndex) endIndex = startIndex;
+    }
+
+    const entries = all.slice(startIndex, endIndex);
+    const openingBalance =
+      startIndex > 0 ? Number(all[startIndex - 1].balanceAfter) : 0;
+    const closingBalance = entries.length
+      ? Number(entries[entries.length - 1].balanceAfter)
+      : openingBalance;
+
+    return {
+      entries,
+      openingBalance: roundMoney(openingBalance),
+      closingBalance: roundMoney(closingBalance),
+      lastSettledAt: lastSettledAt ? lastSettledAt.toISOString() : null,
+      from: entries.length ? new Date(entries[0].occurredAt).toISOString() : null,
+      to: toDate ? toDate.toISOString() : null,
+      scope,
+      hasEarlier: startIndex > 0,
+      totalCount: all.length,
+    };
   }
 
   /**

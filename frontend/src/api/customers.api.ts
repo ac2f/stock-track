@@ -90,6 +90,46 @@ export async function fetchCustomerLedger(
   return data;
 }
 
+/** Ekstrenin kapsadığı dönem. */
+export type StatementScope = 'since-settlement' | 'all' | 'custom';
+
+export interface StatementQuery {
+  /** Serbest aralık başlangıcı (YYYY-MM-DD). Verilirse scope yok sayılır. */
+  from?: string;
+  to?: string;
+  /** Varsayılan: son borç kapatmadan bugüne. 'all' → tüm geçmiş. */
+  scope?: 'since-settlement' | 'all';
+}
+
+export interface CustomerStatement {
+  entries: CustomerLedgerEntry[];
+  /** Dönem başındaki devir bakiyesi. */
+  openingBalance: number;
+  closingBalance: number;
+  /** Borcun en son kapandığı (bakiyenin sıfırlandığı) an. */
+  lastSettledAt: string | null;
+  from: string | null;
+  to: string | null;
+  scope: StatementScope;
+  hasEarlier: boolean;
+  totalCount: number;
+}
+
+/**
+ * Dönemlenmiş cari ekstre. Varsayılan dönem, borcun en son kapandığı andan
+ * bugüne — böylece ekstre kapanmış geçmişi tekrarlamaz.
+ */
+export async function fetchCustomerStatement(
+  id: string,
+  query: StatementQuery = {},
+): Promise<CustomerStatement> {
+  const { data } = await api.get<CustomerStatement>(
+    `/customers/${id}/statement`,
+    { params: query },
+  );
+  return data;
+}
+
 export interface LedgerEntryInput {
   entryType: 'debit' | 'credit';
   amount: number;
