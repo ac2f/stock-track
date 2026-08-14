@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -19,6 +19,25 @@ export class NotificationsController {
   @Get()
   list(@Query('limit') limit?: string) {
     return this.notificationsService.list(limit ? Number(limit) : 50);
+  }
+
+  /** Defterin büyüklüğü — bakım ekranında gösterilir. */
+  @Get('stats')
+  stats() {
+    return this.notificationsService.stats();
+  }
+
+  /**
+   * Bildirim defterini temizler. `?olderThanDays=30` yalnızca eskileri siler;
+   * parametresiz tümünü boşaltır. Yalnızca gönderim geçmişidir — iş verisi
+   * (cari, stok, ödeme) etkilenmez.
+   */
+  @Delete()
+  clear(@Query('olderThanDays') olderThanDays?: string) {
+    const days = olderThanDays ? Number(olderThanDays) : undefined;
+    return this.notificationsService.clear(
+      Number.isFinite(days) ? days : undefined,
+    );
   }
 
   /**

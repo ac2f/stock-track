@@ -1,5 +1,29 @@
 import { api } from './client';
 
+/** Bildirim defterinin büyüklüğü (bakım ekranı). */
+export async function fetchNotificationStats(): Promise<{
+  total: number;
+  oldestAt: string | null;
+}> {
+  const { data } = await api.get<{ total: number; oldestAt: string | null }>(
+    '/notifications/stats',
+  );
+  return data;
+}
+
+/**
+ * Bildirim defterini temizler. `olderThanDays` verilirse yalnızca o günden
+ * eskiler silinir; verilmezse defter tamamen boşaltılır. İş verisi etkilenmez.
+ */
+export async function clearNotifications(
+  olderThanDays?: number,
+): Promise<{ deleted: number }> {
+  const { data } = await api.delete<{ deleted: number }>('/notifications', {
+    params: olderThanDays ? { olderThanDays } : undefined,
+  });
+  return data;
+}
+
 export interface NotificationRecord {
   id: string;
   type: string;

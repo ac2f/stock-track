@@ -176,6 +176,43 @@ export class BackupsService {
     return files;
   }
 
+  /**
+   * Yedek klasöründeki .sql dosyalarını temizler (bakım ekranı).
+   * `keep` kadar en yeni dosya korunur; 0 verilirse hepsi silinir.
+   * Silinen dosya sayısını ve kazanılan alanı döner.
+   */
+  async cleanup(keep: number): Promise<{ deleted: number; freedBytes: number }> {
+    const dir = await this.ensureDir();
+    const names = (await fs.readdir(dir)).filter((n) => n.endsWith('.sql'));
+    // Dosya adları zaman damgalı → alfabetik sıra kronolojik sıradır.
+    names.sort();
+    const removable = keep > 0 ? names.slice(0, Math.max(0, names.length - keep)) : names;
+
+    let freedBytes = 0;
+    let deleted = 0;
+    for (const name of removable) {
+      const file = path.join(dir, name);
+      try {
+        const stat = await fs.stat(file);
+        await fs.unlink(file);
+        freedBytes += stat.size;
+        deleted += 1;
+      } catch {
+        // Dosya bu arada silinmiş olabilir → atla.
+      }
+    }
+    return { deleted, freedBytes };
+  }
+
+  /** Yedek klasörünün özeti (dosya sayısı + toplam boyut). */
+  async usage(): Promise<{ files: number; totalBytes: number }> {
+    const list = await this.list();
+    return {
+      files: list.length,
+      totalBytes: list.reduce((sum, f) => sum + f.size, 0),
+    };
+  }
+
   /** `keep` sayısını aşan en eski yedekleri siler. */
   private async pruneOld(dir: string): Promise<void> {
     const names = (await fs.readdir(dir))

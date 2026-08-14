@@ -84,4 +84,34 @@ export class NotificationsService {
       take: limit,
     });
   }
+
+  /** Bildirim defterinin büyüklüğü (bakım ekranında gösterilir). */
+  async stats(): Promise<{ total: number; oldestAt: string | null }> {
+    const [oldest, total] = await Promise.all([
+      this.notificationsRepo.findOne({
+        where: {},
+        order: { createdAt: 'ASC' },
+      }),
+      this.notificationsRepo.count(),
+    ]);
+    return {
+      total,
+      oldestAt: oldest ? new Date(oldest.createdAt).toISOString() : null,
+    };
+  }
+
+  /**
+   * Bildirim defterini temizler. `olderThanDays` verilirse yalnızca o günden
+   * eski kayıtlar silinir; verilmezse defter tamamen boşaltılır.
+   * Bu kayıtlar yalnızca gönderim geçmişidir — silinmesi iş verisini etkilemez.
+   */
+  async clear(olderThanDays?: number): Promise<{ deleted: number }> {
+    const qb = this.notificationsRepo.createQueryBuilder().delete();
+    if (olderThanDays != null && olderThanDays > 0) {
+      const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+      qb.where('created_at < :cutoff', { cutoff });
+    }
+    const result = await qb.execute();
+    return { deleted: result.affected ?? 0 };
+  }
 }

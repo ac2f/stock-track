@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Post,
+  Query,
   Res,
   StreamableFile,
   UploadedFile,
@@ -40,6 +42,22 @@ export class BackupsController {
   @Get()
   list() {
     return this.backups.list();
+  }
+
+  /** Yedek klasörünün disk kullanımı (bakım ekranı). */
+  @Get('usage')
+  usage() {
+    return this.backups.usage();
+  }
+
+  /**
+   * Eski yedek dosyalarını siler. `?keep=5` en yeni 5 dosyayı korur;
+   * `?keep=0` klasörü tamamen boşaltır. Veritabanına dokunmaz.
+   */
+  @Delete()
+  cleanup(@Query('keep') keep?: string) {
+    const parsed = Number(keep);
+    return this.backups.cleanup(Number.isFinite(parsed) ? parsed : 5);
   }
 
   /**

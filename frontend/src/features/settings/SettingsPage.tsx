@@ -11,15 +11,21 @@ import {
   type UpdateBusinessInput,
 } from '../../api/settings.api';
 import {
+  cleanupBackups,
   downloadBackup,
   fetchBackups,
+  fetchBackupUsage,
   fetchDecryptionKey,
   fetchTelegramBackupState,
   restoreBackup,
   restoreNeedsKey,
   sendBackupToTelegram,
 } from '../../api/backups.api';
-import { fetchNotifications } from '../../api/notifications.api';
+import {
+  clearNotifications,
+  fetchNotifications,
+  fetchNotificationStats,
+} from '../../api/notifications.api';
 import { useLock } from '../../context/LockContext';
 
 /** Etiketli form alanı. */
@@ -156,7 +162,176 @@ export function SettingsPage() {
       <ScreenLockSettings />
       <TelegramSettings />
       <BackupSection />
+      <MaintenanceSection />
       <NotificationsHistory />
+    </div>
+  );
+}
+
+/**
+ * 🧹 Bakım: biriken kayıtları ve log dosyalarını temizler.
+ *
+ * Uygulamanın kendi logları (bildirim defteri) ve disk yedekleri buradan
+ * silinir. Docker log dosyaları container'a ait olduğu için konteynerin
+ * içinden silinemez — o iş için depodaki clear-logs betiği kullanılır.
+ */
+function MaintenanceSection() {
+  const qc = useQueryClient();
+  const [keep, setKeep] = useState(5);
+  const [copied, setCopied] = useState(false);
+
+  const { data: notifStats } = useQuery({
+    queryKey: ['notification-stats'],
+    queryFn: fetchNotificationStats,
+  });
+  const { data: usage } = useQuery({
+    queryKey: ['backup-usage'],
+    queryFn: fetchBackupUsage,
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['notification-stats'] });
+    qc.invalidateQueries({ queryKey: ['notifications'] });
+    qc.invalidateQueries({ queryKey: ['backup-usage'] });
+    qc.invalidateQueries({ queryKey: ['backups'] });
+  };
+
+  const clearNotifMut = useMutation({
+    mutationFn: (days?: number) => clearNotifications(days),
+    onSuccess: invalidate,
+  });
+  const cleanupBackupsMut = useMutation({
+    mutationFn: (k: number) => cleanupBackups(k),
+    onSuccess: invalidate,
+  });
+
+  const DOCKER_CMD =
+    'docker compose -f docker-compose.prod.yml down && docker compose -f docker-compose.prod.yml up -d';
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">🧹 Bakım — kayıt ve log temizliği</h2>
+
+      {/* Bildirim defteri */}
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+        <span className="block text-sm font-semibold">
+          Bildirim geçmişi (uygulama logu)
+        </span>
+        <p className="text-xs text-slate-500">
+          {notifStats
+            ? `${notifStats.total} kayıt${
+                notifStats.oldestAt
+                  ? ` · en eskisi ${notifStats.oldestAt.slice(0, 10)}`
+                  : ''
+              }`
+            : 'Yükleniyor…'}
+          . Yalnızca gönderim geçmişidir; silmek cari/stok/ödeme verisini
+          etkilemez.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="btn bg-slate-100 text-xs"
+            disabled={clearNotifMut.isPending}
+            onClick={() => clearNotifMut.mutate(30)}
+          >
+            30 günden eskileri sil
+          </button>
+          <button
+            className="btn bg-red-50 text-xs text-red-600"
+            disabled={clearNotifMut.isPending}
+            onClick={() => {
+              if (confirm('Tüm bildirim geçmişi silinsin mi? İş verisi etkilenmez.')) {
+                clearNotifMut.mutate(undefined);
+              }
+            }}
+          >
+            Tümünü sil
+          </button>
+        </div>
+        {clearNotifMut.isSuccess && (
+          <p className="text-xs text-emerald-700">
+            {clearNotifMut.data.deleted} kayıt silindi.
+          </p>
+        )}
+        {clearNotifMut.isError && (
+          <p className="text-xs text-red-600">Silinemedi.</p>
+        )}
+      </div>
+
+      {/* Disk yedekleri */}
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+        <span className="block text-sm font-semibold">Sunucudaki yedek dosyaları</span>
+        <p className="text-xs text-slate-500">
+          {usage
+            ? `${usage.files} dosya · ${humanSize(usage.totalBytes)}`
+            : 'Yükleniyor…'}
+          . En yeni dosyalar korunur; Telegram'a gönderilmiş yedekler etkilenmez.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-xs text-slate-500">
+            Korunacak dosya:{' '}
+            <input
+              className="input w-20"
+              type="number"
+              min={0}
+              value={keep}
+              onChange={(e) => setKeep(Math.max(0, Number(e.target.value)))}
+            />
+          </label>
+          <button
+            className="btn bg-red-50 text-xs text-red-600"
+            disabled={cleanupBackupsMut.isPending}
+            onClick={() => {
+              const msg =
+                keep > 0
+                  ? `En yeni ${keep} yedek dışındaki dosyalar silinsin mi?`
+                  : 'TÜM yedek dosyaları silinsin mi? (Veritabanı etkilenmez.)';
+              if (confirm(msg)) cleanupBackupsMut.mutate(keep);
+            }}
+          >
+            Eski yedekleri sil
+          </button>
+        </div>
+        {cleanupBackupsMut.isSuccess && (
+          <p className="text-xs text-emerald-700">
+            {cleanupBackupsMut.data.deleted} dosya silindi ·{' '}
+            {humanSize(cleanupBackupsMut.data.freedBytes)} yer açıldı.
+          </p>
+        )}
+        {cleanupBackupsMut.isError && (
+          <p className="text-xs text-red-600">Silinemedi.</p>
+        )}
+      </div>
+
+      {/* Docker logları — konteyner içinden silinemez, komut/betik gerekir */}
+      <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <span className="block text-sm font-semibold">Docker logları</span>
+        <p className="text-xs text-slate-500">
+          Docker'ın log dosyaları container'a aittir ve uygulamanın içinden
+          silinemez. Loglar artık kendiliğinden sınırlı (servis başına 3 × 10 MB),
+          ama hemen boşaltmak isterseniz sunucuda{' '}
+          <code className="rounded bg-white px-1">clear-logs.bat</code> dosyasına
+          çift tıklayın ya da şu komutu çalıştırın. Veritabanı silinmez.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="min-w-0 flex-1 overflow-x-auto rounded bg-white px-2 py-1 text-[11px]">
+            {DOCKER_CMD}
+          </code>
+          <button
+            className="btn bg-slate-100 text-xs"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(DOCKER_CMD);
+                setCopied(true);
+              } catch {
+                setCopied(false);
+              }
+            }}
+          >
+            {copied ? '✓ Kopyalandı' : 'Kopyala'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

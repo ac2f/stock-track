@@ -154,6 +154,7 @@ kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda d
 | GET | `/customers` | 👥 | Filtre: `?search=&hasDebt=true&minDebt=&sort=balance` |
 | GET | `/customers/:id` | 👥 | Müşteri + anlık borç |
 | GET | `/customers/:id/ledger` | 👥 | Cari hareket dökümü (geçmiş) |
+| GET | `/customers/:id/statement?from=&to=&scope=` | 👥 | Dönemlenmiş ekstre. Varsayılan: borcun **en son kapandığı** andan bugüne (`scope=all` tüm geçmiş, `from`/`to` serbest aralık). Dönem başı bakiyesi `openingBalance` (devir) olarak döner |
 | DELETE | `/customers/:id/ledger/:entryId` | 🧑‍🔧 | Yanlış hareketi geri al (ödeme/indirim/manuel). Ödemeye bağlıysa ödeme kaydı + borç kapatma indirimi de silinir. Çalışan yalnızca son 3 gün, Sahip her zaman. Yanıt: `{ currentBalance }` |
 | POST | `/customers/:id/payments` | 🧑‍🔧 | Ödeme al (nakit→çalışan / havale→banka zorunlu) |
 | GET | `/customers/:id/payments` | 👥 | Ödeme geçmişi |
@@ -241,6 +242,8 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | Metot | Yol | Açıklama |
 |-------|-----|----------|
 | GET | `/notifications?limit=` | Gönderim defteri (Log + Telegram + WhatsApp) |
+| GET | `/notifications/stats` | Defterin büyüklüğü (kayıt sayısı, en eski tarih) |
+| DELETE | `/notifications?olderThanDays=` | Defteri temizler; parametresiz tümünü siler. İş verisi etkilenmez |
 | POST | `/notifications/telegram/reload` | Telegram'ı "yeniden başlat": ayarları tazeler, jetonu `getMe` ile doğrular. Yanıt: `{ ok, botUsername, chatId, backupChatId, error? }` |
 | POST | `/notifications/telegram/test` | Ayarlardaki sohbete deneme mesajı gönderir |
 
@@ -256,6 +259,8 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | Metot | Yol | Açıklama |
 |-------|-----|----------|
 | GET | `/backups` | Diskteki otomatik yedekler |
+| GET | `/backups/usage` | Yedek klasörü kullanımı (dosya sayısı, toplam bayt) |
+| DELETE | `/backups?keep=5` | Eski yedek dosyalarını siler (en yeni `keep` korunur; 0 → hepsi) |
 | GET | `/backups/download` | Anlık yedek (.sql) indir |
 | POST | `/backups/restore` | Yedeği geri yükle. Düz `.sql` **veya** şifreli `.enc` kabul edilir |
 | POST | `/backups/telegram` | Şifreli yedeği elle Telegram'a gönder |

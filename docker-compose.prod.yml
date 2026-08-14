@@ -16,6 +16,12 @@ services:
     image: postgres:16-alpine
     container_name: stocktrack-postgres
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        # Log dosyalari sinirsiz buyumesin: servis basina en fazla 3 x 10 MB.
+        max-size: '10m'
+        max-file: '3'
     environment:
       POSTGRES_USER: ${DB_USERNAME:-stocktrack}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-stocktrack}
@@ -34,6 +40,12 @@ services:
     build: ./backend
     container_name: stocktrack-api
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        # Log dosyalari sinirsiz buyumesin: servis basina en fazla 3 x 10 MB.
+        max-size: '10m'
+        max-file: '3'
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,6 +66,12 @@ services:
         VITE_API_URL: ${VITE_API_URL:-}
     container_name: stocktrack-web
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        # Log dosyalari sinirsiz buyumesin: servis basina en fazla 3 x 10 MB.
+        max-size: '10m'
+        max-file: '3'
     depends_on:
       - api
     ports:

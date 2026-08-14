@@ -12,6 +12,31 @@ export async function fetchBackups(): Promise<BackupFileInfo[]> {
   return data;
 }
 
+/** Yedek klasörünün disk kullanımı (bakım ekranı). */
+export async function fetchBackupUsage(): Promise<{
+  files: number;
+  totalBytes: number;
+}> {
+  const { data } = await api.get<{ files: number; totalBytes: number }>(
+    '/backups/usage',
+  );
+  return data;
+}
+
+/**
+ * Eski yedek dosyalarını siler. `keep` en yeni kaç dosyanın korunacağıdır;
+ * 0 verilirse klasör tamamen boşaltılır. Veritabanına dokunmaz.
+ */
+export async function cleanupBackups(
+  keep: number,
+): Promise<{ deleted: number; freedBytes: number }> {
+  const { data } = await api.delete<{ deleted: number; freedBytes: number }>(
+    '/backups',
+    { params: { keep } },
+  );
+  return data;
+}
+
 /** Anlık yedek üretir ve .sql dosyasını indirir. */
 export async function downloadBackup(): Promise<void> {
   const res = await api.get('/backups/download', { responseType: 'blob' });
