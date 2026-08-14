@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Post,
@@ -84,18 +85,44 @@ export class BackupsController {
   }
 
   /**
-   * Yüklenen .sql yedeğini geri yükler (TEHLİKELİ: mevcut veriyi üzerine yazar).
+   * Yüklenen yedeği geri yükler (TEHLİKELİ: mevcut veriyi üzerine yazar).
+   * Hem düz `.sql` hem Telegram'dan gelen şifreli `.enc` dosyası kabul edilir.
+   *
+   * Şifreli dosyada anahtar sırası:
+   *  1) İstekte `privateKeyPem` geldiyse onunla çözülür,
+   *  2) gelmediyse ÖNCE sunucudaki geçerli şifre çözme anahtarı denenir,
+   *  3) o da çözemezse `needsKey: true` ile hata döner → arayüz kullanıcıdan
+   *     anahtarı ister (eski bir anahtarla şifrelenmiş yedekler için).
+   *
    * Yalnızca owner; arayüzde çift onay istenir.
    */
   @Post('restore')
   @UseInterceptors(FileInterceptor('file'))
   async restore(
     @UploadedFile() file?: UploadedBackupFile,
-  ): Promise<{ restored: true }> {
+    @Body('privateKeyPem') privateKeyPem?: string,
+  ): Promise<{ restored: true; decrypted: boolean }> {
     if (!file?.buffer?.length) {
       throw new BadRequestException('Yedek dosyası (file) gerekli.');
     }
-    await this.backups.restore(file.buffer);
-    return { restored: true };
+
+    let payload = file.buffer;
+    const encrypted = this.crypto.isEnvelope(payload);
+    if (encrypted) {
+      const suppliedKey = privateKeyPem?.trim() || undefined;
+      try {
+        payload = await this.crypto.decryptEnvelope(payload, suppliedKey);
+      } catch (err) {
+        throw new BadRequestException({
+          message: (err as Error).message,
+          // Kullanıcı anahtarı zaten denendiyse tekrar sormanın anlamı yok;
+          // yalnızca sunucunun anahtarı yetmediğinde anahtar iste.
+          needsKey: !suppliedKey,
+        });
+      }
+    }
+
+    await this.backups.restore(payload);
+    return { restored: true, decrypted: encrypted };
   }
 }

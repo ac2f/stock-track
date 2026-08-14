@@ -117,6 +117,84 @@ export class BackupCryptoService {
     return Buffer.from(JSON.stringify(envelope), 'utf8');
   }
 
+  /**
+   * Bir veri yığınının .enc zarfı olup olmadığını ucuzca anlar (JSON metni).
+   * Düz .sql yedeklerinde dosyanın tamamını metne çevirmeden hızlıca eler.
+   */
+  isEnvelope(buffer: Buffer): boolean {
+    const head = buffer.subarray(0, 64).toString('utf8').trimStart();
+    if (!head.startsWith('{')) return false;
+    return head.includes('"v"') || head.includes('"alg"');
+  }
+
+  /**
+   * .enc zarfını çözer. `privateKeyPem` verilmezse sunucunun kendi şifre çözme
+   * anahtarı kullanılır (arayüzdeki akış önce bunu dener, olmazsa kullanıcıdan
+   * anahtarı ister). Yanlış/başka bir anahtarla çözüm denenirse anlaşılır bir
+   * hata fırlatır.
+   */
+  async decryptEnvelope(
+    buffer: Buffer,
+    privateKeyPem?: string,
+  ): Promise<Buffer> {
+    let envelope: {
+      v?: number;
+      alg?: string;
+      key?: string;
+      iv?: string;
+      tag?: string;
+      data?: string;
+    };
+    try {
+      envelope = JSON.parse(buffer.toString('utf8'));
+    } catch {
+      throw new Error('Şifreli yedek dosyası okunamadı (bozuk .enc zarfı).');
+    }
+    if (!envelope?.key || !envelope.iv || !envelope.tag || !envelope.data) {
+      throw new Error('Şifreli yedek zarfı eksik alanlar içeriyor.');
+    }
+
+    const key = privateKeyPem?.trim() || (await this.ensureKeys()).privateKeyPem;
+    if (!key.includes('PRIVATE KEY')) {
+      throw new Error(
+        'Geçersiz şifre çözme anahtarı — "BEGIN PRIVATE KEY" ile başlayan PEM metnini yapıştırın.',
+      );
+    }
+
+    let aesKey: Buffer;
+    try {
+      aesKey = crypto.privateDecrypt(
+        {
+          key,
+          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: 'sha256',
+        },
+        Buffer.from(envelope.key, 'base64'),
+      );
+    } catch {
+      throw new Error(
+        'Bu anahtar yedeği çözemedi (yedek başka bir anahtarla şifrelenmiş).',
+      );
+    }
+
+    try {
+      const decipher = crypto.createDecipheriv(
+        'aes-256-gcm',
+        aesKey,
+        Buffer.from(envelope.iv, 'base64'),
+      );
+      decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+      return Buffer.concat([
+        decipher.update(Buffer.from(envelope.data, 'base64')),
+        decipher.final(),
+      ]);
+    } catch {
+      throw new Error(
+        'Yedek çözülemedi (dosya bozulmuş veya eksik indirilmiş olabilir).',
+      );
+    }
+  }
+
   /** Web arayüzünde gösterilecek şifre çözme (private) anahtarı — PEM. */
   async getPrivateKeyPem(): Promise<string> {
     const { privateKeyPem } = await this.ensureKeys();

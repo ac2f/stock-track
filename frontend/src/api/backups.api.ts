@@ -29,13 +29,34 @@ export async function downloadBackup(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-/** Yüklenen .sql yedeğini geri yükler (TEHLİKELİ: veriyi üzerine yazar). */
-export async function restoreBackup(file: File): Promise<void> {
+/**
+ * Yüklenen yedeği geri yükler (TEHLİKELİ: veriyi üzerine yazar).
+ * Hem düz `.sql` hem Telegram'dan gelen şifreli `.enc` kabul edilir.
+ *
+ * `privateKeyPem` verilmezse sunucu ÖNCE kendi geçerli şifre çözme anahtarını
+ * dener; o çözemezse `needsKey: true` ile hata döner ve arayüz anahtarı sorar.
+ */
+export async function restoreBackup(
+  file: File,
+  privateKeyPem?: string,
+): Promise<{ restored: true; decrypted: boolean }> {
   const form = new FormData();
   form.append('file', file);
-  await api.post('/backups/restore', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  if (privateKeyPem?.trim()) form.append('privateKeyPem', privateKeyPem.trim());
+  const { data } = await api.post<{ restored: true; decrypted: boolean }>(
+    '/backups/restore',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return data;
+}
+
+/** Geri yükleme hatasının "anahtar gerekli" olup olmadığını çözer. */
+export function restoreNeedsKey(error: unknown): boolean {
+  return (
+    (error as { response?: { data?: { needsKey?: boolean } } })?.response?.data
+      ?.needsKey === true
+  );
 }
 
 // ── Şifreli yedeğin Telegram'a gönderimi ──────────────────────────────

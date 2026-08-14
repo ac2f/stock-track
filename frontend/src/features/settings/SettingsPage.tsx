@@ -16,6 +16,7 @@ import {
   fetchDecryptionKey,
   fetchTelegramBackupState,
   restoreBackup,
+  restoreNeedsKey,
   sendBackupToTelegram,
 } from '../../api/backups.api';
 import { fetchNotifications } from '../../api/notifications.api';
@@ -298,6 +299,13 @@ function TelegramSettings() {
         </p>
       </div>
 
+      <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+        💡 <b>Sohbet kimliğini bulmak için:</b> botu gruba ekleyin ve gruba{' '}
+        <code className="rounded bg-white px-1">/idx</code> yazın. Bot, o grubun
+        kimliğini dokunup kopyalayabileceğiniz şekilde cevaplar — mobilde
+        aramanıza gerek kalmaz. (Özel sohbette de çalışır.)
+      </p>
+
       <Field
         label="Bot jetonu"
         value={token}
@@ -551,17 +559,29 @@ function BackupSection() {
       qc.invalidateQueries({ queryKey: ['telegram-backup-state'] });
     },
   });
+  // Şifreli (.enc) yedekte: önce sunucunun kendi anahtarı denenir; çözemezse
+  // aşağıdaki alan açılır ve kullanıcıdan şifre çözme anahtarı istenir.
+  const [keyPrompt, setKeyPrompt] = useState(false);
+  const [manualKey, setManualKey] = useState('');
+
   const restoreMut = useMutation({
-    mutationFn: (file: File) => restoreBackup(file),
+    mutationFn: ({ file, key }: { file: File; key?: string }) =>
+      restoreBackup(file, key),
     onSuccess: () => {
       setRestoreFile(null);
+      setKeyPrompt(false);
+      setManualKey('');
       if (fileRef.current) fileRef.current.value = '';
       // Geri yükleme sonrası tüm veri değişebilir → önbelleği tazele.
       qc.invalidateQueries();
     },
+    onError: (err) => {
+      // Sunucunun anahtarı yetmedi → kullanıcıdan iste.
+      if (restoreNeedsKey(err)) setKeyPrompt(true);
+    },
   });
 
-  function handleRestore() {
+  function handleRestore(key?: string) {
     if (!restoreFile) return;
     if (
       !window.confirm(
@@ -576,7 +596,7 @@ function BackupSection() {
       )
     )
       return;
-    restoreMut.mutate(restoreFile);
+    restoreMut.mutate({ file: restoreFile, key });
   }
 
   return (
@@ -671,20 +691,59 @@ function BackupSection() {
         <span className="block text-sm font-semibold text-red-700">
           Geri yükle (tehlikeli)
         </span>
+        <p className="text-xs text-slate-600">
+          Düz <code>.sql</code> yedeği veya Telegram'dan indirdiğiniz şifreli{' '}
+          <code>.enc</code> dosyasını seçin. Şifreli dosyada önce sunucudaki
+          geçerli şifre çözme anahtarı denenir; yedek eski bir anahtarla
+          şifrelenmişse anahtar sizden istenir.
+        </p>
         <input
           ref={fileRef}
           className="block text-sm"
           type="file"
-          accept=".sql"
-          onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
+          accept=".sql,.enc"
+          onChange={(e) => {
+            setRestoreFile(e.target.files?.[0] ?? null);
+            setKeyPrompt(false);
+            setManualKey('');
+            restoreMut.reset();
+          }}
         />
         <button
           className="btn bg-red-600 text-white"
           disabled={!restoreFile || restoreMut.isPending}
-          onClick={handleRestore}
+          onClick={() => handleRestore()}
         >
           {restoreMut.isPending ? 'Geri yükleniyor…' : 'Seçili yedeği geri yükle'}
         </button>
+
+        {/* Sunucunun anahtarı çözemedi → kullanıcıdan anahtarı iste. */}
+        {keyPrompt && (
+          <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-2">
+            <p className="text-xs text-amber-800">
+              Bu yedek, sunucudaki geçerli anahtarla çözülemedi. Yedeğin
+              alındığı dönemin <b>şifre çözme anahtarını</b> yapıştırın —
+              Telegram'daki yedek mesajında ya da o dönem kaydettiğiniz
+              "Şifre çözme anahtarı" panelinde bulunur.
+            </p>
+            <textarea
+              className="input h-28 w-full font-mono text-[11px]"
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"
+              value={manualKey}
+              onChange={(e) => setManualKey(e.target.value)}
+            />
+            <button
+              className="btn bg-red-600 text-white"
+              disabled={!manualKey.trim() || restoreMut.isPending}
+              onClick={() => handleRestore(manualKey)}
+            >
+              {restoreMut.isPending
+                ? 'Çözülüyor…'
+                : 'Bu anahtarla çöz ve geri yükle'}
+            </button>
+          </div>
+        )}
+
         {restoreMut.isError && (
           <p className="text-sm text-red-700">
             {(restoreMut.error as { response?: { data?: { message?: string } } })
@@ -692,7 +751,10 @@ function BackupSection() {
           </p>
         )}
         {restoreMut.isSuccess && (
-          <p className="text-sm text-emerald-700">Geri yükleme tamamlandı.</p>
+          <p className="text-sm text-emerald-700">
+            Geri yükleme tamamlandı
+            {restoreMut.data?.decrypted ? ' (şifreli yedek çözüldü).' : '.'}
+          </p>
         )}
       </div>
 

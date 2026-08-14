@@ -252,6 +252,35 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | GET | `/settings/telegram` | Telegram durumu. **Jeton maskeli döner**, asla açık değil. Mesajın gideceği sohbet kimlikleri burada |
 | PUT | `/settings/telegram` | Jeton/sohbet kimliklerini güncelle. Alan gönderilmezse değişmez, **boş** gönderilirse temizlenir (`.env` değerine düşer) |
 
+### Backups (Yedekleme — 👔 OWNER)
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/backups` | Diskteki otomatik yedekler |
+| GET | `/backups/download` | Anlık yedek (.sql) indir |
+| POST | `/backups/restore` | Yedeği geri yükle. Düz `.sql` **veya** şifreli `.enc` kabul edilir |
+| POST | `/backups/telegram` | Şifreli yedeği elle Telegram'a gönder |
+| GET | `/backups/telegram/state` | O güne ait Telegram yedek durumu |
+| GET | `/backups/decryption-key` | Şifre çözme (private) anahtarı + public parmak izi |
+
+`POST /backups/restore` — `multipart/form-data`: `file` (zorunlu) ve
+`privateKeyPem` (opsiyonel). Şifreli dosyada anahtar sırası: istekte anahtar
+geldiyse o kullanılır; gelmediyse **önce sunucudaki geçerli şifre çözme
+anahtarı** denenir. O da çözemezse yanıt `400` olur ve gövdede
+`needsKey: true` döner → arayüz kullanıcıdan anahtarı ister (eski bir
+anahtarla şifrelenmiş yedekler için). Başarılı yanıt:
+`{ restored: true, decrypted: <bool> }`.
+
+### Telegram bot komutları
+| Komut | Nerede | Ne yapar |
+|-------|--------|----------|
+| `/idx` (veya `/idx@BotAdi`) | Grup veya özel sohbet | O sohbetin kimliğini, dokunup kopyalanabilecek biçimde cevaplar |
+
+Bot, güncellemeleri kısa aralıklı `getUpdates` yoklamasıyla okur (webhook
+gerekmez). Sunucu yeniden başladığında bekleyen eski komutlar **cevaplanmaz**;
+yalnızca imleç ileri alınır. Bot jetonu tanımlı değilse yoklama yapılmaz.
+Aynı bot için başka bir tüketici/webhook etkinse Telegram `409` döner ve durum
+bir kez loglanır.
+
 Telegram jetonu ve sohbet kimliği **gönderim anında** okunur (açılışta bir kez
 değil) → arayüzden değiştirince sunucuyu/container'ı yeniden başlatmak
 gerekmez. Öncelik: veritabanı (arayüz) → `.env`. Yedek gönderim sıklığı
