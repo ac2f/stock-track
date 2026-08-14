@@ -4,6 +4,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { SettingsService } from './settings.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
+import { UpdateTelegramDto } from './dto/update-telegram.dto';
 
 /**
  * Ayarlar. İşletme/proje kimliği (ad, adres, telefon, VKN, logo, portal adresi)
@@ -25,5 +26,22 @@ export class SettingsController {
   @Put('business')
   updateBusiness(@Body() dto: UpdateBusinessDto) {
     return this.settings.update(dto);
+  }
+
+  /**
+   * Telegram ayarlarının durumu (jeton maskeli) — mesajların gideceği sohbet
+   * kimlikleri burada görünür.
+   */
+  @Roles(UserRole.OWNER)
+  @Get('telegram')
+  getTelegram() {
+    return this.settings.getTelegramStatus();
+  }
+
+  /** Telegram jetonu/sohbet kimliklerini arayüzden düzenler (anında geçerli). */
+  @Roles(UserRole.OWNER)
+  @Put('telegram')
+  updateTelegram(@Body() dto: UpdateTelegramDto) {
+    return this.settings.updateTelegram(dto);
   }
 }

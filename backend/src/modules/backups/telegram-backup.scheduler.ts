@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { NotificationType } from '../notifications/enums/notification.enums';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SettingsService } from '../settings/settings.service';
 import { TelegramBackupService } from './telegram-backup.service';
 
 /**
@@ -15,21 +16,21 @@ import { TelegramBackupService } from './telegram-backup.service';
 export class TelegramBackupScheduler {
   private readonly logger = new Logger(TelegramBackupScheduler.name);
   private readonly enabled: boolean;
-  private readonly ownerChatId: string;
 
   constructor(
     private readonly telegramBackups: TelegramBackupService,
     private readonly notifications: NotificationsService,
+    private readonly settings: SettingsService,
     configService: ConfigService,
   ) {
     this.enabled = configService.get<boolean>('scheduler.enabled') ?? true;
-    this.ownerChatId =
-      configService.get<string>('notifications.telegramOwnerChatId') ?? '';
   }
 
   @Cron(process.env.BACKUP_TELEGRAM_CRON || '0 * * * *')
   async handle(): Promise<void> {
-    if (!this.enabled || !this.telegramBackups.isConfigured()) {
+    // Yapılandırma her tetiklemede ayarlardan okunur → arayüzden jeton
+    // girildiğinde bir sonraki turda kendiliğinden devreye girer.
+    if (!this.enabled || !(await this.telegramBackups.isConfigured())) {
       return;
     }
     try {
@@ -45,7 +46,7 @@ export class TelegramBackupScheduler {
         type: NotificationType.BACKUP,
         subject: 'Şifreli yedek Telegram gönderimi BAŞARISIZ',
         body: `Otomatik şifreli veritabanı yedeği Telegram'a gönderilemedi: ${message}`,
-        telegramChatId: this.ownerChatId || undefined,
+        telegramChatId: (await this.settings.getTelegram()).chatId || undefined,
         relatedType: 'backup',
       });
     }

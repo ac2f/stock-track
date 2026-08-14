@@ -19,7 +19,11 @@ export interface ChannelResult {
  */
 export interface NotificationChannelPort {
   readonly channel: NotificationChannel;
-  /** Kanalın kullanılabilir olup olmadığı (ör. token tanımlı mı). */
-  isEnabled(): boolean;
+  /**
+   * Kanalın kullanılabilir olup olmadığı (ör. token tanımlı mı).
+   * Ayarlarını çalışma zamanında (veritabanından) okuyan kanallar için
+   * Promise dönebilir.
+   */
+  isEnabled(): boolean | Promise<boolean>;
   send(message: OutboundMessage): Promise<ChannelResult>;
 }

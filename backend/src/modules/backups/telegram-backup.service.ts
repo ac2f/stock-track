@@ -6,7 +6,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { BackupConfig, NotificationsConfig } from '../../config/configuration';
+import { BackupConfig } from '../../config/configuration';
+import { SettingsService } from '../settings/settings.service';
 import { BackupsService } from './backups.service';
 import { BackupCryptoService } from './backup-crypto.service';
 
@@ -56,22 +57,25 @@ export interface TelegramBackupResult {
 export class TelegramBackupService {
   private readonly logger = new Logger(TelegramBackupService.name);
   private readonly cfg: BackupConfig;
-  private readonly botToken: string;
   // Eşzamanlı çağrıları (saatlik cron + elle tetik) sıraya sokan basit kilit.
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly backups: BackupsService,
     private readonly crypto: BackupCryptoService,
+    private readonly settings: SettingsService,
     configService: ConfigService,
   ) {
     this.cfg = configService.get<BackupConfig>('backup')!;
-    this.botToken =
-      configService.get<NotificationsConfig>('notifications')!.telegramBotToken;
   }
 
-  isConfigured(): boolean {
-    return !!this.botToken && !!this.cfg.telegramChatId;
+  /**
+   * Jeton ve hedef sohbet HER çağrıda ayarlardan okunur (açılışta bir kez
+   * değil) → arayüzden değiştirilince yeniden başlatmaya gerek kalmaz.
+   */
+  async isConfigured(): Promise<boolean> {
+    const { botToken, backupChatId } = await this.settings.getTelegram();
+    return !!botToken && !!backupChatId;
   }
 
   /** Çağrıları seri işletir → durum dosyası ve Telegram mesajı tutarlı kalır. */
@@ -86,17 +90,17 @@ export class TelegramBackupService {
   }
 
   private async doRunAndSend(kind: BackupKind): Promise<TelegramBackupResult> {
-    if (!this.botToken) {
+    const { botToken, backupChatId: chatId } = await this.settings.getTelegram();
+    if (!botToken) {
       throw new BadRequestException(
-        'Telegram bot jetonu (TELEGRAM_BOT_TOKEN) tanımlı değil.',
+        'Telegram bot jetonu tanımlı değil. Ayarlar › Telegram ekranından girin.',
       );
     }
-    if (!this.cfg.telegramChatId) {
+    if (!chatId) {
       throw new BadRequestException(
-        'Telegram sohbet kimliği (BACKUP_TELEGRAM_CHAT_ID / TELEGRAM_OWNER_CHAT_ID) tanımlı değil.',
+        'Telegram sohbet kimliği tanımlı değil. Ayarlar › Telegram ekranından girin.',
       );
     }
-    const chatId = this.cfg.telegramChatId;
 
     // 1) Yedek al (geçici) → şifrele → geçici .enc dosyası.
     const created = await this.backups.createBackup(false);
@@ -130,6 +134,7 @@ export class TelegramBackupService {
       const caption = this.buildCaption(entries, todayKey);
       try {
         await this.editMessageMedia(
+          botToken,
           chatId,
           prev.messageId,
           encBuffer,
@@ -146,7 +151,9 @@ export class TelegramBackupService {
         };
         await this.saveState(state);
         // Sabit hâlâ duruyor olsa da tazele (mesaj yeniden sabit kalsın).
-        await this.pinChatMessage(chatId, prev.messageId).catch(() => undefined);
+        await this.pinChatMessage(botToken, chatId, prev.messageId).catch(
+          () => undefined,
+        );
         return {
           ok: true,
           action: 'updated',
@@ -168,6 +175,7 @@ export class TelegramBackupService {
     const entries = [entry];
     const caption = this.buildCaption(entries, todayKey);
     const messageId = await this.sendDocument(
+      botToken,
       chatId,
       encBuffer,
       encName,
@@ -175,8 +183,8 @@ export class TelegramBackupService {
     );
 
     // Önceki sabitleri kaldır, yeni mesajı sabitle.
-    await this.unpinAll(chatId, prev?.pinnedMessageId ?? null);
-    await this.pinChatMessage(chatId, messageId).catch((err) =>
+    await this.unpinAll(botToken, chatId, prev?.pinnedMessageId ?? null);
+    await this.pinChatMessage(botToken, chatId, messageId).catch((err) =>
       this.logger.warn(`Mesaj sabitlenemedi: ${(err as Error).message}`),
     );
 
@@ -265,11 +273,12 @@ export class TelegramBackupService {
   }
 
   // ── Telegram Bot API çağrıları (fetch + multipart) ────────────────
-  private api(method: string): string {
-    return `https://api.telegram.org/bot${this.botToken}/${method}`;
+  private api(botToken: string, method: string): string {
+    return `https://api.telegram.org/bot${botToken}/${method}`;
   }
 
   private async sendDocument(
+    botToken: string,
     chatId: string,
     buffer: Buffer,
     fileName: string,
@@ -279,11 +288,12 @@ export class TelegramBackupService {
     form.append('chat_id', chatId);
     form.append('caption', caption);
     form.append('document', this.toBlob(buffer), fileName);
-    const json = await this.call('sendDocument', form);
+    const json = await this.call(botToken, 'sendDocument', form);
     return json.result.message_id as number;
   }
 
   private async editMessageMedia(
+    botToken: string,
     chatId: string,
     messageId: number,
     buffer: Buffer,
@@ -298,7 +308,7 @@ export class TelegramBackupService {
       JSON.stringify({ type: 'document', media: 'attach://doc', caption }),
     );
     form.append('doc', this.toBlob(buffer), fileName);
-    await this.call('editMessageMedia', form);
+    await this.call(botToken, 'editMessageMedia', form);
   }
 
   /** Buffer'ı, TS DOM tipleriyle uyumlu bir Blob'a çevirir (kopya). */
@@ -306,8 +316,12 @@ export class TelegramBackupService {
     return new Blob([Uint8Array.from(buffer)]);
   }
 
-  private async pinChatMessage(chatId: string, messageId: number): Promise<void> {
-    await this.callJson('pinChatMessage', {
+  private async pinChatMessage(
+    botToken: string,
+    chatId: string,
+    messageId: number,
+  ): Promise<void> {
+    await this.callJson(botToken, 'pinChatMessage', {
       chat_id: chatId,
       message_id: messageId,
       disable_notification: true,
@@ -316,25 +330,32 @@ export class TelegramBackupService {
 
   /** Önceki sabiti (biliniyorsa) kaldırır; ayrıca sohbetteki tüm sabitleri temizler. */
   private async unpinAll(
+    botToken: string,
     chatId: string,
     previousPinnedId: number | null,
   ): Promise<void> {
     if (previousPinnedId) {
-      await this.callJson('unpinChatMessage', {
+      await this.callJson(botToken, 'unpinChatMessage', {
         chat_id: chatId,
         message_id: previousPinnedId,
       }).catch(() => undefined);
     }
-    await this.callJson('unpinAllChatMessages', { chat_id: chatId }).catch(
+    await this.callJson(botToken, 'unpinAllChatMessages', {
+      chat_id: chatId,
+    }).catch(
       () => undefined,
     );
   }
 
   private async call(
+    botToken: string,
     method: string,
     form: FormData,
   ): Promise<{ ok: boolean; result: { message_id: number } }> {
-    const res = await fetch(this.api(method), { method: 'POST', body: form });
+    const res = await fetch(this.api(botToken, method), {
+      method: 'POST',
+      body: form,
+    });
     const json = (await res.json()) as {
       ok: boolean;
       description?: string;
@@ -349,10 +370,11 @@ export class TelegramBackupService {
   }
 
   private async callJson(
+    botToken: string,
     method: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    const res = await fetch(this.api(method), {
+    const res = await fetch(this.api(botToken, method), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

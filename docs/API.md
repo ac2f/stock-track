@@ -241,6 +241,22 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | Metot | Yol | Açıklama |
 |-------|-----|----------|
 | GET | `/notifications?limit=` | Gönderim defteri (Log + Telegram + WhatsApp) |
+| POST | `/notifications/telegram/reload` | Telegram'ı "yeniden başlat": ayarları tazeler, jetonu `getMe` ile doğrular. Yanıt: `{ ok, botUsername, chatId, backupChatId, error? }` |
+| POST | `/notifications/telegram/test` | Ayarlardaki sohbete deneme mesajı gönderir |
+
+### Settings (Ayarlar — 👔 OWNER yazma)
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/settings/business` | İşletme kimliği (belgelerde/portalda kullanılır) |
+| PUT | `/settings/business` | İşletme kimliğini güncelle |
+| GET | `/settings/telegram` | Telegram durumu. **Jeton maskeli döner**, asla açık değil. Mesajın gideceği sohbet kimlikleri burada |
+| PUT | `/settings/telegram` | Jeton/sohbet kimliklerini güncelle. Alan gönderilmezse değişmez, **boş** gönderilirse temizlenir (`.env` değerine düşer) |
+
+Telegram jetonu ve sohbet kimliği **gönderim anında** okunur (açılışta bir kez
+değil) → arayüzden değiştirince sunucuyu/container'ı yeniden başlatmak
+gerekmez. Öncelik: veritabanı (arayüz) → `.env`. Yedek gönderim sıklığı
+(`BACKUP_TELEGRAM_CRON`) hâlâ `.env`'den okunur ve değişikliği yeniden başlatma
+ister.
 
 ---
 

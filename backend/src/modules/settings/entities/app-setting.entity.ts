@@ -25,4 +25,17 @@ export class AppSetting extends BaseEntity {
 
   @Column({ name: 'portal_base_url', default: '' })
   portalBaseUrl: string;
+
+  // ── Telegram (arayüzden düzenlenir; boşsa .env değerine düşülür) ──
+  /** Bot jetonu (@BotFather). Boşsa TELEGRAM_BOT_TOKEN kullanılır. */
+  @Column({ name: 'telegram_bot_token', default: '' })
+  telegramBotToken: string;
+
+  /** Bildirim/hatırlatmaların gideceği sohbet. Boşsa TELEGRAM_OWNER_CHAT_ID. */
+  @Column({ name: 'telegram_chat_id', default: '' })
+  telegramChatId: string;
+
+  /** Şifreli yedeğin gideceği sohbet. Boşsa yukarıdaki bildirim sohbeti. */
+  @Column({ name: 'backup_telegram_chat_id', default: '' })
+  backupTelegramChatId: string;
 }

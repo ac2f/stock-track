@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchBusinessSettings,
+  fetchTelegramSettings,
+  reloadTelegram,
+  testTelegram,
   updateBusinessSettings,
+  updateTelegramSettings,
+  type SettingSource,
   type UpdateBusinessInput,
 } from '../../api/settings.api';
 import {
@@ -148,8 +153,267 @@ export function SettingsPage() {
       </div>
 
       <ScreenLockSettings />
+      <TelegramSettings />
       <BackupSection />
       <NotificationsHistory />
+    </div>
+  );
+}
+
+/** Ayarın kaynağını gösteren küçük etiket (arayüzden mi, .env'den mi). */
+function SourceBadge({ source }: { source: SettingSource }) {
+  if (source === 'none') return null;
+  const db = source === 'db';
+  return (
+    <span
+      className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+        db ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+      }`}
+      title={
+        db
+          ? 'Bu değer arayüzden girildi (veritabanında saklanıyor).'
+          : '.env dosyasından geliyor. Arayüzden girerseniz o değer öncelikli olur.'
+      }
+    >
+      {db ? 'arayüz' : '.env'}
+    </span>
+  );
+}
+
+/**
+ * Telegram ayarları. Jeton ve sohbet kimlikleri buradan düzenlenir; değişiklik
+ * ANINDA geçerli olur (gönderim anında okunur), container'ı yeniden başlatmaya
+ * gerek yoktur. "Yeniden başlat" jetonu Telegram'a doğrulatır.
+ */
+function TelegramSettings() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['settings', 'telegram'],
+    queryFn: fetchTelegramSettings,
+  });
+
+  // Jeton hiç açık gelmez → boş bırakılırsa mevcut jeton korunur.
+  const [token, setToken] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [backupChatId, setBackupChatId] = useState('');
+  useEffect(() => {
+    if (data) {
+      setChatId(data.chatIdSource === 'db' ? data.chatId : '');
+      setBackupChatId(data.backupChatId);
+    }
+  }, [data]);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['settings', 'telegram'] });
+  };
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      updateTelegramSettings({
+        // Boş jeton "değiştirme" demek; temizlemek için ayrı düğme var.
+        ...(token.trim() ? { telegramBotToken: token.trim() } : {}),
+        telegramChatId: chatId.trim(),
+        backupTelegramChatId: backupChatId.trim(),
+      }),
+    onSuccess: () => {
+      setToken('');
+      invalidate();
+    },
+  });
+  const clearTokenMut = useMutation({
+    mutationFn: () => updateTelegramSettings({ telegramBotToken: '' }),
+    onSuccess: invalidate,
+  });
+  const reloadMut = useMutation({ mutationFn: reloadTelegram, onSuccess: invalidate });
+  const testMut = useMutation({ mutationFn: testTelegram });
+
+  if (isLoading || !data) {
+    return (
+      <div className="card">
+        <p className="text-slate-400">Telegram ayarları yükleniyor…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">📨 Telegram</h2>
+      <p className="text-sm text-slate-500">
+        Bildirimler, borç hatırlatmaları ve şifreli yedekler bu bot üzerinden
+        gönderilir. Buradaki değişiklikler <b>anında</b> geçerli olur — sunucuyu
+        veya container'ı yeniden başlatmanız gerekmez.
+      </p>
+
+      {/* Durum + mesajın gideceği sohbet */}
+      <div
+        className={`space-y-1 rounded-lg border p-3 text-sm ${
+          data.configured
+            ? 'border-emerald-200 bg-emerald-50'
+            : 'border-amber-200 bg-amber-50'
+        }`}
+      >
+        <p className="font-medium">
+          {data.configured ? '✅ Yapılandırıldı' : '⚠️ Eksik yapılandırma'}
+        </p>
+        <p className="text-xs text-slate-600">
+          Bot jetonu:{' '}
+          {data.tokenSet ? (
+            <>
+              <code className="rounded bg-white px-1">{data.tokenMasked}</code>
+              <SourceBadge source={data.tokenSource} />
+            </>
+          ) : (
+            <span className="text-amber-700">tanımlı değil</span>
+          )}
+        </p>
+        <p className="text-xs text-slate-600">
+          Bildirimler şu sohbete gider:{' '}
+          {data.chatId ? (
+            <>
+              <code className="rounded bg-white px-1">{data.chatId}</code>
+              <SourceBadge source={data.chatIdSource} />
+            </>
+          ) : (
+            <span className="text-amber-700">tanımlı değil</span>
+          )}
+        </p>
+        <p className="text-xs text-slate-600">
+          Şifreli yedek şu sohbete gider:{' '}
+          {data.effectiveBackupChatId ? (
+            <code className="rounded bg-white px-1">
+              {data.effectiveBackupChatId}
+            </code>
+          ) : (
+            <span className="text-amber-700">tanımlı değil</span>
+          )}
+          {!data.backupChatId && data.effectiveBackupChatId && (
+            <span className="ml-1 text-slate-400">
+              (ayrı yedek sohbeti girilmedi → bildirim sohbeti kullanılıyor)
+            </span>
+          )}
+        </p>
+        <p className="text-xs text-slate-400">
+          Otomatik yedek gönderim sıklığı (cron): <code>{data.backupCron}</code>{' '}
+          — bu değer .env'den okunur ve değişikliği yeniden başlatma ister.
+        </p>
+      </div>
+
+      <Field
+        label="Bot jetonu"
+        value={token}
+        onChange={setToken}
+        placeholder={
+          data.tokenSet ? 'Değiştirmek için yeni jetonu yapıştırın' : '123456789:AA…'
+        }
+        hint="@BotFather'dan alınır. Boş bırakırsanız mevcut jeton korunur; ekranda hiçbir zaman açık gösterilmez."
+      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Bildirim sohbet kimliği (chat id)"
+          value={chatId}
+          onChange={setChatId}
+          placeholder={data.chatIdSource === 'env' ? data.chatId : '-1001234567890'}
+          hint="Boş bırakılırsa .env'deki değer kullanılır."
+        />
+        <Field
+          label="Yedek sohbet kimliği (opsiyonel)"
+          value={backupChatId}
+          onChange={setBackupChatId}
+          placeholder="Boşsa bildirim sohbeti kullanılır"
+          hint="Yedekleri ayrı bir gruba göndermek isterseniz."
+        />
+      </div>
+
+      {saveMut.isError && (
+        <p className="text-sm text-red-600">
+          {(saveMut.error as { response?: { data?: { message?: string } } })
+            ?.response?.data?.message ?? 'Kaydedilemedi.'}
+        </p>
+      )}
+      {saveMut.isSuccess && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          className="btn-primary"
+          disabled={saveMut.isPending}
+          onClick={() => saveMut.mutate()}
+        >
+          Kaydet
+        </button>
+        <button
+          className="btn bg-indigo-600 text-white"
+          disabled={reloadMut.isPending}
+          title="Ayarları yeniden okur ve jetonu Telegram'a doğrulatır"
+          onClick={() => reloadMut.mutate()}
+        >
+          {reloadMut.isPending ? 'Yeniden başlatılıyor…' : '🔄 Yeniden başlat'}
+        </button>
+        <button
+          className="btn bg-slate-100"
+          disabled={testMut.isPending || !data.configured}
+          title={
+            data.configured
+              ? 'Ayarlardaki sohbete deneme mesajı gönderir'
+              : 'Önce jeton ve sohbet kimliğini tanımlayın'
+          }
+          onClick={() => testMut.mutate()}
+        >
+          {testMut.isPending ? 'Gönderiliyor…' : '✉️ Test mesajı gönder'}
+        </button>
+        {data.tokenSource === 'db' && (
+          <button
+            className="btn bg-red-50 text-xs text-red-600"
+            disabled={clearTokenMut.isPending}
+            title="Arayüzden girilen jetonu siler; varsa .env değerine geri dönülür"
+            onClick={() => {
+              if (confirm('Arayüzden girilen bot jetonu silinsin mi? Varsa .env değeri devreye girer.')) {
+                clearTokenMut.mutate();
+              }
+            }}
+          >
+            Jetonu temizle
+          </button>
+        )}
+      </div>
+
+      {/* Yeniden başlatma sonucu */}
+      {reloadMut.isSuccess && (
+        <p
+          className={`text-sm ${
+            reloadMut.data.ok ? 'text-emerald-700' : 'text-red-600'
+          }`}
+        >
+          {reloadMut.data.ok ? (
+            <>
+              Bağlantı tamam — bot{' '}
+              <b>@{reloadMut.data.botUsername ?? reloadMut.data.botName}</b>.
+              Mesajlar <code>{reloadMut.data.chatId || '—'}</code>, yedekler{' '}
+              <code>{reloadMut.data.backupChatId || '—'}</code> sohbetine gidecek.
+            </>
+          ) : (
+            <>Bağlanılamadı: {reloadMut.data.error}</>
+          )}
+        </p>
+      )}
+      {reloadMut.isError && (
+        <p className="text-sm text-red-600">Yeniden başlatılamadı.</p>
+      )}
+
+      {/* Test sonucu */}
+      {testMut.isSuccess && (
+        <p
+          className={`text-sm ${
+            testMut.data.success ? 'text-emerald-700' : 'text-red-600'
+          }`}
+        >
+          {testMut.data.success
+            ? `Test mesajı ${testMut.data.chatId} sohbetine gönderildi.`
+            : `Gönderilemedi: ${testMut.data.error}`}
+        </p>
+      )}
+      {testMut.isError && (
+        <p className="text-sm text-red-600">Test mesajı gönderilemedi.</p>
+      )}
     </div>
   );
 }

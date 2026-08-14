@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Customer } from '../customers/entities/customer.entity';
+import { SettingsModule } from '../settings/settings.module';
 import { Notification } from './entities/notification.entity';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
@@ -16,7 +17,8 @@ import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
  * Customer salt-okunur olarak alıcı (telegramChatId) çözümü için kaydedilir.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Notification, Customer])],
+  // SettingsModule: Telegram jetonu/sohbeti gönderim anında ayarlardan okunur.
+  imports: [TypeOrmModule.forFeature([Notification, Customer]), SettingsModule],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,

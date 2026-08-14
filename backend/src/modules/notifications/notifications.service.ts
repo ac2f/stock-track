@@ -43,7 +43,8 @@ export class NotificationsService {
    */
   async notify(params: NotifyParams): Promise<void> {
     for (const channel of this.channels) {
-      if (!channel.isEnabled()) {
+      // Kanal ayarlarını çalışma zamanında okuyabilir (Telegram) → await.
+      if (!(await channel.isEnabled())) {
         continue;
       }
       const record = await this.notificationsRepo.save(

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SettingsModule } from '../settings/settings.module';
 import { BackupsController } from './backups.controller';
 import { BackupsService } from './backups.service';
 import { BackupScheduler } from './backup.scheduler';
@@ -13,7 +14,8 @@ import { TelegramBackupScheduler } from './telegram-backup.scheduler';
  * (aynı gün tek mesaj, sabitlenir) + sahibe bildirim (bildirim geçmişinde görünür).
  */
 @Module({
-  imports: [NotificationsModule],
+  // SettingsModule: Telegram jetonu/sohbeti gönderim anında ayarlardan okunur.
+  imports: [NotificationsModule, SettingsModule],
   controllers: [BackupsController],
   providers: [
     BackupsService,
