@@ -4,8 +4,13 @@ import { groupChipClass } from './GroupSection';
 export interface SearchOption {
   id: string;
   label: string;
-  /** Gruplama başlığı (ör. kategori adı). Verilmezse gruplanmaz. */
+  /** Gruplama başlığı (ör. ürün türü). Verilmezse gruplanmaz. */
   group?: string;
+  /**
+   * İkinci seviye başlık (ör. aynı malzemenin adı). Aynı malzemenin farklı
+   * parçaları tek başlık altında toplanır → uzun listeler okunabilir kalır.
+   */
+  subgroup?: string;
   /** İkincil satır (ör. kalan ebat / firma). */
   sublabel?: string;
   /** İkincil satır vurgusu: 'warn' → kesilmiş/kalan ebat gibi dikkat çekmesi gerekenler. */
@@ -50,15 +55,24 @@ export function SearchSelect({
     );
   }, [options, term]);
 
-  // Gruplara ayır (sıra korunur), klavye için düz index eşlemesi ile.
+  // Gruplara ve alt gruplara ayır (sıra korunur); klavye için düz index eşlemesi
+  // aşağıda render sırasında yapılır.
   const sections = useMemo(() => {
-    const map = new Map<string, SearchOption[]>();
+    const map = new Map<string, Map<string, SearchOption[]>>();
     for (const o of filtered) {
       const g = o.group ?? '';
-      if (!map.has(g)) map.set(g, []);
-      map.get(g)!.push(o);
+      const sg = o.subgroup ?? '';
+      let subs = map.get(g);
+      if (!subs) {
+        subs = new Map();
+        map.set(g, subs);
+      }
+      if (!subs.has(sg)) subs.set(sg, []);
+      subs.get(sg)!.push(o);
     }
-    return [...map.entries()];
+    return [...map.entries()].map(
+      ([group, subs]) => [group, [...subs.entries()]] as const,
+    );
   }, [filtered]);
 
   useEffect(() => setActive(0), [term, open]);
@@ -132,15 +146,27 @@ export function SearchSelect({
           ref={listRef}
           className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800"
         >
-          {sections.map(([group, opts]) => (
+          {sections.map(([group, subgroups]) => (
             <li key={group || '_'}>
               {group && (
-                <div className="sticky top-0 bg-white px-2 py-1 dark:bg-slate-800">
+                <div className="sticky top-0 z-10 bg-white px-2 py-1 dark:bg-slate-800">
                   <span
                     className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${groupChipClass(group)}`}
                   >
                     {group}
                   </span>
+                </div>
+              )}
+              {subgroups.map(([subgroup, opts]) => (
+              <div key={subgroup || '_'}>
+              {subgroup && (
+                <div className="px-3 pt-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  {subgroup}
+                  {opts.length > 1 && (
+                    <span className="ml-1 font-normal text-slate-400">
+                      ({opts.length} parça)
+                    </span>
+                  )}
                 </div>
               )}
               <ul>
@@ -152,7 +178,7 @@ export function SearchSelect({
                       <button
                         type="button"
                         data-idx={idx}
-                        className={`block w-full px-3 py-2 text-left text-sm ${
+                        className={`block w-full py-2 pl-5 pr-3 text-left text-sm ${
                           idx === active ? 'bg-slate-100 dark:bg-slate-700' : ''
                         } ${
                           o.highlight
@@ -182,6 +208,8 @@ export function SearchSelect({
                   );
                 })}
               </ul>
+              </div>
+              ))}
             </li>
           ))}
           {filtered.length === 0 && (

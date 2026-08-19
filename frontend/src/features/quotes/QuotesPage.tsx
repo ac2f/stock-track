@@ -18,6 +18,7 @@ import {
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchQueue } from '../../api/processing.api';
 import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
+import { groupPlates } from '../../lib/plateGrouping';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
@@ -72,11 +73,12 @@ function plateOwnerLabel(p: Plate): string {
   return p.owners?.length ? p.owners.join(', ') : 'İşletme';
 }
 
-/** Seçici alt satırı: kategori + (tabaka ise kalan ebat / şerit ise yükseklik×uzunluk). */
+/**
+ * Seçici alt satırı — PARÇAYA özel bilgi: kalan ebat/uzunluk + sahibi.
+ * Tür ve malzeme adı artık grup başlıklarında olduğu için burada tekrarlanmaz.
+ */
 function platePickSublabel(p: Plate): string {
-  const cat = p.template?.category?.name;
   const parts: string[] = [];
-  if (cat) parts.push(cat);
   if (p.measurementType === 'length') {
     const h = Number(p.heightMm);
     parts.push(`${h ? `${h}mm × ` : ''}${Number(p.quantityInStock)} m`);
@@ -84,6 +86,7 @@ function platePickSublabel(p: Plate): string {
     const rem = plateRemainingLabel(p);
     if (rem) parts.push(rem);
   }
+  parts.push(`👤 ${plateOwnerLabel(p)}`);
   return parts.join(' · ');
 }
 
@@ -140,21 +143,30 @@ function PlatePicker({
     selectedPlate && !items.some((p) => p.id === selectedPlate.id)
       ? [selectedPlate, ...items]
       : items;
-  // Sahiplere göre sırala: tercih edilen sahip (alıcı) → İşletme → diğerleri (ada göre).
-  const ownerRank = (p: Plate): [number, string] => {
-    const label = plateOwnerLabel(p);
-    if (preferOwnerName && p.owners?.includes(preferOwnerName)) return [0, label];
-    if (label === 'İşletme') return [1, label];
-    return [2, label];
-  };
-  const sorted = [...merged].sort((a, b) => {
-    const [ra, la] = ownerRank(a);
-    const [rb, lb] = ownerRank(b);
-    if (ra !== rb) return ra - rb;
-    const cmp = la.localeCompare(lb, 'tr');
-    if (cmp !== 0) return cmp;
-    return a.name.localeCompare(b.name, 'tr');
-  });
+
+  // İki seviyeli gruplama: ÜRÜN TÜRÜ → AYNI MALZEME → parçalar.
+  // Alıcının kendi malzemeleri en üstte kalsın diye tür grupları önce ona
+  // göre sıralanır (aynı tür içinde parçalar da öyle).
+  const prefers = (p: Plate) =>
+    preferOwnerName && p.owners?.includes(preferOwnerName) ? 0 : 1;
+  const groups = groupPlates(merged);
+  const options = groups.flatMap((g) =>
+    g.materials.flatMap((m) =>
+      [...m.plates]
+        .sort((a, b) => prefers(a) - prefers(b))
+        .map((p) => ({
+          id: p.id,
+          label: p.name,
+          group: `${g.category} (${g.count})`,
+          subgroup: m.label,
+          sublabel: platePickSublabel(p),
+          // Kesilmiş (tam olmayan) tabakanın kalan ebadı vurgulanır.
+          subtone: isPartialSheet(p) ? ('warn' as const) : undefined,
+          highlight: highlightIds?.has(p.id),
+        })),
+    ),
+  );
+
   return (
     <div className="space-y-1">
       <select
@@ -175,17 +187,8 @@ function PlatePicker({
           ownerCustomerId ? 'Sahibin malzemesini ara/seç…' : 'Malzeme/plaka ara/seç…'
         }
         emptyText="Uygun malzeme yok."
-        options={sorted.map((p) => ({
-          id: p.id,
-          label: p.name,
-          // Sahiplere göre gruplama — kimin malı olduğu başlıktan okunur.
-          group: `👤 ${plateOwnerLabel(p)}`,
-          sublabel: platePickSublabel(p),
-          // Kesilmiş (tam olmayan) tabakanın kalan ebadı vurgulanır.
-          subtone: isPartialSheet(p) ? ('warn' as const) : undefined,
-          highlight: highlightIds?.has(p.id),
-        }))}
-        onChange={(id) => onPick(id, sorted.find((p) => p.id === id))}
+        options={options}
+        onChange={(id) => onPick(id, merged.find((p) => p.id === id))}
       />
     </div>
   );
@@ -686,17 +689,18 @@ function NewQuoteForm({
     const q = stockSearch.trim().toLocaleLowerCase('tr');
     return !q || p.name.toLocaleLowerCase('tr').includes(q);
   });
-  // #kategorilendirme: seçilecek malzemeleri MALZEME TÜRÜNE (kategori) göre grupla.
-  const ownerStockByCategory = (() => {
-    const map = new Map<string, typeof ownerStock>();
-    for (const p of ownerStock) {
-      const k = p.template?.category?.name ?? 'Diğer';
-      const arr = map.get(k);
-      if (arr) arr.push(p);
-      else map.set(k, [p]);
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'tr'));
-  })();
+  // İki seviyeli gruplama: ÜRÜN TÜRÜ → AYNI MALZEME → parçalar. Aynı malzemenin
+  // onlarca parçası tek başlık altında toplanır, liste okunabilir kalır.
+  const stockGroups = groupPlates(ownerStock);
+  // Varsayılan olarak alt gruplar kapalı; başlığa tıklayınca parçalar açılır.
+  const [openMaterials, setOpenMaterials] = useState<Set<string>>(new Set());
+  const toggleMaterial = (key: string) =>
+    setOpenMaterials((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
   // Henüz teklife eklenmemiş (seçilebilir) filtreli malzemeler.
   const selectableStock = ownerStock.filter(
     (p) => !items.some((x) => x.plateId === p.id),
@@ -931,67 +935,121 @@ function NewQuoteForm({
             </label>
           )}
 
-          {/* Malzeme türüne (kategori) göre gruplu liste */}
-          <div className="max-h-72 space-y-2 overflow-y-auto">
-            {ownerStockByCategory.map(([cat, list]) => (
-              <div key={cat}>
+          {/* Ürün türü → aynı malzeme → parçalar (iki seviyeli, katlanabilir) */}
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {stockGroups.map((g) => (
+              <div key={g.category}>
                 <p
-                  className={`mb-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${groupChipClass(cat)}`}
+                  className={`mb-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${groupChipClass(g.category)}`}
                 >
-                  {cat} ({list.length})
+                  {g.category} ({g.count})
                 </p>
                 <div className="space-y-1">
-                  {list.map((p) => {
-                    const already = items.some((x) => x.plateId === p.id);
-                    const partial = isPartialSheet(p);
-                    const rem = plateRemainingLabel(p);
+                  {g.materials.map((m) => {
+                    const open = openMaterials.has(m.key) || m.plates.length === 1;
+                    const free = m.plates.filter(
+                      (p) => !items.some((x) => x.plateId === p.id),
+                    );
+                    const allPicked =
+                      free.length > 0 && free.every((p) => selStock.has(p.id));
                     return (
-                      <label
-                        key={p.id}
-                        className={`flex items-center gap-2 text-sm ${already ? 'opacity-50' : ''}`}
+                      <div
+                        key={m.key}
+                        className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/40"
                       >
-                        <input
-                          type="checkbox"
-                          disabled={already}
-                          checked={already || selStock.has(p.id)}
-                          onChange={(e) =>
-                            setSelStock((s) => {
-                              const n = new Set(s);
-                              if (e.target.checked) n.add(p.id);
-                              else n.delete(p.id);
-                              return n;
-                            })
-                          }
-                        />
-                        <span className="flex-1 truncate">{p.name}</span>
-                        {(p.measurementType ?? 'area') === 'area' && (
-                          <span
-                            className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
-                              partial
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
-                                : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
-                            }`}
-                          >
-                            {partial ? '✂ parça' : 'tam'}
-                          </span>
-                        )}
-                        {rem && (
-                          <span
-                            className={
-                              partial
-                                ? 'shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400'
-                                : 'shrink-0 text-xs text-slate-400'
+                        {/* Alt kategori başlığı: aynı malzemenin tüm parçaları */}
+                        <div className="flex items-center gap-2 px-2 py-1">
+                          <input
+                            type="checkbox"
+                            title="Bu malzemenin tüm parçalarını seç"
+                            disabled={free.length === 0}
+                            checked={allPicked}
+                            onChange={() =>
+                              setSelStock((s) => {
+                                const n = new Set(s);
+                                if (allPicked) free.forEach((p) => n.delete(p.id));
+                                else free.forEach((p) => n.add(p.id));
+                                return n;
+                              })
                             }
+                          />
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-1 text-left text-sm"
+                            onClick={() => toggleMaterial(m.key)}
                           >
-                            {rem}
-                          </span>
+                            <span className="truncate font-medium">{m.label}</span>
+                            <span className="shrink-0 text-xs text-slate-400">
+                              {m.plates.length} parça
+                            </span>
+                            {m.plates.length > 1 && (
+                              <span className="shrink-0 text-xs text-slate-400">
+                                {open ? '▾' : '▸'}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+
+                        {open && (
+                          <div className="space-y-1 border-t border-slate-100 px-2 py-1 dark:border-slate-700">
+                            {m.plates.map((p) => {
+                              const already = items.some((x) => x.plateId === p.id);
+                              const partial = isPartialSheet(p);
+                              const rem = plateRemainingLabel(p);
+                              return (
+                                <label
+                                  key={p.id}
+                                  className={`flex items-center gap-2 pl-4 text-sm ${already ? 'opacity-50' : ''}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={already}
+                                    checked={already || selStock.has(p.id)}
+                                    onChange={(e) =>
+                                      setSelStock((s) => {
+                                        const n = new Set(s);
+                                        if (e.target.checked) n.add(p.id);
+                                        else n.delete(p.id);
+                                        return n;
+                                      })
+                                    }
+                                  />
+                                  <span className="flex-1 truncate text-slate-600 dark:text-slate-300">
+                                    {p.name}
+                                  </span>
+                                  {(p.measurementType ?? 'area') === 'area' && (
+                                    <span
+                                      className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${
+                                        partial
+                                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                                          : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                                      }`}
+                                    >
+                                      {partial ? '✂ parça' : 'tam'}
+                                    </span>
+                                  )}
+                                  {rem && (
+                                    <span
+                                      className={
+                                        partial
+                                          ? 'shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400'
+                                          : 'shrink-0 text-xs text-slate-400'
+                                      }
+                                    >
+                                      {rem}
+                                    </span>
+                                  )}
+                                  {already && (
+                                    <span className="shrink-0 text-xs text-slate-400">
+                                      (eklendi)
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
                         )}
-                        {already && (
-                          <span className="shrink-0 text-xs text-slate-400">
-                            (eklendi)
-                          </span>
-                        )}
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
@@ -1034,16 +1092,45 @@ function NewQuoteForm({
         const isLengthSale = item.lineKind === 'sale' && saleUnit === 'length';
         const isAreaSale = item.lineKind === 'sale' && saleUnit === 'area';
         return (
-        <div key={i} className="rounded-xl border border-slate-200 p-2 space-y-2 dark:border-slate-700">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>
-              {item.lineKind === 'sale'
-                ? 'Satış kalemi (malzeme satışı)'
-                : 'İşleme kalemi (kesim/üretim hizmeti)'}
+        <div
+          key={i}
+          className={`space-y-2 rounded-xl border border-l-4 border-slate-200 p-2 dark:border-slate-700 ${
+            item.lineKind === 'sale'
+              ? 'border-l-emerald-500'
+              : 'border-l-indigo-500'
+          }`}
+        >
+          {/* Kalem başlığı: sıra no · tür · satır tutarı · sil */}
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                {i + 1}
+              </span>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${
+                  item.lineKind === 'sale'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                    : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+                }`}
+              >
+                {item.lineKind === 'sale' ? 'Satış' : 'İşleme'}
+              </span>
+              <span className="truncate text-slate-500">
+                {plate?.name ?? item.itemName ?? 'Malzeme seçilmedi'}
+              </span>
             </span>
-            <button className="text-red-600" onClick={() => remove(i)}>
-              Sil
-            </button>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">
+                {money.format(preview.lineTotal)}
+              </span>
+              <button
+                className="rounded px-1 text-red-600 hover:bg-red-50"
+                title="Kalemi sil"
+                onClick={() => remove(i)}
+              >
+                ✕
+              </button>
+            </span>
           </div>
 
           {/* #5 Serbest (stoksuz) kalem: yalnızca satış kaleminde. Açıkken plaka
