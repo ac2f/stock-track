@@ -38,4 +38,12 @@ export class AppSetting extends BaseEntity {
   /** Şifreli yedeğin gideceği sohbet. Boşsa yukarıdaki bildirim sohbeti. */
   @Column({ name: 'backup_telegram_chat_id', default: '' })
   backupTelegramChatId: string;
+
+  /**
+   * Telegram üzerinden İŞLEM YAPABİLECEK kullanıcıların sayısal kimlikleri
+   * (virgülle ayrılmış). Liste boşken hiç kimse yetkili değildir — bot yalnızca
+   * kişiye kendi kimliğini söyler. Grup kimliği DEĞİL, kullanıcı kimliğidir.
+   */
+  @Column({ name: 'telegram_allowed_user_ids', type: 'text', default: '' })
+  telegramAllowedUserIds: string;
 }

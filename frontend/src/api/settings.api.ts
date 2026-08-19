@@ -48,6 +48,8 @@ export interface TelegramSettings {
   /** Yedeğin gerçekte gideceği sohbet (backupChatId boşsa chatId). */
   effectiveBackupChatId: string;
   backupCron: string;
+  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
+  allowedUserIds: string[];
 }
 
 export interface UpdateTelegramInput {
@@ -55,6 +57,8 @@ export interface UpdateTelegramInput {
   telegramBotToken?: string;
   telegramChatId?: string;
   backupTelegramChatId?: string;
+  /** Virgülle ayrılmış Telegram kullanıcı kimlikleri. */
+  telegramAllowedUserIds?: string;
 }
 
 export async function fetchTelegramSettings(): Promise<TelegramSettings> {

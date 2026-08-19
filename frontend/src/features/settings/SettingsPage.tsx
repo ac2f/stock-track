@@ -372,10 +372,12 @@ function TelegramSettings() {
   const [token, setToken] = useState('');
   const [chatId, setChatId] = useState('');
   const [backupChatId, setBackupChatId] = useState('');
+  const [allowedIds, setAllowedIds] = useState('');
   useEffect(() => {
     if (data) {
       setChatId(data.chatIdSource === 'db' ? data.chatId : '');
       setBackupChatId(data.backupChatId);
+      setAllowedIds(data.allowedUserIds.join(', '));
     }
   }, [data]);
 
@@ -390,6 +392,7 @@ function TelegramSettings() {
         ...(token.trim() ? { telegramBotToken: token.trim() } : {}),
         telegramChatId: chatId.trim(),
         backupTelegramChatId: backupChatId.trim(),
+        telegramAllowedUserIds: allowedIds,
       }),
     onSuccess: () => {
       setToken('');
@@ -475,10 +478,11 @@ function TelegramSettings() {
       </div>
 
       <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
-        💡 <b>Sohbet kimliğini bulmak için:</b> botu gruba ekleyin ve gruba{' '}
+        💡 <b>Kimlikleri bulmak için:</b> botu gruba ekleyin ve gruba{' '}
         <code className="rounded bg-white px-1">/idx</code> yazın. Bot, o grubun
-        kimliğini dokunup kopyalayabileceğiniz şekilde cevaplar — mobilde
-        aramanıza gerek kalmaz. (Özel sohbette de çalışır.)
+        kimliğini <b>ve sizin kullanıcı kimliğinizi</b> dokunup kopyalayabileceğiniz
+        şekilde cevaplar — mobilde aramanıza gerek kalmaz. Bot menüsü için{' '}
+        <code className="rounded bg-white px-1">/menu</code> yazın.
       </p>
 
       <Field
@@ -505,6 +509,31 @@ function TelegramSettings() {
           placeholder="Boşsa bildirim sohbeti kullanılır"
           hint="Yedekleri ayrı bir gruba göndermek isterseniz."
         />
+      </div>
+
+      {/* Bot üzerinden İŞLEM yapabilecek kullanıcılar — güvenlik kapısı. */}
+      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <span className="block text-sm font-semibold text-amber-800">
+          🔐 Yetkili kullanıcılar (bot üzerinden işlem yapabilecekler)
+        </span>
+        <p className="text-xs text-slate-600">
+          Telegram'dan tahsilat girme, borç kapatma gibi işlemleri <b>yalnızca</b>{' '}
+          buradaki kullanıcı kimlikleri yapabilir. Liste boşken hiç kimse yetkili
+          değildir. Kimliğinizi öğrenmek için bota{' '}
+          <code className="rounded bg-white px-1">/idx</code> yazın — sohbet
+          kimliğinin yanında kendi kullanıcı kimliğinizi de söyler.
+        </p>
+        <input
+          className="input font-mono text-sm"
+          value={allowedIds}
+          placeholder="Örn. 123456789, 987654321"
+          onChange={(e) => setAllowedIds(e.target.value)}
+        />
+        {data.allowedUserIds.length === 0 && (
+          <p className="text-xs font-medium text-amber-800">
+            ⚠️ Şu an hiç yetkili kullanıcı yok — bot işlem yapmıyor.
+          </p>
+        )}
       </div>
 
       {saveMut.isError && (

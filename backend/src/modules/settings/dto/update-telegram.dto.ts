@@ -20,4 +20,10 @@ export class UpdateTelegramDto {
   @IsString()
   @MaxLength(64)
   backupTelegramChatId?: string;
+
+  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri (virgülle ayrık). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  telegramAllowedUserIds?: string;
 }

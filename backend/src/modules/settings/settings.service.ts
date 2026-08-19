@@ -49,6 +49,8 @@ export interface TelegramStatus {
   /** Yedeğin gerçekte gideceği sohbet (backupChatId boşsa chatId). */
   effectiveBackupChatId: string;
   backupCron: string;
+  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
+  allowedUserIds: string[];
 }
 
 /**
@@ -91,6 +93,7 @@ export class SettingsService {
       telegramBotToken: '',
       telegramChatId: '',
       backupTelegramChatId: '',
+      telegramAllowedUserIds: '',
     });
     return this.repo.save(created);
   }
@@ -159,7 +162,26 @@ export class SettingsService {
       backupChatId,
       effectiveBackupChatId: resolved.backupChatId,
       backupCron: this.envBackup.telegramCron,
+      allowedUserIds: await this.getAllowedUserIds(),
     };
+  }
+
+  /**
+   * Telegram üzerinden işlem yapmaya yetkili kullanıcı kimlikleri.
+   * Boş liste = hiç kimse yetkili değil (güvenli varsayılan).
+   */
+  async getAllowedUserIds(): Promise<string[]> {
+    const s = await this.getOrCreate();
+    return (s.telegramAllowedUserIds ?? '')
+      .split(/[,\s;]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  /** Bir Telegram kullanıcısı işlem yapmaya yetkili mi? */
+  async isUserAllowed(userId: number | string): Promise<boolean> {
+    const allowed = await this.getAllowedUserIds();
+    return allowed.includes(String(userId));
   }
 
   /**
@@ -177,6 +199,18 @@ export class SettingsService {
     }
     if (dto.backupTelegramChatId !== undefined) {
       s.backupTelegramChatId = dto.backupTelegramChatId.trim();
+    }
+    if (dto.telegramAllowedUserIds !== undefined) {
+      // Serbest girilen listeyi tekilleştirip normalize et.
+      const ids = [
+        ...new Set(
+          dto.telegramAllowedUserIds
+            .split(/[,\s;]+/)
+            .map((x) => x.trim())
+            .filter(Boolean),
+        ),
+      ];
+      s.telegramAllowedUserIds = ids.join(',');
     }
     await this.repo.save(s);
     return this.getTelegramStatus();

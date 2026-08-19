@@ -10,7 +10,6 @@ import { TelegramChannel } from './channels/telegram.channel';
 import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationListeners } from './listeners/notification.listeners';
 import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
-import { TelegramCommandsService } from './telegram-commands.service';
 
 /**
  * Bildirim & hatırlatma. Olay (event-emitter) dinleyicileri ve zamanlanmış
@@ -28,8 +27,6 @@ import { TelegramCommandsService } from './telegram-commands.service';
     WhatsappChannel,
     NotificationListeners,
     DebtReminderScheduler,
-    // Gruba /idx yazıldığında sohbet kimliğini cevaplar.
-    TelegramCommandsService,
   ],
   exports: [NotificationsService],
 })

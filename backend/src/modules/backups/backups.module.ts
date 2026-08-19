@@ -24,6 +24,7 @@ import { TelegramBackupScheduler } from './telegram-backup.scheduler';
     TelegramBackupService,
     TelegramBackupScheduler,
   ],
-  exports: [BackupsService],
+  // Telegram arayüzü "yedeği gönder" düğmesi için kullanır.
+  exports: [BackupsService, TelegramBackupService],
 })
 export class BackupsModule {}

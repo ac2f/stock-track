@@ -7,6 +7,7 @@ import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { typeOrmAsyncConfig } from './config/typeorm.config';
 import { AuthModule } from './modules/auth/auth.module';
+import { TelegramModule } from './modules/telegram/telegram.module';
 import { UsersModule } from './modules/users/users.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
@@ -66,6 +67,7 @@ import { HealthController } from './health.controller';
     PortalModule,
     NotificationsModule,
     BackupsModule,
+    TelegramModule,
   ],
   controllers: [HealthController],
 })

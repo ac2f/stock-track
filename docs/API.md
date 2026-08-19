@@ -351,3 +351,42 @@ ister.
 WhatsApp kanalı (Meta Cloud API) Telegram ile aynı port; `WHATSAPP_TOKEN` +
 `WHATSAPP_PHONE_NUMBER_ID` tanımlıysa etkin, değilse pasif (Log + Telegram çalışır).
 Alıcı: müşterinin `phone` alanı (E.164).
+
+---
+
+## Telegram arayüzü (interaktif bot)
+
+Bot, web uygulamasındaki günlük işlemleri sohbet üzerinden yaptırır. Menüler
+inline düğmelerle gezilir; bir şey yazmanız gerektiğinde bot bunu söyler.
+
+### Güvenlik
+Her mesaj ve her düğme basışı, **işlenmeden önce** ayarlardaki yetkili kullanıcı
+listesine (`Ayarlar › Telegram › Yetkili kullanıcılar`) karşı doğrulanır.
+Liste boşken **hiç kimse** yetkili değildir. Yetkisiz kişiye yalnızca kendi
+kullanıcı kimliği söylenir; hiçbir iş verisi dönmez, hiçbir işlem yapılmaz.
+
+Tek istisna `/idx`: yetki istemez ama sadece sohbet ve kullanıcı kimliğini
+söyler — iş verisine dokunmaz. Bu olmadan kimse listeye eklenemezdi.
+
+### Komutlar
+| Komut | Ne yapar |
+|-------|----------|
+| `/menu`, `/start` | Ana menü |
+| `/idx` | Bu sohbetin ve sizin kimliğiniz |
+| `/iptal` | Yarım kalan işlemi bırakır |
+| `/yardim` | Yardım ekranı |
+
+### Menüden yapılabilenler
+- **Cari/Müşteri** — ada/firmaya/telefona göre arama, bakiye ve son hareketler,
+  tüm hareketleri içeren ekstre özeti
+- **Tahsilat** — tutar → yöntem (nakit/havale/kart) → nakitte çalışan, havalede
+  banka hesabı → onay → kayıt. Kalan bakiye anında döner
+- **Borç kapatma** — tamamını tahsil et · bir kısmını al kalanı indirim ·
+  para almadan kapat (ayrı onay ister)
+- **Cariye elle borç/alacak ekleme**
+- **Stok** — ürün türüne göre listeleme (sayfalı) ve serbest arama
+- **Raporlar** — en borçlu müşteriler, alacaklılar, bu ayın kâr-zararı
+- **Yedek** — şifreli yedeği anında alıp sohbete gönderme
+
+Bot `getUpdates` ile **tek tüketici** olarak çalışır; aynı jeton için ikinci bir
+tüketici (webhook dâhil) varsa Telegram `409` döner ve durum bir kez loglanır.

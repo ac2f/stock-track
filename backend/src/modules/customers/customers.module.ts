@@ -23,6 +23,7 @@ import { CustomerAccountService } from './services/customer-account.service';
   controllers: [CustomersController, PaymentsController, PaymentsAdminController],
   providers: [CustomersService, PaymentsService, CustomerAccountService],
   // İşleme modülü, faturalandırmada CustomerAccountService kullanır.
-  exports: [CustomerAccountService, CustomersService],
+  // Telegram arayüzü tahsilat kaydı için PaymentsService'i de kullanır.
+  exports: [CustomerAccountService, CustomersService, PaymentsService],
 })
 export class CustomersModule {}
