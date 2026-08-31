@@ -76,6 +76,7 @@ describe('SalesService — konsinye satışta sahip payı', () => {
     const service = new SalesService(
       {} as never, // salesRepo (persist kullanmıyor)
       platesService as never,
+      { forPlates: jest.fn(async () => ({})) } as never, // pricingService
       { findOne: jest.fn(), resolveDefault: jest.fn(() => ({ id: 'wh-1' })) } as never,
       {
         baseCurrency: 'TRY',

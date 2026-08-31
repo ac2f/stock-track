@@ -27,6 +27,7 @@ import {
   ownerShareManual,
 } from './sale-calc.util';
 import { PlatesService } from '../materials/services/plates.service';
+import { PricingService } from '../materials/services/pricing.service';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { CurrencyService } from '../currency/currency.service';
 import { CustomersService } from '../customers/services/customers.service';
@@ -60,6 +61,7 @@ export class SalesService {
     @InjectRepository(Sale)
     private readonly salesRepo: Repository<Sale>,
     private readonly platesService: PlatesService,
+    private readonly pricingService: PricingService,
     private readonly warehousesService: WarehousesService,
     private readonly currencyService: CurrencyService,
     private readonly customersService: CustomersService,
@@ -270,6 +272,10 @@ export class SalesService {
     });
     const savedSale = await manager.save(sale);
 
+    // Malzemeci fiyatlarına göre müşteriye sağlanan indirim — cari ekstrede
+    // "piyasadan %X uygun" olarak görünsün diye satış anında hesaplanır.
+    const discountByPlate = await this.discountPercents([...plateById.keys()]);
+
     // Alıcı borçlanır (DEBIT, baz tutarda). Açıklamaya kalem özetini (ürün,
     // miktar/m², birim fiyat) ekle ki cari ekstrede satış detayı görünsün (#4).
     const buyerBalance = await this.accountService.applyDebit(manager, {
@@ -277,7 +283,13 @@ export class SalesService {
       amount: baseSaleTotal,
       sourceType: LedgerSourceType.SALE,
       sourceId: savedSale.id,
-      description: this.saleDescription(saleItems, plateById, currency, dto.note),
+      description: this.saleDescription(
+        saleItems,
+        plateById,
+        currency,
+        dto.note,
+        discountByPlate,
+      ),
       occurredAt: saleDate,
     });
 
@@ -555,11 +567,33 @@ export class SalesService {
    * Cari ekstre için satış açıklaması: her kalemde ürün adı, miktar (m²/adet) ve
    * birim fiyat. Örn. "Satış: Pleksi 1,5 m² × 1.000 TRY/m²".
    */
+  /**
+   * Satılan malzemelerin malzemeci fiyatına göre indirim yüzdeleri.
+   * Fiyat bilgisi yoksa (perakende fiyat ya da tedarikçi fiyatı girilmemiş)
+   * o kalem için null döner ve açıklamaya bir şey eklenmez.
+   */
+  private async discountPercents(
+    plateIds: string[],
+  ): Promise<Map<string, number | null>> {
+    const map = new Map<string, number | null>();
+    if (!plateIds.length) return map;
+    try {
+      const pricing = await this.pricingService.forPlates(plateIds);
+      for (const [plateId, row] of Object.entries(pricing)) {
+        map.set(plateId, row.discountPercent);
+      }
+    } catch {
+      // Fiyatlandırma okunamazsa satış yine de kaydedilir (bilgi amaçlıdır).
+    }
+    return map;
+  }
+
   private saleDescription(
     items: SaleItemDto[],
     plateById: Map<string, MaterialPlate>,
     currency: string,
     note?: string,
+    discountByPlate?: Map<string, number | null>,
   ): string {
     const fmt = new Intl.NumberFormat('tr-TR', {
       minimumFractionDigits: 0,
@@ -567,6 +601,9 @@ export class SalesService {
     });
     const parts = items.map((item) => {
       const plate = item.plateId ? plateById.get(item.plateId) : undefined;
+      // Piyasadan ucuza satıldıysa oranı kaleme iliştir.
+      const discount = item.plateId ? discountByPlate?.get(item.plateId) : null;
+      const saving = discount ? ` · piyasadan %${discount} uygun` : '';
       const baseName = plate?.name ?? (item.itemName?.trim() || 'Malzeme');
       // Malzeme TÜRÜ (Pleksi/Kompozit…) ekstrede görünsün.
       const type = plate?.template?.category?.name;
@@ -579,13 +616,13 @@ export class SalesService {
       const note = item.description?.trim() ? ` — ${item.description.trim()}` : '';
       if (unit === MeasurementType.AREA && widthMm && heightMm) {
         const m2 = totalAreaM2(Number(widthMm), Number(heightMm), item.quantity);
-        return `${name} ${fmt.format(m2)} m² × ${fmt.format(item.unitPrice)} ${currency}/m²${note}`;
+        return `${name} ${fmt.format(m2)} m² × ${fmt.format(item.unitPrice)} ${currency}/m²${saving}${note}`;
       }
       // Şerit/rulo (LENGTH) satışında miktar metredir — "adet" değil.
       if (unit === MeasurementType.LENGTH) {
-        return `${name} ${fmt.format(item.quantity)} m × ${fmt.format(item.unitPrice)} ${currency}/m${note}`;
+        return `${name} ${fmt.format(item.quantity)} m × ${fmt.format(item.unitPrice)} ${currency}/m${saving}${note}`;
       }
-      return `${name} ${fmt.format(item.quantity)} adet × ${fmt.format(item.unitPrice)} ${currency}${note}`;
+      return `${name} ${fmt.format(item.quantity)} adet × ${fmt.format(item.unitPrice)} ${currency}${saving}${note}`;
     });
     const head = note?.trim() ? `Satış (${note.trim()}): ` : 'Satış: ';
     return `${head}${parts.join('; ')}`;

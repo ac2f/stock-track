@@ -390,3 +390,54 @@ söyler — iş verisine dokunmaz. Bu olmadan kimse listeye eklenemezdi.
 
 Bot `getUpdates` ile **tek tüketici** olarak çalışır; aynı jeton için ikinci bir
 tüketici (webhook dâhil) varsa Telegram `409` döner ve durum bir kez loglanır.
+
+
+---
+
+## Katalog, fiyatlandırma ve toplu stok girişi
+
+### Kopya engelleme
+Tür/marka/renk/ebat/kalınlık kayıtlarında "aynı kayıt" kararı normalize edilmiş
+ad üzerinden verilir (baş-son boşluk atılır, iç boşluklar teke iner, Türkçe
+kurallarına göre küçültülür). `POST` uçları kopya AÇMAZ: aynı ad zaten varsa
+mevcut kayıt döner. Tür kodu (`code`) zorunlu değildir; addan üretilir.
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/material-catalog/duplicates` | 👔 | Kopyaları **yalnızca listeler** (değiştirmez) |
+| POST | `/material-catalog/dedupe` | 👔 | Kopyaları birleştirir; sonucu raporlar |
+
+Birleştirme yıkıcı değildir: her kümede **en eski** kayıt korunur, kopyalara
+bağlı şablon/stok/alt katalog referansları ona taşınır, kopyalar ancak ondan
+sonra soft-delete edilir. Tek transaction; hiçbir stok, teklif, satış veya cari
+kaydı silinmez.
+
+### Toplu stok girişi (otomatik tanımlama)
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| POST | `/plates/batch` | 🧑‍🔧 | `{ items: [...] }` — tek istekte 100 kaleme kadar |
+
+Kalemde katalog kayıtları kimlik yerine **adla** verilebilir: `categoryName`,
+`brandName`, `colorName`, `thicknessMm`, `sheetWidthMm/sheetHeightMm`,
+`templateName`. Karşılığı yoksa kendiliğinden açılır (gerekirse şablon da).
+`copies` ile aynı özellikte N ayrı parça kaydı oluşturulur. Yanıt:
+`{ created, plateIds, autoCreated: { categories, brands, colors, sizes, thicknesses, templates } }`
+— hangi katalog kayıtlarının yeni açıldığı raporlanır.
+
+### Satış fiyatlandırması
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/settings/pricing` | 👥 | Genel kâr yüzdesi + konsinye komisyon oranı |
+| PUT | `/settings/pricing` | 👔 | `{ saleMarkupPercent?, consignmentCommissionPercent? }` |
+| GET | `/plates/:id/pricing` | 👥 | Satış fiyatı önerisi ve piyasa karşılaştırması |
+
+Kural: **satış birim fiyatı = perakende fiyat × (1 + kâr%)**. Kâr yüzdesi
+plakaya özel girilmişse (`markupPercent`) o, yoksa ayarlardaki genel oran
+kullanılır. Perakende fiyat (`retailPrice`) plakada tutulur ve ölçü birimi
+malzemenin ölçüm tipiyle aynıdır (m² / metre / adet).
+
+Malzemeci (tedarikçi) fiyatlarıyla karşılaştırma yapılırken tabaka başına
+girilen fiyatlar standart tabaka alanına bölünerek m² fiyatına çevrilir.
+Bizim fiyatımız daha düşükse `discountPercent` döner ("piyasadan %X uygun");
+piyasadan pahalıysak `null`. Bu oran teklif ekranında canlı gösterilir ve
+satış anında cari ekstre açıklamasına da yazılır.

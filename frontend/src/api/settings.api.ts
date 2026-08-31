@@ -103,3 +103,23 @@ export async function testTelegram(): Promise<{
   }>('/notifications/telegram/test');
   return data;
 }
+
+// ── Fiyatlandırma ───────────────────────────────────────────────────────
+export interface PricingSettings {
+  /** Perakende fiyatın üzerine eklenen genel kâr yüzdesi. */
+  saleMarkupPercent: number;
+  /** Başkasının malzemesi satılırken varsayılan komisyon yüzdesi. */
+  consignmentCommissionPercent: number;
+}
+
+export async function fetchPricingSettings(): Promise<PricingSettings> {
+  const { data } = await api.get<PricingSettings>('/settings/pricing');
+  return data;
+}
+
+export async function updatePricingSettings(
+  input: Partial<PricingSettings>,
+): Promise<PricingSettings> {
+  const { data } = await api.put<PricingSettings>('/settings/pricing', input);
+  return data;
+}

@@ -13,6 +13,7 @@ import { fetchCustomers } from '../../api/customers.api';
 import {
   comparePrices,
   fetchMaterialCategories,
+  fetchPlatePricing,
   fetchPlates,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
@@ -559,6 +560,75 @@ export function QuotesPage() {
   );
 }
 
+/**
+ * Satış kaleminin fiyat özeti: perakende + kâr yüzdesinden gelen öneri ve
+ * malzemeci fiyatına göre müşterinin kazandığı indirim.
+ *
+ * Kullanıcı fiyatı elle değiştirdiyse indirim GİRİLEN fiyata göre yeniden
+ * hesaplanır — ekranda gördüğü oran her zaman gerçek satış fiyatına aittir.
+ */
+function SalePricingNote({
+  plateId,
+  unitPrice,
+}: {
+  plateId: string;
+  unitPrice: number;
+}) {
+  const { data } = useQuery({
+    queryKey: ['plate-pricing', plateId],
+    queryFn: () => fetchPlatePricing(plateId),
+    enabled: !!plateId,
+  });
+  if (!data) return null;
+
+  const market = data.marketCheapest;
+  const price = Number(unitPrice) || 0;
+  // Girilen fiyata göre canlı indirim.
+  const liveDiscount =
+    market && price > 0 && price < market
+      ? Math.round((1 - price / market) * 1000) / 10
+      : null;
+
+  if (data.retailPrice == null && market == null) {
+    return (
+      <p className="text-[11px] text-slate-400">
+        Perakende fiyat girilmemiş — satış fiyatı otomatik önerilemiyor.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+      {data.retailPrice != null && (
+        <span>
+          Perakende {money.format(data.retailPrice)} + %{data.markupPercent} kâr
+          {data.suggestedUnitPrice != null && (
+            <> → önerilen {money.format(data.suggestedUnitPrice)}</>
+          )}
+        </span>
+      )}
+      {market != null && (
+        <span>Malzemeci en ucuz: {money.format(market)}</span>
+      )}
+      {liveDiscount != null && (
+        <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+          Piyasadan %{liveDiscount} uygun
+        </span>
+      )}
+      {market != null && liveDiscount == null && price > 0 && (
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+          Piyasa fiyatının üzerinde
+        </span>
+      )}
+      {data.suggestedUnitPrice != null &&
+        price > 0 &&
+        Math.abs(price - data.suggestedUnitPrice) > 0.01 && (
+          <span className="text-slate-400">(fiyat elle değiştirildi)</span>
+        )}
+    </div>
+  );
+}
+
 function AveragePriceNote({ plateId }: { plateId: string }) {
   const { data } = useQuery({
     queryKey: ['price-compare', plateId],
@@ -816,6 +886,22 @@ function NewQuoteForm({
     patch(i, p);
     if (lineKind === 'sale') {
       setAskFor(plateId ? { index: i, plateId } : null);
+      // Satış fiyatı otomatik: perakende fiyat × (1 + kâr%). Konsinye
+      // satışta komisyon oranı da ayarlardaki varsayılandan gelir.
+      if (plateId) {
+        fetchPlatePricing(plateId)
+          .then((pricing) => {
+            const next: Partial<FormItem> = {};
+            if (pricing.suggestedUnitPrice != null) {
+              next.unitPrice = pricing.suggestedUnitPrice;
+            }
+            if (p.ownerCustomerId && pricing.commissionPercent) {
+              next.commissionPercent = pricing.commissionPercent;
+            }
+            if (Object.keys(next).length) patch(i, next);
+          })
+          .catch(() => undefined);
+      }
     }
   };
 
@@ -1434,7 +1520,13 @@ function NewQuoteForm({
             />
           </Field>
           {item.lineKind === 'sale' && item.plateId && (
-            <AveragePriceNote plateId={item.plateId} />
+            <div className="space-y-1 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
+              <SalePricingNote
+                plateId={item.plateId}
+                unitPrice={Number(item.unitPrice) || 0}
+              />
+              <AveragePriceNote plateId={item.plateId} />
+            </div>
           )}
           {/* #11 Tabaka (m²) satışında satılacak ebat + "Tamamını sat" */}
           {item.lineKind === 'sale' &&

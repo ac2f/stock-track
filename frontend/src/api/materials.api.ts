@@ -1,6 +1,7 @@
 import { api } from './client';
 import type {
   MaterialBrand,
+  MeasurementType,
   MaterialCategory,
   MaterialColor,
   MaterialSize,
@@ -260,7 +261,8 @@ export async function deleteMaterialTemplate(id: string): Promise<void> {
 }
 
 export interface CreatePlateInput {
-  templateId: string;
+  /** Toplu eklemede boş bırakılabilir; katalog adlarından çözülür/oluşturulur. */
+  templateId?: string;
   measurementType?: Plate['measurementType'];
   name?: string;
   sku?: string;
@@ -275,6 +277,10 @@ export interface CreatePlateInput {
   attributes?: Record<string, unknown>;
   quantityInStock?: number;
   warehouseId?: string;
+  /** Perakende (liste) birim fiyatı — satış fiyatı bundan türetilir. */
+  retailPrice?: number;
+  /** Bu malzemeye özel kâr yüzdesi; boşsa ayarlardaki genel oran. */
+  markupPercent?: number;
 }
 
 export async function createPlate(input: CreatePlateInput): Promise<Plate> {
@@ -408,4 +414,98 @@ export async function deletePlatePrice(
   priceId: string,
 ): Promise<void> {
   await api.delete(`/plates/${plateId}/prices/${priceId}`);
+}
+
+// ── Satış fiyatlandırması ────────────────────────────────────────────────
+/** Bir malzemenin satış fiyatı önerisi ve piyasa karşılaştırması. */
+export interface PlatePricing {
+  plateId: string;
+  unit: MeasurementType;
+  /** Perakende (liste) birim fiyatı; tanımlı değilse null. */
+  retailPrice: number | null;
+  /** Uygulanan kâr yüzdesi (plakaya özel varsa o, yoksa genel ayar). */
+  markupPercent: number;
+  /** Kâr eklenmiş önerilen satış birim fiyatı. */
+  suggestedUnitPrice: number | null;
+  /** Malzemecilerin en ucuzu — aynı ölçü birimine çevrilmiş. */
+  marketCheapest: number | null;
+  marketAverage: number | null;
+  /** Piyasadan ne kadar uygunuz (%); pahalıysak null. */
+  discountPercent: number | null;
+  /** Konsinye satışta varsayılan komisyon yüzdesi. */
+  commissionPercent: number;
+}
+
+export async function fetchPlatePricing(plateId: string): Promise<PlatePricing> {
+  const { data } = await api.get<PlatePricing>(`/plates/${plateId}/pricing`);
+  return data;
+}
+
+// ── Toplu stok girişi ────────────────────────────────────────────────────
+/**
+ * Toplu eklemede tek kalem. Katalog kayıtları ADLA verilebilir; karşılığı
+ * yoksa sunucu tarafında kendiliğinden açılır.
+ */
+export interface BatchPlateItem extends CreatePlateInput {
+  categoryName?: string;
+  templateName?: string;
+  brandName?: string;
+  colorName?: string;
+  colorCode?: string;
+  thicknessMm?: number;
+  sheetWidthMm?: number;
+  sheetHeightMm?: number;
+  /** Aynı özellikte kaç ayrı parça kaydı açılacak. */
+  copies?: number;
+}
+
+export interface BatchCreateResult {
+  created: number;
+  plateIds: string[];
+  /** Bu işlemde kendiliğinden açılan katalog kayıtları. */
+  autoCreated: {
+    categories: string[];
+    brands: string[];
+    colors: string[];
+    sizes: string[];
+    thicknesses: string[];
+    templates: string[];
+  };
+}
+
+/** Tek istekte birden çok stok kalemi ekler. */
+export async function createPlatesBatch(
+  items: BatchPlateItem[],
+): Promise<BatchCreateResult> {
+  const { data } = await api.post<BatchCreateResult>('/plates/batch', { items });
+  return data;
+}
+
+// ── Katalog bakımı (kopya temizliği) ─────────────────────────────────────
+export interface DuplicateGroup {
+  label: string;
+  keepId: string;
+  mergeIds: string[];
+}
+
+export interface DedupeReport {
+  categories: DuplicateGroup[];
+  brands: DuplicateGroup[];
+  colors: DuplicateGroup[];
+  sizes: DuplicateGroup[];
+  thicknesses: DuplicateGroup[];
+  templates: DuplicateGroup[];
+  merged: number;
+}
+
+/** Kopyaları yalnızca listeler (hiçbir şey değiştirmez). */
+export async function fetchCatalogDuplicates(): Promise<DedupeReport> {
+  const { data } = await api.get<DedupeReport>('/material-catalog/duplicates');
+  return data;
+}
+
+/** Kopyaları birleştirir; bağlı kayıtlar korunan kayda taşınır. */
+export async function dedupeCatalog(): Promise<DedupeReport> {
+  const { data } = await api.post<DedupeReport>('/material-catalog/dedupe');
+  return data;
 }

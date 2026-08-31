@@ -3,6 +3,8 @@ import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
+  createPlatesBatch,
+  type BatchPlateItem,
   deletePlatePrice,
   depletePlate,
   fetchMaterialCategories,
@@ -25,6 +27,7 @@ import { fetchCustomers } from '../../api/customers.api';
 import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
+import { groupPlates } from '../../lib/plateGrouping';
 import { UnitConverter } from '../../components/UnitConverter';
 import { GroupSection, groupChipClass } from '../../components/GroupSection';
 import { Pagination } from '../../components/Pagination';
@@ -252,6 +255,16 @@ function TemplateBrowser({
   );
 }
 
+/** Toplu ekleme raporunda katalog türlerinin Türkçe adı. */
+const AUTO_LABEL: Record<string, string> = {
+  categories: 'ürün türü',
+  brands: 'marka',
+  colors: 'renk',
+  sizes: 'ebat',
+  thicknesses: 'kalınlık',
+  templates: 'şablon',
+};
+
 function NewPlateForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreatePlateInput>(() => ({
@@ -300,6 +313,23 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   // #4 Tekli giriş kolaylığı: aynı özellikte N AYRI plaka kaydı (her biri 1 adet)
   // tek seferde oluşturulur; listede toplu/grupla görüntülenebilir.
   const [copies, setCopies] = useState(1);
+
+  // #çoklu-giriş: kalemler önce bir ÖN ONAY listesine eklenir, hepsi birden
+  // tek istekte kaydedilir. Böylece birden fazla farklı malzeme girilirken
+  // ne kaydedileceği kaydetmeden önce görülür.
+  const [drafts, setDrafts] = useState<
+    { item: BatchPlateItem; label: string; detail: string }[]
+  >([]);
+
+  const batchMut = useMutation({
+    mutationFn: () => createPlatesBatch(drafts.map((d) => d.item)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      qc.invalidateQueries({ queryKey: ['material-templates'] });
+      setDrafts([]);
+    },
+  });
+
   const createMut = useMutation({
     mutationFn: async (input: CreatePlateInput) => {
       const n = Math.max(1, Math.floor(copies) || 1);
@@ -330,6 +360,32 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     }));
   };
 
+  /** Formdaki değerleri ön onay listesine ekler (kayıt YAPMAZ). */
+  const addToDrafts = () => {
+    const item: BatchPlateItem = {
+      ...form,
+      name: (nameTouched ? form.name : suggestedName) || undefined,
+      sku: skuTouched ? form.sku : undefined,
+      copies: Math.max(1, Math.floor(copies) || 1),
+    };
+    const label =
+      item.name ?? suggestedName ?? tpl?.name ?? 'Malzeme';
+    const parts = [
+      tpl?.category?.name,
+      isArea && form.widthMm && form.heightMm
+        ? `${form.widthMm}×${form.heightMm} mm`
+        : '',
+      `${form.quantityInStock ?? 1} adet`,
+      (item.copies ?? 1) > 1 ? `${item.copies} ayrı kayıt` : '',
+      owner === 'customer' ? 'müşteri malı' : 'işletme stoğu',
+      form.retailPrice ? `perakende ${form.retailPrice}` : '',
+    ].filter(Boolean);
+    setDrafts((d) => [...d, { item, label, detail: parts.join(' · ') }]);
+    // Sonraki kalem için miktar/ebat sıfırlanmaz — genelde benzer kalemler
+    // arka arkaya girilir; yalnızca sayaç 1'e döner.
+    setCopies(1);
+  };
+
   const canSubmit =
     !!form.templateId &&
     !overSheet &&
@@ -348,7 +404,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         {/* #2 Kategoriye göre gruplu, aranabilir, klavyeyle gezilebilir seçici. */}
         <SearchSelect
           placeholder="Ürün türü ara / seç…"
-          value={form.templateId}
+          value={form.templateId ?? ''}
           options={(templates ?? []).map((t) => ({
             id: t.id,
             label: t.name,
@@ -590,7 +646,125 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         </Field>
       )}
 
-      <div className="flex gap-2">
+      {tpl && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Perakende (liste) fiyatı"
+            hint="Satış fiyatı bunun üzerine kâr yüzdesi eklenerek önerilir. Birim: m² / metre / adet."
+          >
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.retailPrice ?? ''}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  retailPrice: e.target.value ? Number(e.target.value) : undefined,
+                })
+              }
+            />
+          </Field>
+          <Field
+            label="Bu malzemeye özel kâr yüzdesi (opsiyonel)"
+            hint="Boş bırakılırsa Ayarlar'daki genel kâr yüzdesi geçerlidir."
+          >
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step="0.1"
+              value={form.markupPercent ?? ''}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  markupPercent: e.target.value
+                    ? Number(e.target.value)
+                    : undefined,
+                })
+              }
+            />
+          </Field>
+        </div>
+      )}
+
+      {/* ── Ön onay listesi: birden çok kalem tek seferde kaydedilir ── */}
+      {drafts.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/20">
+          <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+            Kaydedilecek kalemler ({drafts.length})
+          </p>
+          <ul className="divide-y divide-emerald-200 rounded-lg bg-white text-sm dark:divide-emerald-800 dark:bg-slate-900">
+            {drafts.map((d, i) => (
+              <li key={i} className="flex items-center gap-2 px-3 py-2">
+                <span className="shrink-0 rounded-full bg-slate-200 px-1.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  {i + 1}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{d.label}</span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {d.detail}
+                  </span>
+                </span>
+                <button
+                  className="shrink-0 rounded px-1 text-red-600 hover:bg-red-50"
+                  title="Listeden çıkar"
+                  onClick={() => setDrafts((x) => x.filter((_, k) => k !== i))}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          {batchMut.isError && (
+            <p className="text-sm text-red-700">
+              {errMessage(batchMut.error, 'Kalemler kaydedilemedi.')}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn bg-emerald-600 text-white"
+              disabled={batchMut.isPending}
+              onClick={() => batchMut.mutate()}
+            >
+              {batchMut.isPending
+                ? 'Kaydediliyor…'
+                : `✅ Hepsini kaydet (${drafts.length})`}
+            </button>
+            <button
+              className="btn bg-slate-100"
+              disabled={batchMut.isPending}
+              onClick={() => setDrafts([])}
+            >
+              Listeyi temizle
+            </button>
+          </div>
+        </div>
+      )}
+
+      {batchMut.isSuccess && batchMut.data && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-sm text-emerald-800">
+          ✅ {batchMut.data.created} stok kalemi eklendi.
+          {Object.entries(batchMut.data.autoCreated)
+            .filter(([, list]) => list.length > 0)
+            .map(([kind, list]) => (
+              <span key={kind} className="mt-1 block text-xs">
+                Otomatik açılan {AUTO_LABEL[kind] ?? kind}: {list.join(', ')}
+              </span>
+            ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="btn bg-slate-700 text-white"
+          disabled={!canSubmit}
+          title="Bu kalemi listeye ekle; kayıt, hepsini birden onayladığında yapılır"
+          onClick={addToDrafts}
+        >
+          ➕ Listeye ekle
+        </button>
         <button
           className="btn-primary"
           disabled={!canSubmit}
@@ -1399,6 +1573,91 @@ function BulkOperations({
 }
 
 /**
+ * Aynı malzemenin tüm parçalarını tek satırda toplayan grup başlığı.
+ *
+ * Depoda bir malzemenin onlarca parçası olabiliyor; hepsi düz listede
+ * göründüğünde ekran okunmuyordu. Başlıkta özet (kaç parça, toplam stok,
+ * sahipler, kaçı kesilmiş) verilir; tıklanınca parçalar açılır.
+ */
+function MaterialGroupRow({
+  label,
+  plates,
+  miniView,
+}: {
+  label: string;
+  plates: Plate[];
+  miniView: boolean;
+}) {
+  // Tek parçalı malzemede gizlemenin anlamı yok — doğrudan açık gelir.
+  const [open, setOpen] = useState(plates.length === 1);
+
+  const unit =
+    plates[0]?.measurementType === 'length'
+      ? 'm'
+      : plates[0]?.measurementType === 'weight'
+        ? 'kg'
+        : 'adet';
+  const totalQty = plates.reduce((n, p) => n + Number(p.quantityInStock || 0), 0);
+  const partials = plates.filter((p) => isPartialSheet(p)).length;
+  const owners = [
+    ...new Set(
+      plates.flatMap((p) => (p.owners?.length ? p.owners : ['İşletme'])),
+    ),
+  ];
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="shrink-0 text-slate-400">
+          {plates.length > 1 ? (open ? '▾' : '▸') : '•'}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">{label}</span>
+          <span className="block truncate text-xs text-slate-500">
+            {owners.join(', ')}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs">
+          {partials > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+              ✂ {partials} parça
+            </span>
+          )}
+          <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+            {plates.length} kayıt
+          </span>
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+            {totalQty} {unit}
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="p-2">
+          {miniView ? (
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+              {plates.map((plate) => (
+                <PlateMiniRow key={plate.id} plate={plate} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {plates.map((plate) => (
+                <PlateCard key={plate.id} plate={plate} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Plaka (stok) listesi + gelişmiş filtreleme.
  * Mobil: tek sütun kartlar; masaüstü: çok sütunlu ızgara.
  */
@@ -1431,17 +1690,9 @@ export function PlatesListPage() {
   const set = (patch: Partial<PlateFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
-  // #4 Sahip + kategori bazlı gruplama (müşteriye ait malzemeleri kolay bulmak için).
-  const ownerOf = (p: Plate) => (p.owners?.length ? p.owners.join(', ') : 'İşletme');
-  const groups = new Map<string, Plate[]>();
-  for (const p of data?.items ?? []) {
-    const key = `${ownerOf(p)} · ${p.template?.category?.name ?? 'Diğer'}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(p);
-  }
-  const groupList = [...groups.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0], 'tr'),
-  );
+  // Listeyi ÜRÜN TÜRÜNE, tür içinde de AYNI MALZEMEYE göre grupla. Aynı
+  // malzemenin onlarca parçası tek satırda toplanır; açılınca parçalar görünür.
+  const typeGroups = groupPlates(data?.items ?? []);
 
   return (
     <div className="space-y-4">
@@ -1562,21 +1813,23 @@ export function PlatesListPage() {
         <p className="text-slate-400">Kayıt bulunamadı.</p>
       ) : groupByType ? (
         <div className="space-y-5">
-          {groupList.map(([key, items]) => (
-            <GroupSection key={key} title={key} count={items.length} countLabel="adet">
-              {miniView ? (
-                <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
-                  {items.map((plate) => (
-                    <PlateMiniRow key={plate.id} plate={plate} />
-                  ))}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {items.map((plate) => (
-                    <PlateCard key={plate.id} plate={plate} />
-                  ))}
-                </div>
-              )}
+          {typeGroups.map((g) => (
+            <GroupSection
+              key={g.category}
+              title={g.category}
+              count={g.count}
+              countLabel="parça"
+            >
+              <div className="space-y-2">
+                {g.materials.map((m) => (
+                  <MaterialGroupRow
+                    key={m.key}
+                    label={m.label}
+                    plates={m.plates}
+                    miniView={miniView}
+                  />
+                ))}
+              </div>
             </GroupSection>
           ))}
         </div>

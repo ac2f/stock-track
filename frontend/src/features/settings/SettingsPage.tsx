@@ -6,6 +6,8 @@ import {
   reloadTelegram,
   testTelegram,
   updateBusinessSettings,
+  fetchPricingSettings,
+  updatePricingSettings,
   updateTelegramSettings,
   type SettingSource,
   type UpdateBusinessInput,
@@ -26,6 +28,10 @@ import {
   fetchNotifications,
   fetchNotificationStats,
 } from '../../api/notifications.api';
+import {
+  dedupeCatalog,
+  fetchCatalogDuplicates,
+} from '../../api/materials.api';
 import { useLock } from '../../context/LockContext';
 
 /** Etiketli form alanı. */
@@ -159,11 +165,203 @@ export function SettingsPage() {
         </button>
       </div>
 
+      <PricingSettingsCard />
+      <CatalogHealthCard />
       <ScreenLockSettings />
       <TelegramSettings />
       <BackupSection />
       <MaintenanceSection />
       <NotificationsHistory />
+    </div>
+  );
+}
+
+/**
+ * 💰 Satış fiyatlandırması: malzeme satışında perakende fiyatın üzerine
+ * eklenen kâr yüzdesi ve konsinye (başkasının malzemesi) komisyon oranı.
+ */
+function PricingSettingsCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['settings', 'pricing'],
+    queryFn: fetchPricingSettings,
+  });
+  const [markup, setMarkup] = useState('');
+  const [commission, setCommission] = useState('');
+  useEffect(() => {
+    if (data) {
+      setMarkup(String(data.saleMarkupPercent));
+      setCommission(String(data.consignmentCommissionPercent));
+    }
+  }, [data]);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      updatePricingSettings({
+        saleMarkupPercent: Number(markup) || 0,
+        consignmentCommissionPercent: Number(commission) || 0,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings', 'pricing'] });
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
+    },
+  });
+
+  const example = 100 * (1 + (Number(markup) || 0) / 100);
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">💰 Satış fiyatlandırması</h2>
+      <p className="text-sm text-slate-500">
+        Malzeme satışında birim fiyat, malzemenin <b>perakende fiyatı</b>{' '}
+        üzerine buradaki kâr yüzdesi eklenerek otomatik önerilir. Bir malzemeye
+        özel oran girilmişse o önceliklidir (Stok › malzeme düzenleme).
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            Genel kâr yüzdesi (%)
+          </span>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            value={markup}
+            onChange={(e) => setMarkup(e.target.value)}
+          />
+          <span className="mt-1 block text-xs text-slate-400">
+            Örnek: perakende 100 ₺ → satış {example.toFixed(2)} ₺
+          </span>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            Konsinye komisyon oranı (%)
+          </span>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={100}
+            value={commission}
+            onChange={(e) => setCommission(e.target.value)}
+          />
+          <span className="mt-1 block text-xs text-slate-400">
+            Başkasının malzemesi satılırken işletmede kalan pay. Teklif
+            kalemlerinde başlangıç değeri olarak gelir.
+          </span>
+        </label>
+      </div>
+      {mut.isSuccess && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
+      {mut.isError && <p className="text-sm text-red-600">Kaydedilemedi.</p>}
+      <button
+        className="btn-primary"
+        disabled={mut.isPending}
+        onClick={() => mut.mutate()}
+      >
+        Kaydet
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 🗂️ Katalog sağlığı: geçmişte oluşmuş tür/marka/renk kopyalarını bulur ve
+ * birleştirir. Birleştirme yıkıcı değildir — bağlı stok/teklif/satış kayıtları
+ * korunan katalog satırına taşınır.
+ */
+function CatalogHealthCard() {
+  const qc = useQueryClient();
+  const { data, isFetching } = useQuery({
+    queryKey: ['catalog-duplicates'],
+    queryFn: fetchCatalogDuplicates,
+  });
+  const mut = useMutation({
+    mutationFn: dedupeCatalog,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['catalog-duplicates'] });
+      qc.invalidateQueries({ queryKey: ['material-categories'] });
+      qc.invalidateQueries({ queryKey: ['material-templates'] });
+      qc.invalidateQueries({ queryKey: ['plates'] });
+    },
+  });
+
+  const groups = data
+    ? ([
+        ['Ürün türü', data.categories],
+        ['Marka', data.brands],
+        ['Renk', data.colors],
+        ['Ebat', data.sizes],
+        ['Kalınlık', data.thicknesses],
+        ['Şablon', data.templates],
+      ] as const).filter(([, list]) => list.length > 0)
+    : [];
+  const total = groups.reduce((n, [, list]) => n + list.length, 0);
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">🗂️ Katalog sağlığı</h2>
+      <p className="text-sm text-slate-500">
+        Aynı tür/marka/renk farklı yazımlarla birden çok kez açılmış olabilir
+        ("Dekota", "dekota", " DEKOTA "). Birleştirme <b>veri kaybettirmez</b>:
+        en eski kayıt korunur, kopyalara bağlı stok, teklif, satış ve cari
+        kayıtları ona taşınır.
+      </p>
+
+      {isFetching && !data ? (
+        <p className="text-sm text-slate-400">Taranıyor…</p>
+      ) : total === 0 ? (
+        <p className="text-sm text-emerald-700">✅ Kopya bulunamadı.</p>
+      ) : (
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+          <p className="font-semibold text-amber-800">
+            {total} kopya kümesi bulundu
+          </p>
+          {groups.map(([label, list]) => (
+            <div key={label}>
+              <span className="text-xs font-semibold text-slate-600">
+                {label} ({list.length})
+              </span>
+              <ul className="ml-4 list-disc text-xs text-slate-600">
+                {list.slice(0, 8).map((g) => (
+                  <li key={g.keepId}>
+                    {g.label}{' '}
+                    <span className="text-slate-400">
+                      — {g.mergeIds.length} kopya birleşecek
+                    </span>
+                  </li>
+                ))}
+                {list.length > 8 && (
+                  <li className="text-slate-400">… ve {list.length - 8} tane daha</li>
+                )}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mut.isSuccess && (
+        <p className="text-sm text-emerald-700">
+          {mut.data.merged} kopya birleştirildi.
+        </p>
+      )}
+      {mut.isError && <p className="text-sm text-red-600">Birleştirilemedi.</p>}
+
+      <button
+        className="btn bg-amber-600 text-white"
+        disabled={total === 0 || mut.isPending}
+        onClick={() => {
+          if (
+            confirm(
+              `${total} kopya kümesi birleştirilecek. Bağlı kayıtlar korunan ` +
+                'katalog satırına taşınır, hiçbir stok/teklif/satış silinmez. Devam edilsin mi?',
+            )
+          ) {
+            mut.mutate();
+          }
+        }}
+      >
+        {mut.isPending ? 'Birleştiriliyor…' : 'Kopyaları birleştir'}
+      </button>
     </div>
   );
 }
