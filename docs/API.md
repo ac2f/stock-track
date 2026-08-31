@@ -453,3 +453,35 @@ girilen fiyatlar standart tabaka alanına bölünerek m² fiyatına çevrilir.
 Bizim fiyatımız daha düşükse `discountPercent` döner ("piyasadan %X uygun");
 piyasadan pahalıysak `null`. Bu oran teklif ekranında canlı gösterilir ve
 satış anında cari ekstre açıklamasına da yazılır.
+
+
+---
+
+## Döviz kurları (otomatik)
+
+Kurlar **anahtar gerektirmeyen açık API'lerden** otomatik çekilir; kayıt ya da
+jeton gerekmez:
+
+1. `https://open.er-api.com/v6/latest/{BASE}` (birincil)
+2. `https://api.frankfurter.app/latest?from={BASE}` (yedek — Avrupa Merkez Bankası)
+
+`{BASE}` yerine sistemin baz para birimi (varsayılan `TRY`) yazılır. İlk adres
+ulaşılamazsa sıradaki denenir. `EXCHANGE_RATE_API_URL` **boş bırakılabilir**;
+doldurulursa virgülle birden çok adres verilebilir ve yerleşik sağlayıcıların
+yerine geçer.
+
+Ne zaman çekilir: uygulama **açılışında bir kez** ve ardından
+`EXCHANGE_RATE_SYNC_CRON` (varsayılan her gün 06:00). `SCHEDULER_ENABLED=false`
+ise çalışmaz.
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/exchange-rates` | 👥 | Tanımlı kurlar |
+| GET | `/exchange-rates/ticker?quotes=USD,EUR` | 👥 | Arayüz şeridi: `{ baseCurrency, rates: [{ currency, rate, asOf, source }] }` |
+| POST | `/exchange-rates/sync` | 👔 | Kurları **şimdi** çeker; `{ updated }` döner |
+| POST | `/exchange-rates` | 👔 | Kuru elle gir/güncelle |
+
+Sağlayıcılar "1 baz birim kaç döviz eder" verir (1 TRY = 0,029 USD);
+veritabanında **tersi** saklanır (1 USD = 34,48 TRY) — uygulama kurları her
+zaman "1 döviz = N TL" yönünde okur. Sağlayıcı beklenen tabanı vermezse veriler
+**yazılmaz** (sessizce ters hesap yapılmaz).

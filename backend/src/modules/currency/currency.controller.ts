@@ -23,6 +23,27 @@ export class CurrencyController {
     return this.currencyService.list();
   }
 
+  /**
+   * Arayüzün üst şeridinde sürekli gösterilen kurlar (varsayılan USD, EUR).
+   * `?quotes=USD,EUR,GBP` ile değiştirilebilir.
+   */
+  @Get('ticker')
+  ticker(@Query('quotes') quotes?: string) {
+    const list = quotes
+      ?.split(',')
+      .map((q) => q.trim())
+      .filter(Boolean);
+    return this.currencyService.ticker(list?.length ? list : undefined);
+  }
+
+  /** Kurları web'den şimdi çeker (zamanlanmışı beklemeden). */
+  @Roles(UserRole.OWNER)
+  @Post('sync')
+  async sync() {
+    const updated = await this.currencyService.syncFromApi();
+    return { updated };
+  }
+
   // Yardımcı: anlık çevirim sorgusu.
   @Get('convert')
   convert(

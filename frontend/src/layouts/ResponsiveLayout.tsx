@@ -6,6 +6,7 @@ import { useDensity } from '../context/DensityContext';
 import { fetchBusinessSettings } from '../api/settings.api';
 import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
 import { getBrand, setBrand } from '../lib/brand';
+import { CurrencyTicker } from '../components/CurrencyTicker';
 import { LockProvider, useLock } from '../context/LockContext';
 import type { UserRole } from '../types';
 
@@ -125,6 +126,8 @@ export function ResponsiveLayout() {
       {/* Masaüstü sidebar — statik; kendi içinde kayar (uzun menüde). */}
       <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 md:block">
         <Brand name={brandName} />
+        {/* Döviz kurları — her ekranda sürekli görünür. */}
+        <CurrencyTicker className="mt-3" />
         <nav className="mt-6 space-y-1">
           {visible.map((item) => (
             <SideLink key={item.to} item={item} />
@@ -149,6 +152,7 @@ export function ResponsiveLayout() {
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <Brand name={brandName} />
           <div className="flex items-center gap-2">
+            <CurrencyTicker />
             <ThemeToggle className="px-2 text-xs" />
             <DensityModeToggle className="px-2 text-xs" />
             <GroupModeToggle className="px-2 text-xs" />
