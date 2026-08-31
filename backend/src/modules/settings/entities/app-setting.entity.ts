@@ -46,4 +46,32 @@ export class AppSetting extends BaseEntity {
    */
   @Column({ name: 'telegram_allowed_user_ids', type: 'text', default: '' })
   telegramAllowedUserIds: string;
+
+  // ── Fiyatlandırma ──
+  /**
+   * Malzeme satışında perakende fiyatın üzerine eklenen genel kâr yüzdesi.
+   * Plakaya özel bir oran girilmişse o önceliklidir.
+   */
+  @Column({
+    name: 'sale_markup_percent',
+    type: 'numeric',
+    precision: 6,
+    scale: 2,
+    default: 0,
+  })
+  saleMarkupPercent: number;
+
+  /**
+   * BAŞKA MÜŞTERİNİN malzemesi satıldığında işletmenin aldığı varsayılan
+   * komisyon yüzdesi. Kalem bazında değiştirilebilir; teklif/satış bunu
+   * başlangıç değeri olarak kullanır.
+   */
+  @Column({
+    name: 'consignment_commission_percent',
+    type: 'numeric',
+    precision: 6,
+    scale: 2,
+    default: 0,
+  })
+  consignmentCommissionPercent: number;
 }

@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { cleanName, normalizeName } from '../catalog-key.util';
 import { MaterialBrand } from '../entities/material-brand.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialPlate } from '../entities/material-plate.entity';
@@ -22,8 +24,31 @@ export class MaterialBrandsService {
     private readonly platesRepo: Repository<MaterialPlate>,
   ) {}
 
+  /**
+   * Marka ekler. Aynı kategoride aynı ad (büyük/küçük harf ve fazladan boşluk
+   * farkları yok sayılarak) zaten varsa YENİSİ AÇILMAZ, mevcut kayıt döner —
+   * katalog kendiliğinden çoğalmaz.
+   */
   create(dto: CreateMaterialBrandDto): Promise<MaterialBrand> {
-    return this.brandsRepo.save(this.brandsRepo.create(dto));
+    return this.findOrCreateByName(dto.categoryId, dto.name);
+  }
+
+  /** Ada göre bulur, yoksa oluşturur (stok girişinde otomatik tanımlama). */
+  async findOrCreateByName(
+    categoryId: string,
+    name: string,
+  ): Promise<MaterialBrand> {
+    const key = normalizeName(name);
+    if (!key) {
+      throw new BadRequestException('Marka adı boş olamaz.');
+    }
+    const existing = (await this.findAll(categoryId)).find(
+      (b) => normalizeName(b.name) === key,
+    );
+    if (existing) return existing;
+    return this.brandsRepo.save(
+      this.brandsRepo.create({ categoryId, name: cleanName(name) }),
+    );
   }
 
   findAll(categoryId?: string): Promise<MaterialBrand[]> {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SettingsModule } from '../settings/settings.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { WarehousesModule } from '../warehouses/warehouses.module';
@@ -20,6 +21,7 @@ import { MaterialColorsController } from './controllers/material-colors.controll
 import { MaterialSizesController } from './controllers/material-sizes.controller';
 import { MaterialThicknessesController } from './controllers/material-thicknesses.controller';
 import { PlatesController } from './controllers/plates.controller';
+import { CatalogMaintenanceController } from './controllers/catalog-maintenance.controller';
 import { MaterialTemplatesService } from './services/material-templates.service';
 import { MaterialCategoriesService } from './services/material-categories.service';
 import { MaterialBrandsService } from './services/material-brands.service';
@@ -27,6 +29,9 @@ import { MaterialColorsService } from './services/material-colors.service';
 import { MaterialSizesService } from './services/material-sizes.service';
 import { MaterialThicknessesService } from './services/material-thicknesses.service';
 import { PlatesService } from './services/plates.service';
+import { CatalogDedupeService } from './services/catalog-dedupe.service';
+import { PricingService } from './services/pricing.service';
+import { PlateIntakeService } from './services/plate-intake.service';
 import { SupplierPricesService } from './services/supplier-prices.service';
 
 /**
@@ -53,6 +58,7 @@ import { SupplierPricesService } from './services/supplier-prices.service';
     WarehousesModule,
     CurrencyModule,
     CustomersModule, // konsinye sahibini (müşteri) doğrulamak için
+    SettingsModule, // satış kâr yüzdesi / komisyon oranı için
   ],
   controllers: [
     MaterialCategoriesController,
@@ -62,6 +68,7 @@ import { SupplierPricesService } from './services/supplier-prices.service';
     MaterialThicknessesController,
     MaterialTemplatesController,
     PlatesController,
+    CatalogMaintenanceController,
   ],
   providers: [
     MaterialCategoriesService,
@@ -71,9 +78,18 @@ import { SupplierPricesService } from './services/supplier-prices.service';
     MaterialThicknessesService,
     MaterialTemplatesService,
     PlatesService,
+    CatalogDedupeService,
+    PricingService,
+    PlateIntakeService,
     SupplierPricesService,
   ],
   // Satın alma & işleme modülleri stok ayarı için PlatesService kullanır.
-  exports: [PlatesService, MaterialTemplatesService, MaterialCategoriesService],
+  exports: [
+    PlatesService,
+    MaterialTemplatesService,
+    MaterialCategoriesService,
+    CatalogDedupeService,
+    PricingService,
+  ],
 })
 export class MaterialsModule {}

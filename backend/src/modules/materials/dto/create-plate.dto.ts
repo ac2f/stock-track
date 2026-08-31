@@ -108,4 +108,19 @@ export class CreatePlateDto {
   @IsNumber()
   @Min(0)
   reorderLevel?: number;
+
+  /**
+   * Perakende (liste) birim fiyatı — satış fiyatı bunun üzerine kâr yüzdesi
+   * eklenerek önerilir. Birim malzemenin ölçüm tipiyle aynıdır (m²/metre/adet).
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  retailPrice?: number;
+
+  /** Bu malzemeye özel kâr yüzdesi; boşsa ayarlardaki genel oran geçerlidir. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  markupPercent?: number;
 }

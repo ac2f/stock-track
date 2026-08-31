@@ -152,6 +152,9 @@ export class PlatesService {
         reorderLevel: dto.reorderLevel,
         addedAt,
         processedAt: dto.processedAt ?? null,
+        // Satış fiyatı önerisi için perakende fiyat ve (varsa) özel kâr yüzdesi.
+        retailPrice: dto.retailPrice ?? null,
+        markupPercent: dto.markupPercent ?? null,
       });
       const saved = await manager.save(plate);
 

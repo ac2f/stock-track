@@ -153,6 +153,34 @@ export class MaterialPlate extends BaseEntity {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  /**
+   * Perakende (liste) birim fiyatı — satış fiyatı bunun üzerine kâr yüzdesi
+   * eklenerek hesaplanır. Ölçü birimi malzemenin ölçüm tipiyle aynıdır:
+   * tabaka → m², şerit/rulo → metre, diğer → adet. Boşsa satış fiyatı
+   * önerilmez (elle girilir).
+   */
+  @Column({
+    name: 'retail_price',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  retailPrice?: number | null;
+
+  /**
+   * Bu malzemeye özel kâr yüzdesi. Boşsa ayarlardaki genel kâr yüzdesi
+   * kullanılır (Ayarlar › Fiyatlandırma).
+   */
+  @Column({
+    name: 'markup_percent',
+    type: 'numeric',
+    precision: 6,
+    scale: 2,
+    nullable: true,
+  })
+  markupPercent?: number | null;
+
   @OneToMany(() => SupplierMaterialPrice, (price) => price.plate)
   supplierPrices?: SupplierMaterialPrice[];
 }

@@ -121,26 +121,42 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
  */
 export function CustomersListPage() {
   const [pageSize, setPageSize] = usePageSize('customers', 20);
-  const [filters, setFilters] = useState<CustomerFilters>({
+  // Ekranda düzenlenen (taslak) filtreler ile SORGULANAN filtreler ayrıdır:
+  // liste yalnızca "Sorgula" ile çalışır, sayfa açılır açılmaz tüm cariler
+  // dökülmez.
+  const [draft, setDraft] = useState<CustomerFilters>({
     page: 1,
     limit: pageSize,
     sort: 'balance',
   });
+  const [applied, setApplied] = useState<CustomerFilters | null>(null);
+
+  const runQuery = (patch: Partial<CustomerFilters> = {}) => {
+    const next = { ...draft, ...patch, page: 1 };
+    setDraft(next);
+    setApplied(next);
+  };
   const changePageSize = (n: number) => {
     setPageSize(n);
-    setFilters((f) => ({ ...f, limit: n, page: 1 }));
+    setDraft((f) => ({ ...f, limit: n, page: 1 }));
+    setApplied((f) => (f ? { ...f, limit: n, page: 1 } : f));
   };
   const [showForm, setShowForm] = useState(false);
   const { mini, toggle: toggleMini } = useListDensity();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['customers', filters],
-    queryFn: () => fetchCustomers(filters),
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['customers', applied],
+    queryFn: () => fetchCustomers(applied!),
+    // Sorgula'ya basılmadan hiçbir istek atılmaz.
+    enabled: applied !== null,
   });
 
   const set = (patch: Partial<CustomerFilters>) =>
-    setFilters((f) => ({ ...f, ...patch, page: 1 }));
-  const goPage = (page: number) => setFilters((f) => ({ ...f, page }));
+    setDraft((f) => ({ ...f, ...patch, page: 1 }));
+  const goPage = (page: number) => {
+    setDraft((f) => ({ ...f, page }));
+    setApplied((f) => (f ? { ...f, page } : f));
+  };
   const meta = data?.meta;
 
   return (
@@ -163,7 +179,11 @@ export function CustomersListPage() {
         <input
           className="input"
           placeholder="Ara (ad, firma, telefon)…"
+          value={draft.search ?? ''}
           onChange={(e) => set({ search: e.target.value || undefined })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') runQuery();
+          }}
         />
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-sm">
@@ -171,7 +191,7 @@ export function CustomersListPage() {
             <input
               className="input"
               type="date"
-              value={filters.from ?? ''}
+              value={draft.from ?? ''}
               onChange={(e) => set({ from: e.target.value || undefined })}
             />
           </label>
@@ -180,7 +200,7 @@ export function CustomersListPage() {
             <input
               className="input"
               type="date"
-              value={filters.to ?? ''}
+              value={draft.to ?? ''}
               onChange={(e) => set({ to: e.target.value || undefined })}
             />
           </label>
@@ -189,13 +209,14 @@ export function CustomersListPage() {
           <label className="flex min-h-[44px] items-center gap-2 px-2 text-sm">
             <input
               type="checkbox"
+              checked={!!draft.hasDebt}
               onChange={(e) => set({ hasDebt: e.target.checked || undefined })}
             />
             Yalnızca borçlular
           </label>
           <select
             className="input w-auto"
-            value={filters.sort}
+            value={draft.sort}
             onChange={(e) =>
               set({ sort: e.target.value as CustomerFilters['sort'] })
             }
@@ -205,9 +226,48 @@ export function CustomersListPage() {
             <option value="recent">Son hareket</option>
           </select>
         </div>
+
+        {/* Liste yalnızca burada çalışır — sayfa açılışında sorgu atılmaz. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="btn-primary"
+            disabled={isFetching}
+            onClick={() => runQuery()}
+          >
+            {isFetching ? 'Sorgulanıyor…' : '🔍 Sorgula'}
+          </button>
+          <button
+            className="btn bg-slate-100"
+            onClick={() => {
+              const cleared: CustomerFilters = {
+                page: 1,
+                limit: pageSize,
+                sort: 'balance',
+              };
+              setDraft(cleared);
+              setApplied(null);
+            }}
+          >
+            Temizle
+          </button>
+          <button
+            className="btn bg-slate-100 text-xs"
+            title="Filtresiz, borca göre tüm cariler"
+            onClick={() => runQuery({ search: undefined, hasDebt: undefined })}
+          >
+            Tümünü listele
+          </button>
+        </div>
       </div>
 
-      {isLoading ? (
+      {applied === null ? (
+        <div className="card text-center text-sm text-slate-500">
+          Aramak istediğiniz müşteriyi yazıp <b>Sorgula</b>'ya basın.
+          <span className="mt-1 block text-xs text-slate-400">
+            Liste, siz sorgulayana kadar boş kalır.
+          </span>
+        </div>
+      ) : isLoading ? (
         <p className="text-slate-400">Yükleniyor…</p>
       ) : (
         <div className="space-y-2">

@@ -20,6 +20,9 @@ import { QueryPlateDto } from '../dto/query-plate.dto';
 import { TransferOwnershipDto } from '../dto/transfer-ownership.dto';
 import { UpsertSupplierPriceDto } from '../dto/upsert-supplier-price.dto';
 import { PlatesService } from '../services/plates.service';
+import { PricingService } from '../services/pricing.service';
+import { PlateIntakeService } from '../services/plate-intake.service';
+import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
 import { SupplierPricesService } from '../services/supplier-prices.service';
 
 @ApiTags('plates')
@@ -29,7 +32,20 @@ export class PlatesController {
   constructor(
     private readonly platesService: PlatesService,
     private readonly supplierPricesService: SupplierPricesService,
+    private readonly pricingService: PricingService,
+    private readonly intakeService: PlateIntakeService,
   ) {}
+
+  /**
+   * Tek istekte birden çok stok kalemi. Katalog kayıtları (tür/marka/renk/
+   * ebat/kalınlık) ADLA verilebilir; yoksa kendiliğinden açılır ve yanıtta
+   * hangilerinin açıldığı raporlanır.
+   */
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Post('batch')
+  createBatch(@Body() dto: BatchCreatePlatesDto) {
+    return this.intakeService.createBatch(dto);
+  }
 
   // Stok girişi çalışanın da yetkisindedir.
   @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
@@ -116,5 +132,14 @@ export class PlatesController {
     @Param('priceId', ParseUUIDPipe) priceId: string,
   ) {
     return this.supplierPricesService.remove(id, priceId);
+  }
+
+  /**
+   * Satış fiyatı önerisi: perakende fiyat + kâr yüzdesi, malzemeci
+   * fiyatlarıyla karşılaştırma ve (varsa) indirim yüzdesi.
+   */
+  @Get(':id/pricing')
+  pricing(@Param('id', ParseUUIDPipe) id: string) {
+    return this.pricingService.forPlate(id);
   }
 }

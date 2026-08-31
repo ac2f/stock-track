@@ -31,6 +31,14 @@ export interface ResolvedTelegram {
   backupChatId: string;
 }
 
+/** Satış fiyatlandırma ayarları. */
+export interface PricingSettings {
+  /** Perakende fiyatın üzerine eklenen genel kâr yüzdesi. */
+  saleMarkupPercent: number;
+  /** Başkasının malzemesi satılırken varsayılan komisyon yüzdesi. */
+  consignmentCommissionPercent: number;
+}
+
 /** Ayar değerinin nereden geldiği — arayüzde gösterilir. */
 export type SettingSource = 'db' | 'env' | 'none';
 
@@ -116,6 +124,29 @@ export class SettingsService {
     const s = await this.getOrCreate();
     Object.assign(s, dto);
     return this.repo.save(s);
+  }
+
+  // ── Fiyatlandırma ───────────────────────────────────────────────────
+
+  /** Satış fiyatı ve komisyon oranları (satış anında okunur). */
+  async getPricing(): Promise<PricingSettings> {
+    const s = await this.getOrCreate();
+    return {
+      saleMarkupPercent: Number(s.saleMarkupPercent ?? 0),
+      consignmentCommissionPercent: Number(s.consignmentCommissionPercent ?? 0),
+    };
+  }
+
+  async updatePricing(dto: Partial<PricingSettings>): Promise<PricingSettings> {
+    const s = await this.getOrCreate();
+    if (dto.saleMarkupPercent !== undefined) {
+      s.saleMarkupPercent = dto.saleMarkupPercent;
+    }
+    if (dto.consignmentCommissionPercent !== undefined) {
+      s.consignmentCommissionPercent = dto.consignmentCommissionPercent;
+    }
+    await this.repo.save(s);
+    return this.getPricing();
   }
 
   // ── Telegram ────────────────────────────────────────────────────────

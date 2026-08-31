@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { cleanName, normalizeName } from '../catalog-key.util';
 import { MaterialColor } from '../entities/material-color.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialPlate } from '../entities/material-plate.entity';
@@ -22,8 +24,35 @@ export class MaterialColorsService {
     private readonly platesRepo: Repository<MaterialPlate>,
   ) {}
 
+  /** Aynı kategoride aynı ad varsa yenisi açılmaz, mevcut kayıt döner. */
   create(dto: CreateMaterialColorDto): Promise<MaterialColor> {
-    return this.colorsRepo.save(this.colorsRepo.create(dto));
+    return this.findOrCreateByName(dto.categoryId, dto.name, dto.code);
+  }
+
+  /** Ada göre bulur, yoksa oluşturur (stok girişinde otomatik tanımlama). */
+  async findOrCreateByName(
+    categoryId: string,
+    name: string,
+    code?: string,
+  ): Promise<MaterialColor> {
+    const key = normalizeName(name);
+    if (!key) {
+      throw new BadRequestException('Renk adı boş olamaz.');
+    }
+    const existing = (await this.findAll(categoryId)).find(
+      (c) => normalizeName(c.name) === key,
+    );
+    if (existing) {
+      // Renk kodu sonradan girildiyse mevcut kaydı zenginleştir.
+      if (code && !existing.code) {
+        existing.code = code;
+        return this.colorsRepo.save(existing);
+      }
+      return existing;
+    }
+    return this.colorsRepo.save(
+      this.colorsRepo.create({ categoryId, name: cleanName(name), code }),
+    );
   }
 
   findAll(categoryId?: string): Promise<MaterialColor[]> {

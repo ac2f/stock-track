@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { normalizeNumber } from '../catalog-key.util';
 import { MaterialThickness } from '../entities/material-thickness.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialPlate } from '../entities/material-plate.entity';
@@ -22,9 +23,26 @@ export class MaterialThicknessesService {
     private readonly platesRepo: Repository<MaterialPlate>,
   ) {}
 
+  /** Aynı kategoride aynı kalınlık varsa yenisi açılmaz, mevcut kayıt döner. */
   create(dto: CreateMaterialThicknessDto): Promise<MaterialThickness> {
-    return this.thicknessesRepo.save(this.thicknessesRepo.create(dto));
+    return this.findOrCreate(dto.categoryId, dto.valueMm);
   }
+
+  /** Değere göre bulur, yoksa oluşturur (stok girişinde otomatik tanımlama). */
+  async findOrCreate(
+    categoryId: string,
+    valueMm: number,
+  ): Promise<MaterialThickness> {
+    const key = normalizeNumber(valueMm);
+    const existing = (await this.findAll(categoryId)).find(
+      (t) => normalizeNumber(t.valueMm) === key,
+    );
+    if (existing) return existing;
+    return this.thicknessesRepo.save(
+      this.thicknessesRepo.create({ categoryId, valueMm }),
+    );
+  }
+
 
   findAll(categoryId?: string): Promise<MaterialThickness[]> {
     return this.thicknessesRepo.find({

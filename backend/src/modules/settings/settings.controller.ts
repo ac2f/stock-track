@@ -5,6 +5,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { SettingsService } from './settings.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
+import { UpdatePricingDto } from './dto/update-pricing.dto';
 
 /**
  * Ayarlar. İşletme/proje kimliği (ad, adres, telefon, VKN, logo, portal adresi)
@@ -26,6 +27,18 @@ export class SettingsController {
   @Put('business')
   updateBusiness(@Body() dto: UpdateBusinessDto) {
     return this.settings.update(dto);
+  }
+
+  /** Satış kâr yüzdesi ve konsinye komisyon oranı. */
+  @Get('pricing')
+  getPricing() {
+    return this.settings.getPricing();
+  }
+
+  @Roles(UserRole.OWNER)
+  @Put('pricing')
+  updatePricing(@Body() dto: UpdatePricingDto) {
+    return this.settings.updatePricing(dto);
   }
 
   /**

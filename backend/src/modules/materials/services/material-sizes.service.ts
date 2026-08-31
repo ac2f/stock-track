@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { sizeKey } from '../catalog-key.util';
 import { MaterialSize } from '../entities/material-size.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialPlate } from '../entities/material-plate.entity';
@@ -22,8 +23,25 @@ export class MaterialSizesService {
     private readonly platesRepo: Repository<MaterialPlate>,
   ) {}
 
+  /** Aynı kategoride aynı en×boy varsa yenisi açılmaz, mevcut kayıt döner. */
   create(dto: CreateMaterialSizeDto): Promise<MaterialSize> {
-    return this.sizesRepo.save(this.sizesRepo.create(dto));
+    return this.findOrCreate(dto.categoryId, dto.widthMm, dto.heightMm);
+  }
+
+  /** Ebada göre bulur, yoksa oluşturur (stok girişinde otomatik tanımlama). */
+  async findOrCreate(
+    categoryId: string,
+    widthMm: number,
+    heightMm: number,
+  ): Promise<MaterialSize> {
+    const key = sizeKey(widthMm, heightMm);
+    const existing = (await this.findAll(categoryId)).find(
+      (s) => sizeKey(s.widthMm, s.heightMm) === key,
+    );
+    if (existing) return existing;
+    return this.sizesRepo.save(
+      this.sizesRepo.create({ categoryId, widthMm, heightMm }),
+    );
   }
 
   findAll(categoryId?: string): Promise<MaterialSize[]> {
