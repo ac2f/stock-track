@@ -1,5 +1,6 @@
 import {
   IsDateString,
+  IsIn,
   IsEnum,
   IsNumber,
   IsObject,
@@ -117,6 +118,11 @@ export class CreatePlateDto {
   @IsNumber()
   @Min(0)
   retailPrice?: number;
+
+  /** Perakende fiyatın para birimi — varsayılan TRY. */
+  @IsOptional()
+  @IsIn(['TRY', 'USD', 'EUR'])
+  retailCurrency?: string;
 
   /** Bu malzemeye özel kâr yüzdesi; boşsa ayarlardaki genel oran geçerlidir. */
   @IsOptional()

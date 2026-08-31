@@ -430,6 +430,18 @@ Kalemde katalog kayıtları kimlik yerine **adla** verilebilir: `categoryName`,
 | GET | `/settings/pricing` | 👥 | Genel kâr yüzdesi + konsinye komisyon oranı |
 | PUT | `/settings/pricing` | 👔 | `{ saleMarkupPercent?, consignmentCommissionPercent? }` |
 | GET | `/plates/:id/pricing` | 👥 | Satış fiyatı önerisi ve piyasa karşılaştırması |
+| PUT | `/plates/:id/retail-price` | 🧑‍🔧 | `{ retailPrice, currency?, markupPercent? }` — perakende fiyatı girer/günceller |
+| GET | `/plates/:id/retail-suggestions` | 👥 | Aynı türdeki (marka/renk farklı) fiyatı tanımlı malzemeler |
+
+Perakende fiyat **TRY (varsayılan), USD veya EUR** girilebilir; `retailCurrency`
+plakada saklanır. Hesaplar baz para biriminde yapılır — döviz, tanımlı kurdan
+çevrilir. Kur tanımlı değilse `retailPriceBase` ve `suggestedUnitPrice` `null`
+döner (fiyat elle girilir). Yanıt hem girilen değeri (`retailPrice` +
+`retailCurrency`) hem çevrilmiş karşılığını (`retailPriceBase`) taşır.
+
+`retail-suggestions`, fiyatı olmayan bir malzemeye aynı türdeki başka bir
+malzemenin fiyatını uygulamak için kullanılır; aynı kalınlıktakiler
+(`sameThickness`) listenin başında gelir.
 
 Kural: **satış birim fiyatı = perakende fiyat × (1 + kâr%)**. Kâr yüzdesi
 plakaya özel girilmişse (`markupPercent`) o, yoksa ayarlardaki genel oran

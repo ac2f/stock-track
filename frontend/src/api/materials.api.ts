@@ -279,6 +279,8 @@ export interface CreatePlateInput {
   warehouseId?: string;
   /** Perakende (liste) birim fiyatı — satış fiyatı bundan türetilir. */
   retailPrice?: number;
+  /** Perakende fiyatın para birimi (varsayılan TRY). */
+  retailCurrency?: string;
   /** Bu malzemeye özel kâr yüzdesi; boşsa ayarlardaki genel oran. */
   markupPercent?: number;
 }
@@ -421,8 +423,14 @@ export async function deletePlatePrice(
 export interface PlatePricing {
   plateId: string;
   unit: MeasurementType;
-  /** Perakende (liste) birim fiyatı; tanımlı değilse null. */
+  /** Perakende (liste) birim fiyatı — GİRİLDİĞİ para biriminde. */
   retailPrice: number | null;
+  /** Perakende fiyatın para birimi (TRY / USD / EUR). */
+  retailCurrency: string;
+  /** Perakende fiyatın baz para birimindeki karşılığı (kur yoksa null). */
+  retailPriceBase: number | null;
+  /** Sistemin baz para birimi — öneri ve piyasa bu birimdedir. */
+  baseCurrency: string;
   /** Uygulanan kâr yüzdesi (plakaya özel varsa o, yoksa genel ayar). */
   markupPercent: number;
   /** Kâr eklenmiş önerilen satış birim fiyatı. */
@@ -438,6 +446,51 @@ export interface PlatePricing {
 
 export async function fetchPlatePricing(plateId: string): Promise<PlatePricing> {
   const { data } = await api.get<PlatePricing>(`/plates/${plateId}/pricing`);
+  return data;
+}
+
+/** Perakende fiyatın girilebileceği para birimleri. */
+export const RETAIL_CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
+export type RetailCurrency = (typeof RETAIL_CURRENCIES)[number];
+
+export interface SetRetailPriceInput {
+  retailPrice: number;
+  currency?: RetailCurrency;
+  markupPercent?: number;
+}
+
+/** Perakende fiyatı girer/günceller; güncel fiyatlandırmayı döner. */
+export async function setPlateRetailPrice(
+  plateId: string,
+  input: SetRetailPriceInput,
+): Promise<PlatePricing> {
+  const { data } = await api.put<PlatePricing>(
+    `/plates/${plateId}/retail-price`,
+    input,
+  );
+  return data;
+}
+
+/** Aynı türdeki (marka/renk farklı) fiyatı tanımlı malzemeler. */
+export interface RetailPriceSuggestion {
+  plateId: string;
+  name: string;
+  brand: string | null;
+  color: string | null;
+  thicknessMm: number | null;
+  retailPrice: number;
+  retailCurrency: string;
+  retailPriceBase: number | null;
+  /** Bu malzemeyle aynı kalınlıkta mı (en yakın eşleşme). */
+  sameThickness: boolean;
+}
+
+export async function fetchRetailSuggestions(
+  plateId: string,
+): Promise<RetailPriceSuggestion[]> {
+  const { data } = await api.get<RetailPriceSuggestion[]>(
+    `/plates/${plateId}/retail-suggestions`,
+  );
   return data;
 }
 

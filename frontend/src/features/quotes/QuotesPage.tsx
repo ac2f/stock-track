@@ -15,11 +15,16 @@ import {
   fetchMaterialCategories,
   fetchPlatePricing,
   fetchPlates,
+  fetchRetailSuggestions,
+  setPlateRetailPrice,
+  RETAIL_CURRENCIES,
+  type PlatePricing,
+  type RetailCurrency,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchQueue } from '../../api/processing.api';
 import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
-import { groupPlates } from '../../lib/plateGrouping';
+import { groupPlates, plateCategory } from '../../lib/plateGrouping';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
@@ -192,6 +197,248 @@ function PlatePicker({
         onChange={(id) => onPick(id, merged.find((p) => p.id === id))}
       />
     </div>
+  );
+}
+
+
+/**
+ * Satış kalemi için malzeme seçici.
+ *
+ * Açılır liste yerine, seçilen malzemeyi bir KART olarak gösterir; değiştirmek
+ * için panel açılır. Panelde tür rozetleri (chip), serbest arama ve ürün
+ * türüne → aynı malzemeye göre gruplanmış zengin satırlar bulunur: her satırda
+ * kalan ebat/stok, sahibi ve (varsa) satış fiyatı görünür. Böylece hangi
+ * malzemeyi seçtiğini görmek için listeyi tekrar açmak gerekmez.
+ */
+function SalePlatePicker({
+  businessOnly,
+  ownerCustomerId,
+  excludeOwnerCustomerId,
+  value,
+  selectedPlate,
+  highlightIds,
+  onPick,
+}: {
+  businessOnly?: boolean;
+  ownerCustomerId?: string;
+  excludeOwnerCustomerId?: string;
+  value: string;
+  selectedPlate?: Plate;
+  highlightIds?: Set<string>;
+  onPick: (plateId: string, plate?: Plate) => void;
+}) {
+  const [open, setOpen] = useState(!value);
+  const [categoryId, setCategoryId] = useState('');
+  const [term, setTerm] = useState('');
+
+  const { data: categories } = useQuery({
+    queryKey: ['material-categories'],
+    queryFn: fetchMaterialCategories,
+  });
+  const { data, isFetching } = useQuery({
+    queryKey: [
+      'plates',
+      'sale-pick',
+      businessOnly ? 'business' : ownerCustomerId ?? 'all',
+      excludeOwnerCustomerId ?? '',
+      categoryId,
+    ],
+    queryFn: () =>
+      fetchPlates({
+        ownerCustomerId: businessOnly ? undefined : ownerCustomerId || undefined,
+        owner: businessOnly ? 'business' : undefined,
+        excludeOwnerCustomerId: excludeOwnerCustomerId || undefined,
+        categoryId: categoryId || undefined,
+        page: 1,
+        limit: 100,
+      }),
+    enabled: open,
+  });
+
+  const all = data?.items ?? [];
+  const q = term.trim().toLocaleLowerCase('tr');
+  const filtered = q
+    ? all.filter((p) =>
+        `${p.name} ${p.brand ?? ''} ${p.color ?? ''} ${plateOwnerLabel(p)}`
+          .toLocaleLowerCase('tr')
+          .includes(q),
+      )
+    : all;
+  const groups = groupPlates(filtered);
+
+  // Seçili malzeme: kart olarak özetlenir.
+  if (!open && selectedPlate) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-900/20">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">
+            {selectedPlate.name}
+          </span>
+          <span className="block truncate text-xs text-slate-500">
+            {[
+              plateCategory(selectedPlate),
+              platePickSublabel(selectedPlate),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </span>
+        <button
+          className="btn shrink-0 bg-white px-2 py-1 text-xs"
+          onClick={() => setOpen(true)}
+        >
+          Değiştir
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-300 p-2 dark:border-slate-700">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="input min-w-0 flex-1"
+          placeholder="Malzeme, marka veya renk ara…"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          autoFocus
+        />
+        {selectedPlate && (
+          <button
+            className="btn bg-slate-100 px-2 py-1 text-xs"
+            onClick={() => setOpen(false)}
+          >
+            Vazgeç
+          </button>
+        )}
+      </div>
+
+      {/* Ürün türü rozetleri — açılır liste yerine tek dokunuşla filtre. */}
+      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+        <button
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+            categoryId === ''
+              ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+          }`}
+          onClick={() => setCategoryId('')}
+        >
+          Tümü
+        </button>
+        {categories?.map((c) => (
+          <button
+            key={c.id}
+            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+              categoryId === c.id
+                ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+            }`}
+            onClick={() => setCategoryId(c.id)}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+
+      <div className="max-h-72 space-y-2 overflow-y-auto">
+        {isFetching && !all.length && (
+          <p className="py-2 text-center text-xs text-slate-400">Yükleniyor…</p>
+        )}
+        {groups.map((g) => (
+          <div key={g.category}>
+            <span
+              className={`mb-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${groupChipClass(g.category)}`}
+            >
+              {g.category} ({g.count})
+            </span>
+            <div className="space-y-1">
+              {g.materials.map((m) => (
+                <div key={m.key}>
+                  <p className="px-1 text-[11px] font-semibold text-slate-500">
+                    {m.label}
+                    {m.plates.length > 1 && (
+                      <span className="ml-1 font-normal text-slate-400">
+                        {m.plates.length} parça
+                      </span>
+                    )}
+                  </p>
+                  <div className="space-y-1">
+                    {m.plates.map((p) => (
+                      <button
+                        key={p.id}
+                        className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                          p.id === value
+                            ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
+                            : 'border-slate-200 dark:border-slate-700'
+                        }`}
+                        onClick={() => {
+                          onPick(p.id, p);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm">
+                            {highlightIds?.has(p.id) ? '✓ ' : ''}
+                            {p.name}
+                          </span>
+                          <span
+                            className={`block truncate text-[11px] ${
+                              isPartialSheet(p)
+                                ? 'font-semibold text-amber-700 dark:text-amber-400'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {platePickSublabel(p)}
+                          </span>
+                        </span>
+                        <PlatePriceBadge plateId={p.id} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {!isFetching && !filtered.length && (
+          <p className="py-2 text-center text-xs text-slate-400">
+            Uygun malzeme yok.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Seçim listesinde malzemenin satış fiyatı rozeti (varsa). */
+function PlatePriceBadge({ plateId }: { plateId: string }) {
+  const { data } = useQuery({
+    queryKey: ['plate-pricing', plateId],
+    queryFn: () => fetchPlatePricing(plateId),
+    staleTime: 60_000,
+  });
+  if (!data) return null;
+  if (data.suggestedUnitPrice == null) {
+    return (
+      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-400 dark:bg-slate-800">
+        fiyat yok
+      </span>
+    );
+  }
+  return (
+    <span className="shrink-0 text-right">
+      <span className="block text-xs font-semibold">
+        {money.format(data.suggestedUnitPrice)}
+      </span>
+      <span className="block text-[10px] text-slate-400">
+        /{UNIT_LABEL[data.unit]}
+        {data.discountPercent != null && (
+          <span className="ml-1 font-semibold text-emerald-600">
+            −%{data.discountPercent}
+          </span>
+        )}
+      </span>
+    </span>
   );
 }
 
@@ -561,8 +808,143 @@ export function QuotesPage() {
 }
 
 /**
+ * Perakende fiyatı olmayan malzeme için fiyat girme paneli.
+ *
+ * İki yol sunar: tutarı elle yazmak ya da AYNI TÜRDEKİ başka bir malzemenin
+ * (farklı marka/renk olabilir) fiyatını olduğu gibi almak. Fiyat TRY, USD ya
+ * da EUR girilebilir; hesaplarda baz para birimine çevrilir.
+ */
+function RetailPriceEditor({
+  plateId,
+  current,
+  onSaved,
+  onClose,
+}: {
+  plateId: string;
+  current: PlatePricing;
+  onSaved: (pricing: PlatePricing) => void;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [price, setPrice] = useState(
+    current.retailPrice != null ? String(current.retailPrice) : '',
+  );
+  const [currency, setCurrency] = useState<RetailCurrency>(
+    (current.retailCurrency as RetailCurrency) ?? 'TRY',
+  );
+
+  const { data: suggestions } = useQuery({
+    queryKey: ['retail-suggestions', plateId],
+    queryFn: () => fetchRetailSuggestions(plateId),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (input: { retailPrice: number; currency: RetailCurrency }) =>
+      setPlateRetailPrice(plateId, input),
+    onSuccess: (pricing) => {
+      qc.invalidateQueries({ queryKey: ['plate-pricing', plateId] });
+      qc.invalidateQueries({ queryKey: ['retail-suggestions'] });
+      onSaved(pricing);
+      onClose();
+    },
+  });
+
+  const amount = Number(price.replace(',', '.'));
+  const valid = Number.isFinite(amount) && amount > 0;
+
+  return (
+    <div className="space-y-2 rounded-lg border border-indigo-300 bg-indigo-50 p-2 dark:border-indigo-800 dark:bg-indigo-900/20">
+      <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-300">
+        Perakende fiyat gir ({UNIT_LABEL[current.unit]} başına)
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="input w-32"
+          type="number"
+          min={0}
+          step="0.01"
+          placeholder="Tutar"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+        <select
+          className="input w-auto"
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value as RetailCurrency)}
+        >
+          {RETAIL_CURRENCIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn bg-indigo-600 text-xs text-white"
+          disabled={!valid || saveMut.isPending}
+          onClick={() => saveMut.mutate({ retailPrice: amount, currency })}
+        >
+          {saveMut.isPending ? 'Kaydediliyor…' : 'Kaydet ve uygula'}
+        </button>
+        <button className="btn bg-white text-xs" onClick={onClose}>
+          Vazgeç
+        </button>
+      </div>
+
+      {saveMut.isError && (
+        <p className="text-xs text-red-600">Fiyat kaydedilemedi.</p>
+      )}
+
+      {/* Aynı türdeki başka malzemelerin fiyatları — tıkla, aynısını kullan. */}
+      {!!suggestions?.length && (
+        <div className="space-y-1">
+          <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+            Aynı türdeki malzemelerden seç:
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {suggestions.slice(0, 8).map((sug) => (
+              <button
+                key={sug.plateId}
+                className={`rounded-lg border px-2 py-1 text-left text-[11px] hover:bg-white ${
+                  sug.sameThickness
+                    ? 'border-indigo-300 bg-white dark:bg-slate-900'
+                    : 'border-slate-200 bg-slate-50 dark:bg-slate-800'
+                }`}
+                title="Bu fiyatı alana yaz"
+                onClick={() => {
+                  setPrice(String(sug.retailPrice));
+                  setCurrency(sug.retailCurrency as RetailCurrency);
+                }}
+              >
+                <span className="block font-medium">
+                  {[sug.brand, sug.color].filter(Boolean).join(' ') || sug.name}
+                  {sug.thicknessMm ? ` · ${sug.thicknessMm}mm` : ''}
+                  {sug.sameThickness && (
+                    <span className="ml-1 text-indigo-600">aynı kalınlık</span>
+                  )}
+                </span>
+                <span className="block text-slate-500">
+                  {sug.retailPrice} {sug.retailCurrency}
+                  {sug.retailPriceBase != null &&
+                    sug.retailCurrency !== current.baseCurrency && (
+                      <> ≈ {money.format(sug.retailPriceBase)}</>
+                    )}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Satış kaleminin fiyat özeti: perakende + kâr yüzdesinden gelen öneri ve
  * malzemeci fiyatına göre müşterinin kazandığı indirim.
+ *
+ * Perakende fiyat tanımlı değilse fiyat girme düğmesi gösterilir — satış
+ * fiyatı ancak o zaman otomatik önerilebilir.
  *
  * Kullanıcı fiyatı elle değiştirdiyse indirim GİRİLEN fiyata göre yeniden
  * hesaplanır — ekranda gördüğü oran her zaman gerçek satış fiyatına aittir.
@@ -570,10 +952,13 @@ export function QuotesPage() {
 function SalePricingNote({
   plateId,
   unitPrice,
+  onPriceSuggested,
 }: {
   plateId: string;
   unitPrice: number;
+  onPriceSuggested: (price: number) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const { data } = useQuery({
     queryKey: ['plate-pricing', plateId],
     queryFn: () => fetchPlatePricing(plateId),
@@ -583,33 +968,58 @@ function SalePricingNote({
 
   const market = data.marketCheapest;
   const price = Number(unitPrice) || 0;
-  // Girilen fiyata göre canlı indirim.
   const liveDiscount =
     market && price > 0 && price < market
       ? Math.round((1 - price / market) * 1000) / 10
       : null;
 
-  if (data.retailPrice == null && market == null) {
+  // Fiyat girme paneli açıksa onu göster.
+  if (editing) {
     return (
-      <p className="text-[11px] text-slate-400">
-        Perakende fiyat girilmemiş — satış fiyatı otomatik önerilemiyor.
-      </p>
+      <RetailPriceEditor
+        plateId={plateId}
+        current={data}
+        onClose={() => setEditing(false)}
+        onSaved={(pricing) => {
+          if (pricing.suggestedUnitPrice != null) {
+            onPriceSuggested(pricing.suggestedUnitPrice);
+          }
+        }}
+      />
+    );
+  }
+
+  // Perakende fiyat yoksa: kullanıcıya eklemek isteyip istemediğini sor.
+  if (data.retailPrice == null) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-amber-700 dark:text-amber-400">
+          Bu malzemenin perakende fiyatı yok — satış fiyatı otomatik önerilemiyor.
+        </span>
+        <button
+          className="btn bg-indigo-600 px-2 py-0.5 text-[11px] text-white"
+          onClick={() => setEditing(true)}
+        >
+          💰 Fiyat ekle
+        </button>
+      </div>
     );
   }
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-      {data.retailPrice != null && (
-        <span>
-          Perakende {money.format(data.retailPrice)} + %{data.markupPercent} kâr
-          {data.suggestedUnitPrice != null && (
-            <> → önerilen {money.format(data.suggestedUnitPrice)}</>
-          )}
-        </span>
-      )}
-      {market != null && (
-        <span>Malzemeci en ucuz: {money.format(market)}</span>
-      )}
+      <span>
+        Perakende {data.retailPrice} {data.retailCurrency}
+        {data.retailCurrency !== data.baseCurrency &&
+          data.retailPriceBase != null && (
+            <> (≈ {money.format(data.retailPriceBase)})</>
+          )}{' '}
+        + %{data.markupPercent} kâr
+        {data.suggestedUnitPrice != null && (
+          <> → önerilen {money.format(data.suggestedUnitPrice)}</>
+        )}
+      </span>
+      {market != null && <span>Malzemeci en ucuz: {money.format(market)}</span>}
       {liveDiscount != null && (
         <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
           Piyasadan %{liveDiscount} uygun
@@ -625,6 +1035,12 @@ function SalePricingNote({
         Math.abs(price - data.suggestedUnitPrice) > 0.01 && (
           <span className="text-slate-400">(fiyat elle değiştirildi)</span>
         )}
+      <button
+        className="rounded px-1 text-indigo-600 underline"
+        onClick={() => setEditing(true)}
+      >
+        fiyatı düzenle
+      </button>
     </div>
   );
 }
@@ -1292,6 +1708,28 @@ function NewQuoteForm({
               item.ownerCustomerId ? 'Sahibin malzemesi / plaka' : 'Malzeme / plaka'
             }
           >
+            {item.lineKind === 'sale' ? (
+              <SalePlatePicker
+                businessOnly={item.ownerMode === 'business'}
+                ownerCustomerId={
+                  item.ownerMode === 'business' ? undefined : item.ownerFilterId
+                }
+                excludeOwnerCustomerId={buyerCustomerId || undefined}
+                value={item.plateId ?? ''}
+                selectedPlate={getPlate(item.plateId)}
+                highlightIds={
+                  new Set(
+                    items
+                      .filter((_, idx) => idx !== i)
+                      .map((x) => x.plateId)
+                      .filter((v): v is string => !!v),
+                  )
+                }
+                onPick={(plateId, p) =>
+                  onPlatePick(i, item.lineKind, plateId, p)
+                }
+              />
+            ) : (
             <PlatePicker
               // Kaynak: 'business' → yalnızca işletme stoğu; 'customer' → seçilen
               // sahibin malzemeleri; 'auto' → TÜMÜ (işletme şeritleri dahil) —
@@ -1300,16 +1738,11 @@ function NewQuoteForm({
               ownerCustomerId={
                 item.ownerMode === 'business' ? undefined : item.ownerFilterId
               }
+              // İşleme kaleminde alıcının malzemeleri listenin EN ÜSTÜNDE.
               preferOwnerName={
-                item.lineKind === 'processing' &&
                 (item.ownerMode ?? 'auto') === 'auto'
                   ? buyerName || undefined
                   : undefined
-              }
-              // #2 Satış kaleminde alıcının KENDİ malzemeleri listelenmez
-              // (kişiye kendi malını yanlışlıkla satmayı engeller).
-              excludeOwnerCustomerId={
-                item.lineKind === 'sale' ? buyerCustomerId || undefined : undefined
               }
               value={item.plateId ?? ''}
               selectedPlate={getPlate(item.plateId)}
@@ -1325,6 +1758,7 @@ function NewQuoteForm({
               }
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />
+            )}
           </Field>
           </>
           )}
@@ -1524,6 +1958,7 @@ function NewQuoteForm({
               <SalePricingNote
                 plateId={item.plateId}
                 unitPrice={Number(item.unitPrice) || 0}
+                onPriceSuggested={(p) => patch(i, { unitPrice: p })}
               />
               <AveragePriceNote plateId={item.plateId} />
             </div>

@@ -154,6 +154,7 @@ export class PlatesService {
         processedAt: dto.processedAt ?? null,
         // Satış fiyatı önerisi için perakende fiyat ve (varsa) özel kâr yüzdesi.
         retailPrice: dto.retailPrice ?? null,
+        retailCurrency: (dto.retailCurrency ?? 'TRY').toUpperCase(),
         markupPercent: dto.markupPercent ?? null,
       });
       const saved = await manager.save(plate);

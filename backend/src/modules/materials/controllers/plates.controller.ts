@@ -22,6 +22,7 @@ import { UpsertSupplierPriceDto } from '../dto/upsert-supplier-price.dto';
 import { PlatesService } from '../services/plates.service';
 import { PricingService } from '../services/pricing.service';
 import { PlateIntakeService } from '../services/plate-intake.service';
+import { SetRetailPriceDto } from '../dto/set-retail-price.dto';
 import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
 import { SupplierPricesService } from '../services/supplier-prices.service';
 
@@ -141,5 +142,24 @@ export class PlatesController {
   @Get(':id/pricing')
   pricing(@Param('id', ParseUUIDPipe) id: string) {
     return this.pricingService.forPlate(id);
+  }
+
+  /** Perakende fiyatı girer/günceller (TRY varsayılan; USD/EUR de olabilir). */
+  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @Put(':id/retail-price')
+  setRetailPrice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetRetailPriceDto,
+  ) {
+    return this.pricingService.setRetailPrice(id, dto);
+  }
+
+  /**
+   * Aynı türdeki (marka/renk farklı olabilir) fiyatı tanımlı malzemeler —
+   * fiyatı olmayan bir malzemeye "aynısını uygula" için.
+   */
+  @Get(':id/retail-suggestions')
+  retailSuggestions(@Param('id', ParseUUIDPipe) id: string) {
+    return this.pricingService.retailSuggestions(id);
   }
 }

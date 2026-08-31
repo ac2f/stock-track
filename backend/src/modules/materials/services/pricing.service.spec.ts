@@ -18,6 +18,8 @@ describe('PricingService', () => {
     prices?: { price: number; unit: PriceUnit }[];
     markup?: number;
     commission?: number;
+    /** Baz para birimine çevrim katsayısı (ör. USD → 34 TL). */
+    rate?: number;
   }) {
     const plate = {
       id: 'p1',
@@ -38,10 +40,15 @@ describe('PricingService', () => {
         consignmentCommissionPercent: opts.commission ?? 0,
       })),
     };
+    const currency = {
+      baseCurrency: 'TRY',
+      toBase: jest.fn(async (amount: number) => amount * (opts.rate ?? 1)),
+    };
     return new PricingService(
       platesRepo as never,
       pricesRepo as never,
       settings as never,
+      currency as never,
     );
   }
 
@@ -156,6 +163,23 @@ describe('PricingService', () => {
 
     expect(p.marketCheapest).toBe(50);
     expect(p.discountPercent).toBe(20);
+  });
+
+  it('dövizle girilen perakende fiyatı baz para birimine çevirir', async () => {
+    // 10 USD × 34 = 340 TL, %25 kâr → 425 TL
+    const service = buildService({
+      plate: { retailPrice: 10, retailCurrency: 'USD' },
+      markup: 25,
+      rate: 34,
+    });
+
+    const p = await service.forPlate('p1');
+
+    expect(p.retailPrice).toBe(10);
+    expect(p.retailCurrency).toBe('USD');
+    expect(p.retailPriceBase).toBe(340);
+    expect(p.suggestedUnitPrice).toBe(425);
+    expect(p.baseCurrency).toBe('TRY');
   });
 
   it('konsinye komisyon oranını ayarlardan taşır', async () => {

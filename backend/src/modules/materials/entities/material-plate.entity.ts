@@ -169,6 +169,13 @@ export class MaterialPlate extends BaseEntity {
   retailPrice?: number | null;
 
   /**
+   * Perakende fiyatın para birimi (TRY / USD / EUR). Satış önerisi baz para
+   * birimine çevrilerek hesaplanır, girilen değer olduğu gibi saklanır.
+   */
+  @Column({ name: 'retail_currency', length: 3, default: 'TRY' })
+  retailCurrency: string;
+
+  /**
    * Bu malzemeye özel kâr yüzdesi. Boşsa ayarlardaki genel kâr yüzdesi
    * kullanılır (Ayarlar › Fiyatlandırma).
    */

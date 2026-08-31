@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
   createPlatesBatch,
+  fetchPlatePricing,
+  setPlateRetailPrice,
+  RETAIL_CURRENCIES,
   type BatchPlateItem,
+  type RetailCurrency,
   deletePlatePrice,
   depletePlate,
   fetchMaterialCategories,
@@ -652,19 +656,34 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             label="Perakende (liste) fiyatı"
             hint="Satış fiyatı bunun üzerine kâr yüzdesi eklenerek önerilir. Birim: m² / metre / adet."
           >
-            <input
-              className="input"
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.retailPrice ?? ''}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  retailPrice: e.target.value ? Number(e.target.value) : undefined,
-                })
-              }
-            />
+            <div className="flex gap-2">
+              <input
+                className="input min-w-0 flex-1"
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.retailPrice ?? ''}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    retailPrice: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+              <select
+                className="input w-24"
+                value={form.retailCurrency ?? 'TRY'}
+                onChange={(e) =>
+                  setForm({ ...form, retailCurrency: e.target.value })
+                }
+              >
+                {RETAIL_CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
           </Field>
           <Field
             label="Bu malzemeye özel kâr yüzdesi (opsiyonel)"
@@ -787,6 +806,127 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           İptal
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Perakende (liste) satış fiyatı — satış birim fiyatı bunun üzerine kâr
+ * yüzdesi eklenerek hesaplanır. TRY, USD veya EUR girilebilir; hesaplar baz
+ * para biriminde yapılır.
+ */
+function RetailPriceSection({ plate }: { plate: Plate }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['plate-pricing', plate.id],
+    queryFn: () => fetchPlatePricing(plate.id),
+  });
+  const [price, setPrice] = useState('');
+  const [currency, setCurrency] = useState<RetailCurrency>('TRY');
+  const [markup, setMarkup] = useState('');
+  useEffect(() => {
+    if (data) {
+      setPrice(data.retailPrice != null ? String(data.retailPrice) : '');
+      setCurrency((data.retailCurrency as RetailCurrency) ?? 'TRY');
+      setMarkup(data.markupPercent ? String(data.markupPercent) : '');
+    }
+  }, [data]);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      setPlateRetailPrice(plate.id, {
+        retailPrice: Number(price.replace(',', '.')) || 0,
+        currency,
+        ...(markup.trim() ? { markupPercent: Number(markup) } : {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plate-pricing', plate.id] });
+      qc.invalidateQueries({ queryKey: ['retail-suggestions'] });
+    },
+  });
+
+  const unitLabel =
+    plate.measurementType === 'length'
+      ? 'metre'
+      : plate.measurementType === 'weight'
+        ? 'kg'
+        : plate.measurementType === 'piece'
+          ? 'adet'
+          : 'm²';
+
+  return (
+    <div className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-sm dark:border-indigo-900 dark:bg-indigo-900/20">
+      <p className="font-medium text-indigo-800 dark:text-indigo-300">
+        💰 Perakende (satış) fiyatı — {unitLabel} başına
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block text-xs">
+          <span className="mb-1 block text-slate-500">Perakende fiyat</span>
+          <input
+            className="input w-28"
+            type="number"
+            min={0}
+            step="0.01"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+          />
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-slate-500">Para birimi</span>
+          <select
+            className="input w-24"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value as RetailCurrency)}
+          >
+            {RETAIL_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-slate-500">Kâr % (boş = genel)</span>
+          <input
+            className="input w-24"
+            type="number"
+            min={0}
+            step="0.1"
+            value={markup}
+            onChange={(e) => setMarkup(e.target.value)}
+          />
+        </label>
+        <button
+          className="btn bg-indigo-600 text-xs text-white"
+          disabled={!price.trim() || mut.isPending}
+          onClick={() => mut.mutate()}
+        >
+          {mut.isPending ? 'Kaydediliyor…' : 'Kaydet'}
+        </button>
+      </div>
+
+      {data?.suggestedUnitPrice != null && (
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          Önerilen satış fiyatı:{' '}
+          <b>
+            {data.suggestedUnitPrice.toLocaleString('tr-TR', {
+              style: 'currency',
+              currency: data.baseCurrency,
+            })}
+          </b>{' '}
+          / {unitLabel}
+          {data.discountPercent != null && (
+            <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+              piyasadan %{data.discountPercent} uygun
+            </span>
+          )}
+        </p>
+      )}
+      {mut.isError && (
+        <p className="text-xs text-red-600">
+          {errMessage(mut.error, 'Fiyat kaydedilemedi.')}
+        </p>
+      )}
     </div>
   );
 }
@@ -1109,6 +1249,9 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
           />
         </Field>
       </div>
+
+      {/* 💰 Perakende (satış) fiyatı — satış fiyatı bundan türetilir. */}
+      <RetailPriceSection plate={plate} />
 
       {/* 💰 Tedarikçi fiyatları — alım karşılaştırması buradan beslenir. */}
       <PlatePricesSection plate={plate} />
