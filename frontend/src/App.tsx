@@ -12,6 +12,7 @@ import { ProcessingQueuePage } from './features/processing/ProcessingQueuePage';
 import { PortalPage } from './features/portal/PortalPage';
 import { EmployeesPage } from './features/employees/EmployeesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
+import { BankReconciliationPage } from './features/banking/BankReconciliationPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
 import { PurchasesPage } from './features/purchases/PurchasesPage';
 import { SettingsPage } from './features/settings/SettingsPage';
@@ -66,6 +67,14 @@ export default function App() {
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/customers" element={<CustomersListPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
+        <Route
+          path="/bank-reconciliation"
+          element={
+            <RoleGate roles={['owner']}>
+              <BankReconciliationPage />
+            </RoleGate>
+          }
+        />
         <Route
           path="/employees"
           element={

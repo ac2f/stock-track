@@ -68,6 +68,7 @@ const NAV: NavItem[] = [
   { to: '/payments', label: 'Ödeme', icon: '💵' },
   { to: '/purchases', label: 'Satın Alma', icon: '🛒' },
   { to: '/expenses', label: 'Gider', icon: '🧾', roles: ['owner'] },
+  { to: '/bank-reconciliation', label: 'Mutabakat', icon: '🏦', roles: ['owner'] },
   { to: '/employees', label: 'Personel', icon: '👥', roles: ['owner'] },
   { to: '/reports', label: 'Rapor', icon: '📊', roles: ['owner'] },
   { to: '/settings', label: 'Ayarlar', icon: '⚙️', roles: ['owner'] },

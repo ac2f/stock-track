@@ -8,6 +8,7 @@ import { envValidationSchema } from './config/env.validation';
 import { typeOrmAsyncConfig } from './config/typeorm.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
+import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
 import { UsersModule } from './modules/users/users.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
@@ -68,6 +69,7 @@ import { HealthController } from './health.controller';
     NotificationsModule,
     BackupsModule,
     TelegramModule,
+    BankReconciliationModule,
   ],
   controllers: [HealthController],
 })
