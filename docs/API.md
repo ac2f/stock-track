@@ -424,6 +424,17 @@ Kalemde katalog kayıtları kimlik yerine **adla** verilebilir: `categoryName`,
 `{ created, plateIds, autoCreated: { categories, brands, colors, sizes, thicknesses, templates } }`
 — hangi katalog kayıtlarının yeni açıldığı raporlanır.
 
+### Görünüm tercihleri
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/settings/display` | 👥 | `{ showLedgerUndo }` — arayüz düğmeleri buna göre çizilir |
+| PUT | `/settings/display` | 👔 | `{ showLedgerUndo? }` |
+
+`showLedgerUndo` **varsayılan `false`**: cari ekstresindeki "Geri al" düğmeleri
+gizlidir. Ekran müşteriye gösterildiğinde ödeme/borç silme düğmesi görünmesin
+diye. Bu yalnızca **görünümü** etkiler — yetki kuralları değişmez; silme uçları
+her zaman rol ve süre denetiminden geçer.
+
 ### Satış fiyatlandırması
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|

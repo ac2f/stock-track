@@ -17,6 +17,7 @@ import {
   type UpdateCustomerInput,
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
+import { fetchDisplaySettings } from '../../api/settings.api';
 import { fetchEmployees } from '../../api/users.api';
 import { fetchBankAccounts } from '../../api/bank-accounts.api';
 import { useAuth } from '../../context/AuthContext';
@@ -612,6 +613,15 @@ function CustomerStatement({
   const qc = useQueryClient();
   const { hasRole } = useAuth();
   const isOwner = hasRole('owner');
+  // "Geri al" düğmeleri varsayılan olarak GİZLİDİR: ekstre ekranı müşteriye
+  // gösterildiğinde "borcum siliniyor" gibi yanlış anlaşılmasın. Ayarlar ›
+  // Görünüm'den açılır.
+  const { data: display } = useQuery({
+    queryKey: ['settings', 'display'],
+    queryFn: fetchDisplaySettings,
+    staleTime: 5 * 60_000,
+  });
+  const showUndo = display?.showLedgerUndo === true;
   const today = new Date().toISOString().slice(0, 10);
   const [entryType, setEntryType] = useState<'debit' | 'credit'>('debit');
   const [amount, setAmount] = useState('');
@@ -890,7 +900,7 @@ function CustomerStatement({
               <th className="py-1 text-right">Borç</th>
               <th className="py-1 text-right">Ödeme/Alacak</th>
               <th className="py-1 text-right">Bakiye</th>
-              <th className="py-1 text-right">İşlem</th>
+              {showUndo && <th className="py-1 text-right">İşlem</th>}
             </tr>
           </thead>
           <tbody>
@@ -910,11 +920,11 @@ function CustomerStatement({
                 <td className="py-1 text-right font-medium">
                   {currency.format(statement.openingBalance)}
                 </td>
-                <td className="py-1" />
+                {showUndo && <td className="py-1" />}
               </tr>
             )}
             {computed.map((e) => {
-              const blocked = undoBlockReason(e, isOwner);
+              const blocked = showUndo ? undoBlockReason(e, isOwner) : null;
               return (
                 <tr key={e.id} className="border-t border-slate-100">
                   <td className="py-1">{e.occurredAt?.slice(0, 10)}</td>
@@ -929,6 +939,7 @@ function CustomerStatement({
                     {e.entryType === 'credit' ? currency.format(Number(e.amount)) : ''}
                   </td>
                   <td className="py-1 text-right font-medium">{currency.format(e.running)}</td>
+                  {showUndo && (
                   <td className="py-1 text-right">
                     {blocked ? (
                       <span className="text-slate-300" title={blocked}>
@@ -945,12 +956,13 @@ function CustomerStatement({
                       </button>
                     )}
                   </td>
+                  )}
                 </tr>
               );
             })}
             {!computed.length && (
               <tr>
-                <td colSpan={6} className="py-2 text-center text-slate-400">
+                <td colSpan={showUndo ? 6 : 5} className="py-2 text-center text-slate-400">
                   {statement?.scope === 'since-settlement' && statement.hasEarlier
                     ? 'Son borç kapatmadan bu yana hareket yok — borç kapalı.'
                     : 'Hareket yok.'}

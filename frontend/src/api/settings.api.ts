@@ -123,3 +123,24 @@ export async function updatePricingSettings(
   const { data } = await api.put<PricingSettings>('/settings/pricing', input);
   return data;
 }
+
+// ── Görünüm tercihleri ──────────────────────────────────────────────────
+export interface DisplaySettings {
+  /**
+   * Cari ekstresinde "Geri al" düğmeleri görünsün mü? Varsayılan KAPALI —
+   * ekran müşteriye gösterildiğinde yanlış anlaşılmasın diye.
+   */
+  showLedgerUndo: boolean;
+}
+
+export async function fetchDisplaySettings(): Promise<DisplaySettings> {
+  const { data } = await api.get<DisplaySettings>('/settings/display');
+  return data;
+}
+
+export async function updateDisplaySettings(
+  input: Partial<DisplaySettings>,
+): Promise<DisplaySettings> {
+  const { data } = await api.put<DisplaySettings>('/settings/display', input);
+  return data;
+}

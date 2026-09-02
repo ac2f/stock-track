@@ -6,7 +6,9 @@ import {
   reloadTelegram,
   testTelegram,
   updateBusinessSettings,
+  fetchDisplaySettings,
   fetchPricingSettings,
+  updateDisplaySettings,
   updatePricingSettings,
   updateTelegramSettings,
   type SettingSource,
@@ -165,6 +167,7 @@ export function SettingsPage() {
         </button>
       </div>
 
+      <DisplaySettingsCard />
       <PricingSettingsCard />
       <CatalogHealthCard />
       <ScreenLockSettings />
@@ -172,6 +175,75 @@ export function SettingsPage() {
       <BackupSection />
       <MaintenanceSection />
       <NotificationsHistory />
+    </div>
+  );
+}
+
+/**
+ * 👁️ Görünüm: ekranda hangi hassas düğmelerin çıkacağı.
+ *
+ * Cari ekstresindeki "Geri al" düğmeleri varsayılan olarak GİZLİDİR — ekran
+ * müşteriye gösterildiğinde "borcum siliniyor" gibi yanlış anlaşılmasın diye.
+ */
+function DisplaySettingsCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['settings', 'display'],
+    queryFn: fetchDisplaySettings,
+  });
+
+  const mut = useMutation({
+    mutationFn: (showLedgerUndo: boolean) =>
+      updateDisplaySettings({ showLedgerUndo }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'display'] }),
+  });
+
+  const on = data?.showLedgerUndo === true;
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">👁️ Görünüm</h2>
+
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={on}
+            disabled={!data || mut.isPending}
+            onChange={(e) => mut.mutate(e.target.checked)}
+          />
+          <span>
+            <span className="block text-sm font-medium">
+              Cari ekstresinde "Geri al" düğmelerini göster
+            </span>
+            <span className="mt-1 block text-xs text-slate-500">
+              Kapalıyken ekstre tablosunda işlem sütunu hiç çizilmez — ekranı
+              müşteriye gösterdiğinizde ödeme/borç silme düğmesi görünmez ve
+              yanlış anlaşılmaz. Yanlış bir kaydı geri almanız gerektiğinde bu
+              seçeneği açın, işi bitince kapatın.
+            </span>
+            <span className="mt-1 block text-xs text-slate-400">
+              Not: bu yalnızca GÖRÜNÜMü etkiler. Kimin neyi geri alabileceği
+              değişmez — manuel hareketi yalnızca İşletme Sahibi, ödemeleri
+              çalışan da son 3 gün içinde geri alabilir.
+            </span>
+          </span>
+        </label>
+
+        <p
+          className={`text-xs font-medium ${
+            on ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700'
+          }`}
+        >
+          {on
+            ? '⚠️ Şu an AÇIK — ekstrede geri alma düğmeleri görünüyor.'
+            : '✅ Şu an kapalı — müşteriye gösterilebilir.'}
+        </p>
+        {mut.isError && (
+          <p className="text-xs text-red-600">Ayar kaydedilemedi.</p>
+        )}
+      </div>
     </div>
   );
 }

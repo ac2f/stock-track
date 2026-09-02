@@ -74,4 +74,15 @@ export class AppSetting extends BaseEntity {
     default: 0,
   })
   consignmentCommissionPercent: number;
+
+  // ── Görünüm ──
+  /**
+   * Cari ekstresinde hareketleri geri alma (silme) düğmeleri görünsün mü?
+   *
+   * VARSAYILAN KAPALI: ekran müşteriye gösterildiğinde "borcum siliniyor"
+   * gibi yanlış anlaşılmasın. Kapalıyken yalnızca düğmeler gizlenir; yetkili
+   * kullanıcı gerektiğinde ayarı açıp işlemi yapabilir.
+   */
+  @Column({ name: 'show_ledger_undo', default: false })
+  showLedgerUndo: boolean;
 }

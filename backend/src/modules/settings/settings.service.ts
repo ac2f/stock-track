@@ -39,6 +39,15 @@ export interface PricingSettings {
   consignmentCommissionPercent: number;
 }
 
+/** Arayüz görünüm tercihleri. */
+export interface DisplaySettings {
+  /**
+   * Cari ekstresinde "Geri al" düğmeleri görünsün mü? Varsayılan kapalıdır —
+   * ekran müşteriye gösterildiğinde yanlış anlaşılmasın diye.
+   */
+  showLedgerUndo: boolean;
+}
+
 /** Ayar değerinin nereden geldiği — arayüzde gösterilir. */
 export type SettingSource = 'db' | 'env' | 'none';
 
@@ -124,6 +133,23 @@ export class SettingsService {
     const s = await this.getOrCreate();
     Object.assign(s, dto);
     return this.repo.save(s);
+  }
+
+  // ── Görünüm ─────────────────────────────────────────────────────────
+
+  /** Arayüz görünüm tercihleri (ekstrede geri alma düğmeleri vb.). */
+  async getDisplay(): Promise<DisplaySettings> {
+    const s = await this.getOrCreate();
+    return { showLedgerUndo: !!s.showLedgerUndo };
+  }
+
+  async updateDisplay(dto: Partial<DisplaySettings>): Promise<DisplaySettings> {
+    const s = await this.getOrCreate();
+    if (dto.showLedgerUndo !== undefined) {
+      s.showLedgerUndo = dto.showLedgerUndo;
+    }
+    await this.repo.save(s);
+    return this.getDisplay();
   }
 
   // ── Fiyatlandırma ───────────────────────────────────────────────────

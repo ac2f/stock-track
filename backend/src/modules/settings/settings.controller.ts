@@ -6,6 +6,7 @@ import { SettingsService } from './settings.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
 import { UpdatePricingDto } from './dto/update-pricing.dto';
+import { UpdateDisplayDto } from './dto/update-display.dto';
 
 /**
  * Ayarlar. İşletme/proje kimliği (ad, adres, telefon, VKN, logo, portal adresi)
@@ -27,6 +28,21 @@ export class SettingsController {
   @Put('business')
   updateBusiness(@Body() dto: UpdateBusinessDto) {
     return this.settings.update(dto);
+  }
+
+  /**
+   * Görünüm tercihleri. Okuma tüm oturum açmışlarda — arayüz düğmeleri
+   * buna göre çizilir.
+   */
+  @Get('display')
+  getDisplay() {
+    return this.settings.getDisplay();
+  }
+
+  @Roles(UserRole.OWNER)
+  @Put('display')
+  updateDisplay(@Body() dto: UpdateDisplayDto) {
+    return this.settings.updateDisplay(dto);
   }
 
   /** Satış kâr yüzdesi ve konsinye komisyon oranı. */
