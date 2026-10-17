@@ -1,13 +1,13 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /** Depo / lokasyon. Stok seviyeleri depo bazında tutulur. */
 @Entity('warehouses')
-export class Warehouse extends BaseEntity {
+@Index(['shopId', 'code'], { unique: true })
+export class Warehouse extends ShopScopedEntity {
   @Column()
   name: string;
 
-  @Index({ unique: true })
   @Column()
   code: string; // ör. "MERKEZ", "SUBE-1"
 

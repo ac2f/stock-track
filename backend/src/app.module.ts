@@ -29,6 +29,8 @@ import { PortalModule } from './modules/portal/portal.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { BackupsModule } from './modules/backups/backups.module';
 import { CorelModule } from './modules/corel/corel.module';
+import { ShopsModule } from './modules/shops/shops.module';
+import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -49,6 +51,8 @@ import { HealthController } from './health.controller';
     ScheduleModule.forRoot(),
 
     // İş modülleri (bounded contexts).
+    ShopsModule,
+    IdempotencyModule,
     AuthModule,
     UsersModule,
     SuppliersModule,

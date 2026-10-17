@@ -8,7 +8,9 @@ import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
 import { getBrand, setBrand } from '../lib/brand';
 import { CurrencyTicker } from '../components/CurrencyTicker';
 import { LockProvider, useLock } from '../context/LockContext';
-import type { UserRole } from '../types';
+import { ShopSwitcher } from '../components/ShopSwitcher';
+import { OfflineBar } from '../components/OfflineBar';
+import type { ShopModule } from '../types';
 
 /** Arayüzü elle kilitleme düğmesi (yalnızca kilit ayarı etkin ve PIN tanımlıysa). */
 function LockButton({ className = '' }: { className?: string }) {
@@ -57,21 +59,24 @@ interface NavItem {
   to: string;
   label: string;
   icon: string;
-  roles?: UserRole[]; // tanımsızsa tüm roller görür
+  /** Seçili dükkânda bu alanı görme izni olan görür. */
+  module?: ShopModule;
+  /** Ekip ekranı: sistem sahibi ve dükkân yöneticileri. */
+  team?: boolean;
 }
 
 const NAV: NavItem[] = [
-  { to: '/plates', label: 'Stok', icon: '📦' },
-  { to: '/quotes', label: 'Teklif', icon: '📝' },
-  { to: '/queue', label: 'Kuyruk', icon: '🛠️' },
-  { to: '/customers', label: 'Cari', icon: '💳' },
-  { to: '/payments', label: 'Ödeme', icon: '💵' },
-  { to: '/purchases', label: 'Satın Alma', icon: '🛒' },
-  { to: '/expenses', label: 'Gider', icon: '🧾', roles: ['owner'] },
-  { to: '/bank-reconciliation', label: 'Mutabakat', icon: '🏦', roles: ['owner'] },
-  { to: '/employees', label: 'Personel', icon: '👥', roles: ['owner'] },
-  { to: '/reports', label: 'Rapor', icon: '📊', roles: ['owner'] },
-  { to: '/settings', label: 'Ayarlar', icon: '⚙️', roles: ['owner'] },
+  { to: '/plates', label: 'Stok', icon: '📦', module: 'stock' },
+  { to: '/quotes', label: 'Teklif', icon: '📝', module: 'quotes' },
+  { to: '/queue', label: 'Kuyruk', icon: '🛠️', module: 'processing' },
+  { to: '/customers', label: 'Cari', icon: '💳', module: 'customers' },
+  { to: '/payments', label: 'Ödeme', icon: '💵', module: 'payments' },
+  { to: '/purchases', label: 'Satın Alma', icon: '🛒', module: 'purchases' },
+  { to: '/expenses', label: 'Gider', icon: '🧾', module: 'expenses' },
+  { to: '/bank-reconciliation', label: 'Mutabakat', icon: '🏦', module: 'banking' },
+  { to: '/team', label: 'Ekip', icon: '👥', team: true },
+  { to: '/reports', label: 'Rapor', icon: '📊', module: 'reports' },
+  { to: '/settings', label: 'Ayarlar', icon: '⚙️', module: 'settings' },
 ];
 
 /** Açık/karanlık tema düğmesi (seçim localStorage'da tutulur). */
@@ -100,8 +105,8 @@ function ThemeToggle({ className = '' }: { className?: string }) {
  * Tek bileşen iki yerleşimi de yönetir → tutarlı UX.
  */
 export function ResponsiveLayout() {
-  const { user, hasRole, logout } = useAuth();
-  const visible = NAV.filter((n) => !n.roles || hasRole(...n.roles));
+  const { user, can, managesAnyShop, logout } = useAuth();
+  const visible = NAV.filter((n) => (n.team ? managesAnyShop : !n.module || can(n.module)));
 
   // İşletme adı → marka + sekme başlığı (Ayarlar ekranından düzenlenir).
   const { data: business } = useQuery({
@@ -127,6 +132,7 @@ export function ResponsiveLayout() {
       {/* Masaüstü sidebar — statik; kendi içinde kayar (uzun menüde). */}
       <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 md:block">
         <Brand name={brandName} />
+        <ShopSwitcher className="mt-2" />
         {/* Döviz kurları — her ekranda sürekli görünür. */}
         <CurrencyTicker className="mt-3" />
         <nav className="mt-6 space-y-1">
@@ -150,8 +156,12 @@ export function ResponsiveLayout() {
 
       {/* İçerik sütunu — min-h-0: flex çocuğu küçülebilsin ki main kayabilsin. */}
       <div className="flex min-h-0 flex-1 flex-col">
+        <OfflineBar />
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-          <Brand name={brandName} />
+          <div className="min-w-0">
+            <Brand name={brandName} />
+            <ShopSwitcher className="mt-1 max-w-[12rem]" />
+          </div>
           <div className="flex items-center gap-2">
             <CurrencyTicker />
             <ThemeToggle className="px-2 text-xs" />

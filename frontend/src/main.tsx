@@ -6,6 +6,7 @@ import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import { DensityProvider } from './context/DensityContext';
 import { applyTheme, resolveInitialTheme } from './lib/theme';
+import { startSync } from './offline/sync';
 import './styles/index.css';
 
 // Tema seçimini render'dan önce uygula (flash önlemek için).
@@ -14,6 +15,17 @@ applyTheme(resolveInitialTheme());
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
+
+// Çevrimdışı mod: kuyruğu bağlantı gelince gönderir, sağlığı izler.
+startSync(queryClient);
+
+// Uygulama kabuğu (sayfa/JS/CSS) tarayıcıda saklanır: sunucu kapalıyken de
+// açılır. Yalnız üretim derlemesinde ve HTTPS/localhost'ta çalışır.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

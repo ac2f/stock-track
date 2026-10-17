@@ -1,5 +1,5 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /**
  * Tek satırlık çalışma-zamanı ayarları. İşletme/proje kimliği (ad, adres,
@@ -7,7 +7,7 @@ import { BaseEntity } from '../../../common/entities/base.entity';
  * ile arayüz başlığında kullanılır. İlk erişimde .env varsayılanlarından tohumlanır.
  */
 @Entity('app_settings')
-export class AppSetting extends BaseEntity {
+export class AppSetting extends ShopScopedEntity {
   @Column({ name: 'business_name' })
   businessName: string;
 

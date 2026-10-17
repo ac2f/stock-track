@@ -1,10 +1,10 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /** Satın alma sırasında kullanılan araç. */
 @Entity('vehicles')
-export class Vehicle extends BaseEntity {
-  @Index({ unique: true })
+@Index(['shopId', 'plateNumber'], { unique: true })
+export class Vehicle extends ShopScopedEntity {
   @Column({ name: 'plate_number' })
   plateNumber: string;
 

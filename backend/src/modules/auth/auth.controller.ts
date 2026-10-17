@@ -5,14 +5,19 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from '../../common/decorators/current-user.decorator';
+import { ShopAccessService } from '../shops/shop-access.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { NoShop } from '../../common/shop/shop-access.decorator';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly shopAccess: ShopAccessService,
+  ) {}
 
   @Public()
   @Post('login')
@@ -28,9 +33,11 @@ export class AuthController {
     return this.authService.refresh(dto.refreshToken);
   }
 
+  /** Oturumdaki kullanıcı ve girebildiği dükkânlar (izinleriyle). */
   @ApiBearerAuth()
+  @NoShop()
   @Get('me')
-  me(@CurrentUser() user: AuthenticatedUser) {
-    return user;
+  async me(@CurrentUser() user: AuthenticatedUser) {
+    return { ...user, shops: await this.shopAccess.listFor(user) };
   }
 }

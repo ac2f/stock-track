@@ -127,4 +127,70 @@ Bu sayede port/CORS ayarı GEREKMEZ ve her cihaz tek adresle çalışır.
 ## 5) İşletme/proje kimliği (ad, adres, logo)
 
 Belgelerde (PDF/yazdırma) ve arayüz başlığında görünen ad **Ayarlar** ekranından
-(yalnızca İşletme Sahibi) düzenlenir — yeniden derleme gerektirmez.
+düzenlenir — yeniden derleme gerektirmez. Her dükkânın kendi adı ve bilgileri
+vardır (aşağıya bakın).
+
+## 6) Uzak sunucu (internet) ve HTTPS
+
+API'yi dükkândaki bilgisayardan bir sunucuya (VPS) taşırken aynı Docker
+kurulumu kullanılır; yalnız önüne HTTPS eklenir:
+
+```bash
+# Sunucuda (alan adının DNS kaydı sunucuyu göstermeli; 80 ve 443 açık)
+git clone … && cd stock-track && ./install.sh        # ilk kurulum (.env üretir)
+DOMAIN=stok.ornek.com docker compose \
+  -f docker-compose.prod.yml -f docker-compose.remote.yml up -d --build
+```
+
+- Güncelleme: `git pull`, ardından yukarıdaki `DOMAIN=… docker compose …`
+  komutunun aynısı (`install.sh` API'yi yerelde 3000'den açar ve HTTPS
+  ekini kullanmaz; ilk kurulumdan sonra uzak sunucuda bu komutu kullanın).
+- Arayüz: `https://stok.ornek.com/` — telefon, tablet, dükkândaki bilgisayar
+  hepsi aynı adresi kullanır.
+- Corel eklentisinin sunucu adresi: `https://stok.ornek.com/api/v1`.
+- `docker-compose.remote.yml` Caddy ekler: sertifikayı kendisi alır ve
+  yeniler; API (3000) ve web (80) doğrudan dışarı açılmaz.
+- HTTPS şarttır: hem oturum anahtarı internette açık gitmesin, hem de
+  arayüzün çevrimdışı kabuğu (service worker) tarayıcıda yalnız HTTPS'te
+  çalışır.
+- Yedekleri sunucu dışında tutun (Ayarlar › Yedek: şifreli yedek Telegram'a
+  gider).
+
+## 7) Bağlantı kesilince (çevrimdışı çalışma)
+
+Sunucu yeniden başlarken, internet koptuğunda ya da veritabanı kısa süre
+kapandığında arayüz durmaz:
+
+- Sayfa yine açılır (son yüklenen sürüm tarayıcıda saklıdır).
+- Ekranlar son görülen verilerle açılır; başlıkta sarı **Çevrimdışı** şeridi
+  görünür.
+- Yeni müşteri, tahsilat, teklif, satış, iş kaydı, gider, satın alma ve stok
+  girişi **bu cihazda sıraya alınır**. Silme, dönüştürme, ayar ve ekip
+  işlemleri bağlantı ister.
+- Bağlantı gelince sıradakiler kendiliğinden, sırasıyla ve her biri yalnız
+  bir kez gönderilir; ekranlar tazelenir, cihazdaki kuyruk ve eski kopyalar
+  silinir. Sunucunun kabul etmediği bir işlem (ör. stok yetmedi) şeritte
+  kırmızıyla görünür: düzeltip **Yeniden dene** ya da **Sil**.
+- Sıra cihaza ve oturum açan kişiye aittir: başka bir bilgisayarda
+  görünmez; aynı kişi yeniden giriş yapınca gönderilir.
+
+Corel eklentisi de StockTrack'ten aldığı son listeleri bilgisayarda saklar;
+sunucu yokken müşteri bağlama ve plaka seçme bu listelerle sürer.
+
+## 8) Dükkânlar ve yetkiler
+
+- İlk açılışta mevcut veriler otomatik olarak **ilk dükkâna** taşınır (adı
+  işletme adınız); hiçbir veri kaybolmaz. Mevcut çalışanlar oraya eski
+  erişimleriyle eklenir.
+- Yeni dükkân: *Ekip › + Yeni dükkân* (yalnız sistem sahibi). İsterseniz
+  kataloğu ve ayarları mevcut bir dükkândan kopyalar; stok, müşteri, teklif
+  ve ödemeler her dükkânda ayrıdır.
+- Kim hangi dükkânda neyi görür (okuma) ve değiştirir (yazma): *Ekip*
+  ekranındaki izin tablosu. Dükkân yöneticisi kendi dükkânının ekibini,
+  kendisinde olan izinler kadarıyla düzenler.
+- Corel eklentisi: her dükkânın *Ayarlar › Corel entegrasyonu*'ndan kendi
+  anahtarı üretilir; eklentiye hangi anahtar yapıştırılırsa o dükkânın
+  listeleri gelir.
+- Telegram: tek bot bütün dükkânlara hizmet eder; her dükkânın bildirim
+  sohbeti ayrıdır (*Ayarlar › Telegram*). Botta yetkili kişiler ana menüdeki
+  dükkân düğmesiyle dükkân değiştirir.

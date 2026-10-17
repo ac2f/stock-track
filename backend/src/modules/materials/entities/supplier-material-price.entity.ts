@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { PriceUnit } from '../../../common/enums/price-unit.enum';
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { MaterialPlate } from './material-plate.entity';
@@ -17,7 +17,7 @@ import { MaterialPlate } from './material-plate.entity';
 @Entity('supplier_material_prices')
 @Unique(['plateId', 'supplierId', 'unit'])
 @Index(['plateId'])
-export class SupplierMaterialPrice extends BaseEntity {
+export class SupplierMaterialPrice extends ShopScopedEntity {
   @ManyToOne(() => MaterialPlate, (plate) => plate.supplierPrices, {
     onDelete: 'CASCADE',
   })

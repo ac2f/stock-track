@@ -1,5 +1,5 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 /**
@@ -9,7 +9,7 @@ import { MeasurementType } from '../../../common/enums/measurement-type.enum';
  * PIECE (adet). İşlem anında kullanıcı bu değeri dinamik ezebilir.
  */
 @Entity('processing_rates')
-export class ProcessingRate extends BaseEntity {
+export class ProcessingRate extends ShopScopedEntity {
   @Column()
   name: string; // "Standart Kesim", "Kutu Harf — metre", "Lazer"
 

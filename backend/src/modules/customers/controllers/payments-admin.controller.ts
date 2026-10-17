@@ -8,11 +8,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '../../../common/enums/user-role.enum';
 import { PaymentsService } from '../services/payments.service';
 import { QueryPaymentDto, SettleCashDto } from '../dto/query-payment.dto';
 import { ConvertLegacyDebtCloseDto } from '../dto/convert-legacy-debt-close.dto';
+import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
 /**
  * Çapraz-müşteri ödeme yönetimi (yalnızca İşletme Sahibi):
@@ -21,7 +20,7 @@ import { ConvertLegacyDebtCloseDto } from '../dto/convert-legacy-debt-close.dto'
  */
 @ApiTags('payments')
 @ApiBearerAuth()
-@Roles(UserRole.OWNER)
+@ShopScope('payments')
 @Controller({ path: 'payments', version: '1' })
 export class PaymentsAdminController {
   constructor(private readonly paymentsService: PaymentsService) {}

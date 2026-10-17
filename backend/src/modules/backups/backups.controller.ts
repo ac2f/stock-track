@@ -19,6 +19,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { BackupsService } from './backups.service';
 import { BackupCryptoService } from './backup-crypto.service';
 import { TelegramBackupService } from './telegram-backup.service';
+import { NoShop } from '../../common/shop/shop-access.decorator';
 
 /** FileInterceptor bellek-depolamalı dosya (varsayılan) — buffer'lı. */
 interface UploadedBackupFile {
@@ -30,6 +31,7 @@ interface UploadedBackupFile {
 @ApiTags('backups')
 @ApiBearerAuth()
 @Roles(UserRole.OWNER)
+@NoShop()
 @Controller({ path: 'backups', version: '1' })
 export class BackupsController {
   constructor(

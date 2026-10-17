@@ -1,3 +1,4 @@
+import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -299,16 +300,18 @@ export function MaterialTemplatesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Ürün Türleri</h1>
         {!form && (
-          <button
-            className="btn-primary"
-            onClick={() => {
-              setEditingId(null);
-              setForm(EMPTY);
-              setNameTouched(false);
-            }}
-          >
-            + Yeni Ürün Türü
-          </button>
+          <Can module="catalog" level="write">
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setEditingId(null);
+                setForm(EMPTY);
+                setNameTouched(false);
+              }}
+            >
+              + Yeni Ürün Türü
+            </button>
+          </Can>
         )}
       </div>
 

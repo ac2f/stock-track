@@ -6,7 +6,7 @@ import {
   ManyToOne,
   OneToMany,
 } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import {
   MeasurementType,
   UnitOfMeasure,
@@ -24,7 +24,8 @@ import { SupplierMaterialPrice } from './supplier-material-price.entity';
  */
 @Entity('material_plates')
 @Index(['brand', 'color'])
-export class MaterialPlate extends BaseEntity {
+@Index(['shopId', 'sku'], { unique: true, where: '"sku" IS NOT NULL' })
+export class MaterialPlate extends ShopScopedEntity {
   @ManyToOne(() => MaterialTemplate, (template) => template.plates, {
     eager: true,
     onDelete: 'RESTRICT',
@@ -38,7 +39,6 @@ export class MaterialPlate extends BaseEntity {
   @Column()
   name: string;
 
-  @Index({ unique: true, where: '"sku" IS NOT NULL' })
   @Column({ nullable: true })
   sku?: string; // barkod / stok kodu
 

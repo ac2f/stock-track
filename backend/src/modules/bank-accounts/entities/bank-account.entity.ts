@@ -1,16 +1,16 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /** İşletmeye ait banka hesabı. Havale/EFT ödemelerinin hedefidir. */
 @Entity('bank_accounts')
-export class BankAccount extends BaseEntity {
+@Index(['shopId', 'iban'], { unique: true })
+export class BankAccount extends ShopScopedEntity {
   @Column({ name: 'bank_name' })
   bankName: string;
 
   @Column({ name: 'account_name' })
   accountName: string;
 
-  @Index({ unique: true })
   @Column()
   iban: string;
 

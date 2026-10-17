@@ -1,5 +1,5 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import {
   NotificationChannel,
   NotificationStatus,
@@ -9,7 +9,7 @@ import {
 /** Gönderilen bildirimlerin defteri (uygulama içi geçmiş + denetim). */
 @Entity('notifications')
 @Index(['type', 'createdAt'])
-export class Notification extends BaseEntity {
+export class Notification extends ShopScopedEntity {
   @Column({ type: 'enum', enum: NotificationType })
   type: NotificationType;
 

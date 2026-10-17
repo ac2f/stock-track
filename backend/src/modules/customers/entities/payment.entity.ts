@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 import { User } from '../../users/entities/user.entity';
@@ -16,7 +16,7 @@ import { Customer } from './customer.entity';
  *  - OUTGOING → malzeme sahibine ödeme (alacağı azalır).
  */
 @Entity('payments')
-export class Payment extends BaseEntity {
+export class Payment extends ShopScopedEntity {
   @ManyToOne(() => Customer, (customer) => customer.payments, {
     onDelete: 'CASCADE',
   })

@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { ExpenseCategory } from './expense-category.entity';
 import { Project } from './project.entity';
 
@@ -9,7 +9,7 @@ import { Project } from './project.entity';
  */
 @Entity('expenses')
 @Index(['expenseDate'])
-export class Expense extends BaseEntity {
+export class Expense extends ShopScopedEntity {
   @ManyToOne(() => ExpenseCategory, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'category_id' })
   category: ExpenseCategory;

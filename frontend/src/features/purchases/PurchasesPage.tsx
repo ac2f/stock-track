@@ -1,3 +1,4 @@
+import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import {
@@ -448,9 +449,11 @@ export function PurchasesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Satın Alma</h1>
-        <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? 'Kapat' : '+ Yeni Alım'}
-        </button>
+        <Can module="purchases" level="write">
+          <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
+            {showForm ? 'Kapat' : '+ Yeni Alım'}
+          </button>
+        </Can>
       </div>
 
       {showForm && <NewPurchaseForm onDone={() => setShowForm(false)} />}

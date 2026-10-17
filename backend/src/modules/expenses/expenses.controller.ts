@@ -10,8 +10,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
 import { ExpensesService } from './expenses.service';
 import {
   CreateExpenseCategoryDto,
@@ -22,11 +20,12 @@ import {
   UpdateExpenseDto,
   UpdateProjectDto,
 } from './dto/expense.dto';
+import { ShopScope } from '../../common/shop/shop-access.decorator';
 
 /** Gider yönetimi — yalnızca İşletme Sahibi (OWNER). */
 @ApiTags('expenses')
 @ApiBearerAuth()
-@Roles(UserRole.OWNER)
+@ShopScope('expenses')
 @Controller({ version: '1' })
 export class ExpensesController {
   constructor(private readonly service: ExpensesService) {}
@@ -36,10 +35,12 @@ export class ExpensesController {
   listCategories() {
     return this.service.listCategories();
   }
+
   @Post('expense-categories')
   createCategory(@Body() dto: CreateExpenseCategoryDto) {
     return this.service.createCategory(dto);
   }
+
   @Patch('expense-categories/:id')
   updateCategory(
     @Param('id', ParseUUIDPipe) id: string,
@@ -47,6 +48,7 @@ export class ExpensesController {
   ) {
     return this.service.updateCategory(id, dto);
   }
+
   @Delete('expense-categories/:id')
   removeCategory(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.removeCategory(id);
@@ -57,10 +59,12 @@ export class ExpensesController {
   listProjects() {
     return this.service.listProjects();
   }
+
   @Post('projects')
   createProject(@Body() dto: CreateProjectDto) {
     return this.service.createProject(dto);
   }
+
   @Patch('projects/:id')
   updateProject(
     @Param('id', ParseUUIDPipe) id: string,
@@ -68,6 +72,7 @@ export class ExpensesController {
   ) {
     return this.service.updateProject(id, dto);
   }
+
   @Delete('projects/:id')
   removeProject(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.removeProject(id);
@@ -78,6 +83,7 @@ export class ExpensesController {
   findExpenses(@Query() query: QueryExpenseDto) {
     return this.service.findExpenses(query);
   }
+
   @Get('expenses/summary')
   summary(@Query() query: QueryExpenseDto) {
     return this.service.summary(query);
@@ -88,10 +94,12 @@ export class ExpensesController {
   pending() {
     return this.service.pendingRecurring();
   }
+
   @Post('expenses')
   createExpense(@Body() dto: CreateExpenseDto) {
     return this.service.createExpense(dto);
   }
+
   @Patch('expenses/:id')
   updateExpense(
     @Param('id', ParseUUIDPipe) id: string,
@@ -99,6 +107,7 @@ export class ExpensesController {
   ) {
     return this.service.updateExpense(id, dto);
   }
+
   @Delete('expenses/:id')
   removeExpense(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.removeExpense(id);

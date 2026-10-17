@@ -11,6 +11,9 @@ import { FinancialReportsService } from '../reports/services/financial-reports.s
 import { TelegramBackupService } from '../backups/telegram-backup.service';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
+import { ShopAccessService } from '../shops/shop-access.service';
+import { ShopsService } from '../shops/shops.service';
+import { ShopContext } from '../../common/shop/shop-context';
 import { Keyboard, TelegramApiService } from './telegram-api.service';
 import { TelegramSessionService } from './telegram-session.service';
 
@@ -59,16 +62,25 @@ export class TelegramScreensService {
     private readonly backups: TelegramBackupService,
     private readonly settings: SettingsService,
     private readonly sessions: TelegramSessionService,
+    private readonly shopAccess: ShopAccessService,
+    private readonly shopsService: ShopsService,
   ) {}
 
   // ── Ana menü ────────────────────────────────────────────────────────
   async home(): Promise<Screen> {
     const business = await this.settings.getBusiness();
+    const shops = await this.shopAccess.activeShops();
+    const current = shops.find((x) => x.id === ShopContext.shopId());
+    const shopRow =
+      shops.length > 1
+        ? [[{ text: `🏪 ${current?.name ?? 'Dükkân'} · değiştir`, data: 'shops' }]]
+        : [];
     return {
       text:
         `<b>${esc(business.name)}</b>\n` +
         'Ne yapmak istersiniz? Aşağıdaki düğmelerden ilerleyin.',
       keyboard: [
+        ...shopRow,
         [
           { text: '👥 Cari / Müşteri', data: 'cari' },
           { text: '💰 Tahsilat', data: 'cari' },
@@ -81,6 +93,21 @@ export class TelegramScreensService {
           { text: '🗄️ Yedek', data: 'bkp' },
           { text: 'ℹ️ Yardım', data: 'help' },
         ],
+      ],
+    };
+  }
+
+  /** Dükkân seçimi: botun gösterdiği ve yazdığı her şey seçili dükkânındır. */
+  async shopPicker(): Promise<Screen> {
+    const shops = await this.shopAccess.activeShops();
+    const currentId = ShopContext.shopId();
+    return {
+      text: '<b>🏪 Dükkân seçin</b>\nMüşteri, stok, tahsilat ve raporlar seçtiğiniz dükkânın olur.',
+      keyboard: [
+        ...shops.map((x) => [
+          { text: `${x.id === currentId ? '✅ ' : ''}${x.name}`, data: `shop:${x.id}` },
+        ]),
+        [{ text: '⬅️ Ana menü', data: 'home' }],
       ],
     };
   }
@@ -256,7 +283,14 @@ export class TelegramScreensService {
 
   /** Nakitte parayı teslim alan çalışan seçilir (iş kuralı gereği zorunlu). */
   async employeePrompt(): Promise<Screen> {
-    const staff = (await this.users.findAll()).filter((u) => u.isActive);
+    // Bu dükkânın çalışanları + sistem sahipleri.
+    const ownerIds = new Set(
+      (await this.users.findAll()).filter((u) => u.role === UserRole.OWNER).map((u) => u.id),
+    );
+    const staff = (await this.shopsService.staff(ShopContext.requireShopId())).map((u) => ({
+      ...u,
+      role: ownerIds.has(u.id) ? UserRole.OWNER : UserRole.EMPLOYEE,
+    }));
     if (!staff.length) {
       return {
         text: 'Kayıtlı çalışan yok. Nakit tahsilat için önce çalışan tanımlayın.',

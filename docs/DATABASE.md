@@ -386,3 +386,37 @@ current_balance = opening_balance
 - **Belgeler** (PDF/Excel) yeni tablo gerektirmez; mevcut kayıtlardan üretilir (`documents` modülü, `pdfkit` + `exceljs`).
 - **Portal** uçları `customers.portal_token` ile eşleşir; `@Public()` salt-okunur.
 - **WhatsApp** kanalı (`notifications.channel = 'whatsapp'`) Meta Cloud API ile; alıcı = `customers.phone`. Config-gated.
+
+## v4 Genişletme (çok dükkân · izinler · tekrar güvenli istekler)
+
+| Tablo / Kolon | Açıklama |
+| ------------- | -------- |
+| `shops` | Dükkân: `name`, `is_active`. Silinmez; kapatılır. |
+| `shop_members` | Üyelik: `shop_id`, `user_id` (ikisi birlikte unique), `is_admin`, `permissions` (jsonb: alan başına `{ read, write }`). Silme fizikseldir. Sistem sahibinin (`users.role = owner`) üyeliği gerekmez. |
+| `system_settings` | Bütün sisteme ait tek satır: `telegram_bot_token`, `backup_telegram_chat_id`, `telegram_allowed_user_ids`. |
+| `idempotency_keys` | İşlenmiş yazma istekleri: `key` (PK), `user_id`, `shop_id`, `method`, `path`, `state` (processing/done), `status_code`, `body` (json — yanıt aynen döner), `created_at`. `IDEMPOTENCY_TTL_DAYS` gün sonra silinir. |
+| **her iş tablosu** (+kolon) | `shop_id` (uuid, indeksli): müşteri, ödeme, cari defter, stok, plaka, katalog, teklif, satış, iş, satın alma, gider, banka, bildirim, ayarlar (`app_settings` artık dükkân başına bir satır) ... Dükkândan bağımsız olanlar: `users`, `exchange_rates`, `shops`, `shop_members`, `system_settings`, `idempotency_keys`. |
+
+### Tekillik dükkân başına
+Eskiden tüm tabloda tekil olan alanlar artık `(shop_id, alan)` olarak tekildir:
+`quotes.quote_no` (her dükkânın numarası TKF-YYYY-0001'den başlar),
+`material_plates.sku`, `material_categories.code`, `machines.code`,
+`warehouses.code`, `expense_categories.name`, `bank_accounts.iban`,
+`vehicles.plate_number`. `customers.portal_token` tüm sistemde tekil kalır
+(portal jetonu dükkânı belirler).
+
+### Dükkân ayrımı nasıl sağlanır
+- `shop_id` elle yazılmaz: kayıt eklenirken o anki dükkân bağlamından yazılır.
+- Dükkâna bağlı tabloların her okuma/güncelleme/silme sorgusuna
+  `shop_id = <dükkân>` koşulu TypeORM katmanında kendiliğinden eklenir
+  (`common/shop/shop-scope.typeorm.ts`). Bağlam yoksa sorgu hata verir.
+- Kayıt başka dükkânın kaydına bağlanamaz (ör. X dükkânının teklifine Y
+  dükkânının müşterisi): ekleme/güncellemede dış anahtarların dükkânı
+  denetlenir.
+- Ham SQL bu süzgeçten geçmez; ham sorgularda koşul elle yazılır.
+
+### Geçiş (ilk açılış)
+`shop_id` sütunu boş geçilebilir eklenir (dolu tablolara eklenebilsin diye);
+açılışta boş kalan her kayıt ilk dükkâna atanır, mevcut çalışanlar oraya
+eklenir, Telegram bot/yedek ayarları `system_settings`'e taşınır
+(`modules/shops/shop-migration.ts`, her açılışta çalışır, tekrarı zararsız).

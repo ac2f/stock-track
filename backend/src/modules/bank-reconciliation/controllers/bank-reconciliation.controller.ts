@@ -9,11 +9,10 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '../../../common/enums/user-role.enum';
 import { BankTxMatchType, BankTxStatus } from '../entities/bank-transaction.entity';
 import { BankReconciliationService } from '../services/bank-reconciliation.service';
 import { ConfirmMatchDto, ImportStatementDto } from '../dto/bank-reconciliation.dto';
+import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
 /**
  * Banka mutabakatı (yalnızca İşletme Sahibi — mali veri).
@@ -24,7 +23,7 @@ import { ConfirmMatchDto, ImportStatementDto } from '../dto/bank-reconciliation.
  */
 @ApiTags('bank-reconciliation')
 @ApiBearerAuth()
-@Roles(UserRole.OWNER)
+@ShopScope('banking')
 @Controller({ path: 'bank-reconciliation', version: '1' })
 export class BankReconciliationController {
   constructor(private readonly service: BankReconciliationService) {}

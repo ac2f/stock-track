@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
 import { Customer } from './customer.entity';
@@ -11,7 +11,7 @@ import { Customer } from './customer.entity';
  */
 @Entity('customer_ledger_entries')
 @Index(['customerId', 'occurredAt'])
-export class CustomerLedgerEntry extends BaseEntity {
+export class CustomerLedgerEntry extends ShopScopedEntity {
   @ManyToOne(() => Customer, (customer) => customer.ledgerEntries, {
     onDelete: 'CASCADE',
   })

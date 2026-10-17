@@ -11,23 +11,22 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '../../../common/enums/user-role.enum';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
 import { UpdateProcessingStatusDto } from '../dto/update-processing-status.dto';
 import { UpdateProcessingJobDto } from '../dto/update-processing-job.dto';
 import { ProcessingService } from '../services/processing.service';
+import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
 @ApiTags('processing')
 @ApiBearerAuth()
+@ShopScope('processing')
 @Controller({ path: 'processing', version: '1' })
 export class ProcessingController {
   constructor(private readonly processingService: ProcessingService) {}
 
   // İşleme kaydı çalışanın yetkisindedir; işlemi yapan token'dan alınır.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Post()
   create(
     @Body() dto: CreateProcessingJobDto,
@@ -53,7 +52,6 @@ export class ProcessingController {
   }
 
   // Durum değişimi: tamamlama stok düşer + ertelenmiş faturayı keser; iptal iade eder.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Patch(':id/status')
   setStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -69,7 +67,6 @@ export class ProcessingController {
   }
 
   // Tamamlanmış/var olan işin düzenlenebilir alanları (tarihler + not).
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -79,7 +76,6 @@ export class ProcessingController {
   }
 
   // Geçmiş işi sil: stoğu iade eder + cari hareketi ekstreden düşer.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Delete(':id')
   @HttpCode(204)
   async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {

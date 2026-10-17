@@ -6,6 +6,8 @@ import {
   NotificationStatus,
   NotificationType,
 } from './enums/notification.enums';
+import { ShopContext } from '../../common/shop/shop-context';
+import { ShopAccessService } from '../shops/shop-access.service';
 import { Notification } from './entities/notification.entity';
 import { LogChannel } from './channels/log.channel';
 import { TelegramChannel } from './channels/telegram.channel';
@@ -35,6 +37,7 @@ export class NotificationsService {
     private readonly logChannel: LogChannel,
     private readonly telegramChannel: TelegramChannel,
     private readonly whatsappChannel: WhatsappChannel,
+    private readonly shopAccess: ShopAccessService,
   ) {
     // Log her zaman; Telegram ve WhatsApp etkinse eklenir.
     this.channels = [logChannel, telegramChannel, whatsappChannel];
@@ -45,6 +48,13 @@ export class NotificationsService {
    * Hiçbir kanal hatası iş akışını bozmaz (fire-and-forget güvenli).
    */
   async notify(params: NotifyParams): Promise<void> {
+    // Bildirim geçmişi dükkân başınadır. Dükkânsız çalışan sistem görevleri
+    // (yedek) ilk açık dükkânın geçmişine ve bildirim sohbetine yazar.
+    if (!ShopContext.shopId()) {
+      const first = (await this.shopAccess.activeShops())[0];
+      if (!first) return;
+      return ShopContext.forShop(first.id, () => this.notify(params));
+    }
     for (const channel of this.channels) {
       if (params.channels && !params.channels.includes(channel.channel)) {
         continue;

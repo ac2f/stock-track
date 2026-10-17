@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { BankAccount } from '../../bank-accounts/entities/bank-account.entity';
 
 /** Bir banka hareketinin uygulamadaki karşılığı bulundu mu? */
@@ -34,7 +34,7 @@ export enum BankTxMatchType {
 @Unique(['bankAccountId', 'fingerprint'])
 @Index(['bankAccountId', 'transactionDate'])
 @Index(['status'])
-export class BankTransaction extends BaseEntity {
+export class BankTransaction extends ShopScopedEntity {
   @ManyToOne(() => BankAccount, { eager: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'bank_account_id' })
   bankAccount: BankAccount;

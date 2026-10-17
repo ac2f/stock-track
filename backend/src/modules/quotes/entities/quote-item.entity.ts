@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import {
   OwnerSettlementType,
@@ -15,7 +15,7 @@ import { Quote } from './quote.entity';
  *  - PROCESSING → işleme kalemi (billingUnit/en-boy/uzunluk; unitPrice = birim işleme ücreti).
  */
 @Entity('quote_items')
-export class QuoteItem extends BaseEntity {
+export class QuoteItem extends ShopScopedEntity {
   @ManyToOne(() => Quote, (q) => q.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'quote_id' })
   quote: Quote;

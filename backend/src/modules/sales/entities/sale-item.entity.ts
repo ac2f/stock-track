@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import {
   OwnerSettlementType,
   SaleStockSource,
@@ -10,7 +10,7 @@ import { Sale } from './sale.entity';
 
 /** Satış kalemi — bir malzemeden kaç birim, hangi fiyata, hangi stok kaynağıyla. */
 @Entity('sale_items')
-export class SaleItem extends BaseEntity {
+export class SaleItem extends ShopScopedEntity {
   @ManyToOne(() => Sale, (sale) => sale.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sale_id' })
   sale: Sale;

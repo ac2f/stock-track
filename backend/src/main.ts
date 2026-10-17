@@ -9,13 +9,29 @@ import { runSeed } from './database/seed';
 import { AppConfig } from './config/configuration';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { shopContextMiddleware } from './common/shop/shop-context.middleware';
+import { installShopScope } from './common/shop/shop-scope.typeorm';
+import { ShopAccessGuard } from './modules/shops/shop-access.guard';
+import { ShopAccessService } from './modules/shops/shop-access.service';
+import { migrateToShops } from './modules/shops/shop-migration';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
   const configService = app.get(ConfigService);
   const appConfig = configService.get<AppConfig>('app')!;
+
+  // Dükkân ayrımı: her sorgu o anki dükkâna süzülür. Şema hazırdır; eski
+  // (dükkânsız) kayıtlar herhangi bir istekten önce ilk dükkâna atanır.
+  // Başarısız olursa uygulama BAŞLAMAZ — yarım geçişle çalışmaktansa.
+  const dataSource = app.get(DataSource);
+  installShopScope(dataSource);
+  await migrateToShops(dataSource);
+
+  // Her istek kendi dükkân bağlamında çalışır (guard dükkânı yazar).
+  app.use(shopContextMiddleware);
 
   // Güvenlik & CORS (mobil + masaüstü istemciler için açık)
   app.use(helmet());
@@ -36,11 +52,17 @@ async function bootstrap(): Promise<void> {
 
   // Çapraz kesen davranışlar tek yerden.
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new TransformInterceptor());
+  // Tekrar koruması en dışta: saklanan yanıt zarflı gövdenin kendisidir.
+  app.useGlobalInterceptors(app.get(IdempotencyInterceptor), new TransformInterceptor());
 
-  // Global koruma: önce kimlik (JWT), sonra rol (RBAC).
+  // Global koruma: önce kimlik (JWT), sonra rol (RBAC), sonra dükkân ve
+  // alan izni (okuma/yazma).
   const reflector = app.get(Reflector);
-  app.useGlobalGuards(new JwtAuthGuard(reflector), new RolesGuard(reflector));
+  app.useGlobalGuards(
+    new JwtAuthGuard(reflector),
+    new RolesGuard(reflector),
+    new ShopAccessGuard(reflector, app.get(ShopAccessService)),
+  );
 
   // API dokümantasyonu (Swagger)
   const swaggerConfig = new DocumentBuilder()
@@ -58,7 +80,7 @@ async function bootstrap(): Promise<void> {
   // SEED_ON_BOOT=false ile kapatılabilir.
   if (process.env.SEED_ON_BOOT !== 'false') {
     try {
-      await runSeed(app.get(DataSource));
+      await runSeed(dataSource);
     } catch (err) {
       console.error('Açılış tohumlaması başarısız (uygulama yine de başlıyor):', err);
     }

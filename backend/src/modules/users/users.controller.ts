@@ -14,11 +14,13 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
+import { NoShop } from '../../common/shop/shop-access.decorator';
 
 /** Personel yönetimi — yalnızca İşletme Sahibi (OWNER). */
 @ApiTags('users')
 @ApiBearerAuth()
 @Roles(UserRole.OWNER)
+@NoShop()
 @Controller({ path: 'users', version: '1' })
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

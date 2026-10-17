@@ -1,3 +1,4 @@
+import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -18,7 +19,7 @@ import {
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchDisplaySettings } from '../../api/settings.api';
-import { fetchEmployees } from '../../api/users.api';
+import { fetchStaff } from '../../api/shops.api';
 import { fetchBankAccounts } from '../../api/bank-accounts.api';
 import { useAuth } from '../../context/AuthContext';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
@@ -167,9 +168,11 @@ export function CustomersListPage() {
         <div className="flex items-center gap-2">
           <DensityToggle mini={mini} onToggle={toggleMini} />
           {!showForm && (
-            <button className="btn-primary" onClick={() => setShowForm(true)}>
-              + Yeni Müşteri
-            </button>
+            <Can module="customers" level="write">
+              <button className="btn-primary" onClick={() => setShowForm(true)}>
+                + Yeni Müşteri
+              </button>
+            </Can>
           )}
         </div>
       </div>
@@ -739,8 +742,8 @@ function CustomerStatement({
     Math.round((currentBalance - paidNum) * 100) / 100,
   );
   const { data: settleEmployees } = useQuery({
-    queryKey: ['employees'],
-    queryFn: fetchEmployees,
+    queryKey: ['staff'],
+    queryFn: fetchStaff,
   });
   const { data: settleBanks } = useQuery({
     queryKey: ['bank-accounts'],

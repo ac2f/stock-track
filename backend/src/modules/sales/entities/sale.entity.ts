@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { Customer } from '../../customers/entities/customer.entity';
 import { User } from '../../users/entities/user.entity';
 import { Warehouse } from '../../warehouses/entities/warehouse.entity';
@@ -13,7 +13,7 @@ import { SaleItem } from './sale-item.entity';
  */
 @Entity('sales')
 @Index(['buyerCustomerId', 'saleDate'])
-export class Sale extends BaseEntity {
+export class Sale extends ShopScopedEntity {
   @ManyToOne(() => Customer, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'buyer_customer_id' })
   buyerCustomer: Customer;

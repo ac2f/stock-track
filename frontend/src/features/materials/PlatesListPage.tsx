@@ -1,3 +1,4 @@
+import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -28,7 +29,6 @@ import {
 import { fetchSuppliers } from '../../api/suppliers.api';
 import { fetchWarehouses } from '../../api/warehouses.api';
 import { fetchCustomers } from '../../api/customers.api';
-import { RoleGate } from '../../components/RoleGate';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { SearchSelect } from '../../components/SearchSelect';
 import { groupPlates } from '../../lib/plateGrouping';
@@ -1842,18 +1842,20 @@ export function PlatesListPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Stok / Plakalar</h1>
         <div className="flex items-center gap-3">
-          <RoleGate roles={['owner']}>
+          <Can module="catalog">
             <Link to="/material-templates" className="text-sm text-slate-500 underline">
               Ürün Türlerini Yönet
             </Link>
             <Link to="/material-categories" className="text-sm text-slate-500 underline">
               Türleri Yönet
             </Link>
-          </RoleGate>
+          </Can>
           {!showForm && (
-            <button className="btn-primary" onClick={() => setShowForm(true)}>
-              + Yeni Stok Kalemi
-            </button>
+            <Can module="stock" level="write">
+              <button className="btn-primary" onClick={() => setShowForm(true)}>
+                + Yeni Stok Kalemi
+              </button>
+            </Can>
           )}
         </div>
       </div>
@@ -1941,14 +1943,14 @@ export function PlatesListPage() {
         </div>
       </div>
 
-      {/* Toplu sahiplik aktar / stoktan çıkar (İşletme Sahibi) — filtreye uyan
+      {/* Toplu sahiplik aktar / stoktan çıkar (stok yazma izni) — filtreye uyan
           malzemeler üzerinde çalışır. */}
-      <RoleGate roles={['owner']}>
+      <Can module="stock" level="write">
         <BulkOperations
           filters={filters}
           customers={customers?.items ?? []}
         />
-      </RoleGate>
+      </Can>
 
       {isLoading ? (
         <p className="text-slate-400">Yükleniyor…</p>

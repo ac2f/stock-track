@@ -1,9 +1,9 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /** Kategoriye özel standart kalınlık kataloğu (mm). */
 @Entity('material_thicknesses')
-export class MaterialThickness extends BaseEntity {
+export class MaterialThickness extends ShopScopedEntity {
   @Column({ name: 'value_mm', type: 'numeric', precision: 8, scale: 2 })
   valueMm: number;
 

@@ -9,13 +9,12 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { QueryStatementDto } from '../customers/dto/query-statement.dto';
-import { UserRole } from '../../common/enums/user-role.enum';
 import { QueryExpenseDto } from '../expenses/dto/expense.dto';
 import { ExportService } from './services/export.service';
 import { QuoteDocumentService } from './services/quote-document.service';
 import { DocumentHtmlService } from './services/document-html.service';
+import { ShopAccess } from '../../common/shop/shop-access.decorator';
 
 const HTML = 'text/html; charset=utf-8';
 const CSV = 'text/csv; charset=utf-8';
@@ -37,9 +36,9 @@ export class DocumentsController {
     private readonly html: DocumentHtmlService,
   ) {}
 
-  // ── Yazdırılabilir HTML belgeler (OWNER + EMPLOYEE) ─────────────────
+  // ── Yazdırılabilir HTML belgeler (belgenin ait olduğu alanın okuması) ──
 
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('sales', 'read')
   @Get('sales/:id/print')
   async saleInvoice(
     @Param('id', ParseUUIDPipe) id: string,
@@ -49,7 +48,7 @@ export class DocumentsController {
     return this.html.saleHtml(id);
   }
 
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('processing', 'read')
   @Get('processing/:id/print')
   async processingReceipt(
     @Param('id', ParseUUIDPipe) id: string,
@@ -60,7 +59,7 @@ export class DocumentsController {
   }
 
   // Düzenlenebilir HTML şablondan yazdırılabilir teklif (Ctrl+P ile PDF).
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('quotes', 'read')
   @Get('quotes/:id/print')
   async quotePrint(
     @Param('id', ParseUUIDPipe) id: string,
@@ -71,7 +70,7 @@ export class DocumentsController {
   }
 
   // Teklif kalemlerinin CSV (tablo) çıktısı — Excel'de açılır.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('quotes', 'read')
   @Get('quotes/:id/csv')
   async quoteCsv(
     @Param('id', ParseUUIDPipe) id: string,
@@ -86,8 +85,8 @@ export class DocumentsController {
     );
   }
 
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   // Dönem: varsayılan son borç kapatmadan bugüne; ?scope=all veya ?from=&to=.
+  @ShopAccess('payments', 'read')
   @Get('customers/:id/statement')
   async statement(
     @Param('id', ParseUUIDPipe) id: string,
@@ -99,7 +98,7 @@ export class DocumentsController {
   }
 
   // Cari ekstrenin CSV (tablo) çıktısı — Excel'de açılır. Dönem yukarıdaki gibi.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('payments', 'read')
   @Get('customers/:id/statement.csv')
   async statementCsv(
     @Param('id', ParseUUIDPipe) id: string,
@@ -115,8 +114,8 @@ export class DocumentsController {
     );
   }
 
-  // Gider raporu (yazdırılabilir HTML) — yalnızca OWNER.
-  @Roles(UserRole.OWNER)
+  // Gider raporu (yazdırılabilir HTML).
+  @ShopAccess('expenses', 'read')
   @Get('expenses/report/print')
   async expensesReport(
     @Query() query: QueryExpenseDto,
@@ -126,8 +125,8 @@ export class DocumentsController {
     return this.html.expensesReportHtml(query);
   }
 
-  // Mali rapor: kâr/zarar + yaşlandırma (yazdırılabilir HTML) — yalnızca OWNER.
-  @Roles(UserRole.OWNER)
+  // Mali rapor: kâr/zarar + yaşlandırma (yazdırılabilir HTML).
+  @ShopAccess('reports', 'read')
   @Get('reports/financial/print')
   async financialReport(
     @Res({ passthrough: true }) res: Response,
@@ -138,9 +137,9 @@ export class DocumentsController {
     return this.html.financialReportHtml(from, to);
   }
 
-  // ── Excel dışa aktarım (OWNER) ──────────────────────────────────────
+  // ── Excel dışa aktarım ──────────────────────────────────────────────
 
-  @Roles(UserRole.OWNER)
+  @ShopAccess('reports', 'read')
   @Get('reports/aging.xlsx')
   async agingXlsx(
     @Res({ passthrough: true }) res: Response,
@@ -154,7 +153,7 @@ export class DocumentsController {
     return this.stream(res, buf, XLSX, 'yaslandirma.xlsx');
   }
 
-  @Roles(UserRole.OWNER)
+  @ShopAccess('reports', 'read')
   @Get('reports/profit-loss.xlsx')
   async profitLossXlsx(
     @Res({ passthrough: true }) res: Response,
@@ -168,7 +167,7 @@ export class DocumentsController {
     return this.stream(res, buf, XLSX, 'kar-zarar.xlsx');
   }
 
-  @Roles(UserRole.OWNER)
+  @ShopAccess('reports', 'read')
   @Get('reports/stock-value.xlsx')
   async stockValueXlsx(
     @Res({ passthrough: true }) res: Response,
@@ -178,7 +177,7 @@ export class DocumentsController {
     return this.stream(res, buf, XLSX, 'stok-degeri.xlsx');
   }
 
-  @Roles(UserRole.OWNER)
+  @ShopAccess('payments', 'read')
   @Get('customers/:id/ledger.xlsx')
   async ledgerXlsx(
     @Param('id', ParseUUIDPipe) id: string,

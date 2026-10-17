@@ -1,3 +1,4 @@
+import { useAuth } from '../../context/AuthContext';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -54,12 +55,14 @@ function Field({
   onChange,
   placeholder,
   hint,
+  disabled,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   hint?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -68,6 +71,7 @@ function Field({
         className="input"
         value={value}
         placeholder={placeholder}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
       {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
@@ -81,6 +85,8 @@ function Field({
  */
 export function SettingsPage() {
   const qc = useQueryClient();
+  const { isOwner, shop, can } = useAuth();
+  const canWrite = can('settings', 'write');
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'business'],
     queryFn: fetchBusinessSettings,
@@ -115,11 +121,17 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Ayarlar — İşletme / Proje Kimliği</h1>
+      <h1 className="text-xl font-bold">Dükkân ayarları{shop ? ` — ${shop.name}` : ''}</h1>
       <p className="text-sm text-slate-500">
-        Buradaki ad ve bilgiler tüm PDF/yazdırma belgelerinde (teklif, fatura,
-        fiş, ekstre, raporlar) ve uygulama başlığında kullanılır.
+        Buradaki ad ve bilgiler bu dükkânın PDF/yazdırma belgelerinde (teklif,
+        fatura, fiş, ekstre, raporlar) ve uygulama başlığında kullanılır. Her
+        dükkânın ayarları ayrıdır.
       </p>
+      {!canWrite && (
+        <p className="card text-sm text-amber-700">
+          Bu dükkânın ayarlarını görebilirsiniz ama değiştiremezsiniz (yazma izni yok).
+        </p>
+      )}
 
       <div className="card space-y-3">
         <Field
@@ -171,7 +183,7 @@ export function SettingsPage() {
 
         <button
           className="btn-primary"
-          disabled={mut.isPending}
+          disabled={mut.isPending || !canWrite}
           onClick={() => mut.mutate()}
         >
           Kaydet
@@ -186,8 +198,9 @@ export function SettingsPage() {
       <ScreenLockSettings />
       <TelegramSettings />
       <MorningSummaryCard />
-      <BackupSection />
-      <MaintenanceSection />
+      {/* Yedek bütün veritabanını kapsar: yalnız sistem sahibi. */}
+      {isOwner && <BackupSection />}
+      {isOwner && <MaintenanceSection />}
       <NotificationsHistory />
     </div>
   );
@@ -1019,6 +1032,10 @@ function SourceBadge({ source }: { source: SettingSource }) {
  */
 function TelegramSettings() {
   const qc = useQueryClient();
+  // Bot jetonu, yedek sohbeti ve yetkili kullanıcılar bütün sistemindir
+  // (tek bot tüm dükkânlara hizmet eder): yalnız sistem sahibi değiştirir.
+  // Bildirim sohbeti dükkânındır.
+  const { isOwner } = useAuth();
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'telegram'],
     queryFn: fetchTelegramSettings,
@@ -1043,13 +1060,17 @@ function TelegramSettings() {
 
   const saveMut = useMutation({
     mutationFn: () =>
-      updateTelegramSettings({
-        // Boş jeton "değiştirme" demek; temizlemek için ayrı düğme var.
-        ...(token.trim() ? { telegramBotToken: token.trim() } : {}),
-        telegramChatId: chatId.trim(),
-        backupTelegramChatId: backupChatId.trim(),
-        telegramAllowedUserIds: allowedIds,
-      }),
+      updateTelegramSettings(
+        isOwner
+          ? {
+              // Boş jeton "değiştirme" demek; temizlemek için ayrı düğme var.
+              ...(token.trim() ? { telegramBotToken: token.trim() } : {}),
+              telegramChatId: chatId.trim(),
+              backupTelegramChatId: backupChatId.trim(),
+              telegramAllowedUserIds: allowedIds,
+            }
+          : { telegramChatId: chatId.trim() },
+      ),
     onSuccess: () => {
       setToken('');
       invalidate();
@@ -1141,9 +1162,16 @@ function TelegramSettings() {
         <code className="rounded bg-white px-1">/menu</code> yazın.
       </p>
 
+      {!isOwner && (
+        <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
+          Bu dükkân için yalnız bildirim sohbetini değiştirebilirsiniz; bot jetonu, yedek sohbeti ve yetkili
+          kullanıcılar bütün sistemin ayarıdır (sistem sahibi).
+        </p>
+      )}
       <Field
         label="Bot jetonu"
         value={token}
+        disabled={!isOwner}
         onChange={setToken}
         placeholder={
           data.tokenSet ? 'Değiştirmek için yeni jetonu yapıştırın' : '123456789:AA…'
@@ -1152,15 +1180,16 @@ function TelegramSettings() {
       />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
-          label="Bildirim sohbet kimliği (chat id)"
+          label="Bu dükkânın bildirim sohbeti (chat id)"
           value={chatId}
           onChange={setChatId}
           placeholder={data.chatIdSource === 'env' ? data.chatId : '-1001234567890'}
-          hint="Boş bırakılırsa .env'deki değer kullanılır."
+          hint="Sabah özeti ve bildirimler buraya gider. Boşsa .env'deki değer kullanılır."
         />
         <Field
           label="Yedek sohbet kimliği (opsiyonel)"
           value={backupChatId}
+          disabled={!isOwner}
           onChange={setBackupChatId}
           placeholder="Boşsa bildirim sohbeti kullanılır"
           hint="Yedekleri ayrı bir gruba göndermek isterseniz."
@@ -1182,9 +1211,13 @@ function TelegramSettings() {
         <input
           className="input font-mono text-sm"
           value={allowedIds}
+          disabled={!isOwner}
           placeholder="Örn. 123456789, 987654321"
           onChange={(e) => setAllowedIds(e.target.value)}
         />
+        <p className="text-xs text-slate-600">
+          Bu kişiler botta bütün dükkânlara erişir; ana menüdeki dükkân düğmesiyle dükkân değiştirir.
+        </p>
         {data.allowedUserIds.length === 0 && (
           <p className="text-xs font-medium text-amber-800">
             ⚠️ Şu an hiç yetkili kullanıcı yok — bot işlem yapmıyor.
@@ -1208,6 +1241,7 @@ function TelegramSettings() {
         >
           Kaydet
         </button>
+        {isOwner && (
         <button
           className="btn bg-indigo-600 text-white"
           disabled={reloadMut.isPending}
@@ -1216,6 +1250,7 @@ function TelegramSettings() {
         >
           {reloadMut.isPending ? 'Yeniden başlatılıyor…' : '🔄 Yeniden başlat'}
         </button>
+        )}
         <button
           className="btn bg-slate-100"
           disabled={testMut.isPending || !data.configured}
@@ -1228,7 +1263,7 @@ function TelegramSettings() {
         >
           {testMut.isPending ? 'Gönderiliyor…' : '✉️ Test mesajı gönder'}
         </button>
-        {data.tokenSource === 'db' && (
+        {isOwner && data.tokenSource === 'db' && (
           <button
             className="btn bg-red-50 text-xs text-red-600"
             disabled={clearTokenMut.isPending}

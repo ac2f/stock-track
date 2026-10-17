@@ -1,5 +1,5 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /**
  * Gider türü (kira, elektrik, market, personel, iş-malzeme vb.).
@@ -7,8 +7,8 @@ import { BaseEntity } from '../../../common/entities/base.entity';
  * giderleri (kira, aidat, elektrik) işaretler — tutarları zamanla güncellenebilir.
  */
 @Entity('expense_categories')
-export class ExpenseCategory extends BaseEntity {
-  @Index({ unique: true })
+@Index(['shopId', 'name'], { unique: true })
+export class ExpenseCategory extends ShopScopedEntity {
   @Column()
   name: string;
 

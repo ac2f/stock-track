@@ -12,8 +12,6 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
-import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '../../../common/enums/user-role.enum';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
 import { QueryCustomerDto } from '../dto/query-customer.dto';
@@ -21,9 +19,11 @@ import { CreateLedgerEntryDto } from '../dto/create-ledger-entry.dto';
 import { ApplyDiscountDto, SettleDebtDto } from '../dto/apply-discount.dto';
 import { QueryStatementDto } from '../dto/query-statement.dto';
 import { CustomersService } from '../services/customers.service';
+import { ShopAccess, ShopScope } from '../../../common/shop/shop-access.decorator';
 
 @ApiTags('customers')
 @ApiBearerAuth()
+@ShopScope('customers')
 @Controller({ path: 'customers', version: '1' })
 export class CustomersController {
   private readonly portalBaseUrl: string;
@@ -38,7 +38,6 @@ export class CustomersController {
   }
 
   // Çalışan yeni müşteri açabilir (ör. tahsilat öncesi cari oluşturma).
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Post()
   create(@Body() dto: CreateCustomerDto) {
     return this.customersService.create(dto);
@@ -55,6 +54,7 @@ export class CustomersController {
   }
 
   // Cari hareket dökümü (tüm geçmiş).
+  @ShopAccess('payments', 'read')
   @Get(':id/ledger')
   ledger(@Param('id', ParseUUIDPipe) id: string) {
     return this.customersService.getLedger(id);
@@ -65,6 +65,7 @@ export class CustomersController {
    * `?scope=all` tüm geçmişi, `?from=&to=` serbest aralığı verir (borç
    * kapanmadan öncesi de görülebilir). Dönem başı bakiyesi devir olarak döner.
    */
+  @ShopAccess('payments', 'read')
   @Get(':id/statement')
   statement(
     @Param('id', ParseUUIDPipe) id: string,
@@ -74,7 +75,7 @@ export class CustomersController {
   }
 
   // #8b Cariye elle (geçmiş tarihli) borç/alacak hareketi ekle (yalnızca Sahip).
-  @Roles(UserRole.OWNER)
+  @ShopAccess('payments', 'write')
   @Post(':id/ledger-entry')
   addLedgerEntry(
     @Param('id', ParseUUIDPipe) id: string,
@@ -85,7 +86,7 @@ export class CustomersController {
 
   // Yanlış girilen cari hareketini geri al (ödeme/indirim/manuel).
   // Çalışan yalnızca son günlerdekini, Sahip her zaman geri alabilir.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('payments', 'write')
   @Delete(':id/ledger/:entryId')
   removeLedgerEntry(
     @Param('id', ParseUUIDPipe) id: string,
@@ -96,7 +97,7 @@ export class CustomersController {
   }
 
   // #5 İndirim (borç kapatma/yuvarlama) — ekstrede "İndirim" olarak görünür.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('payments', 'write')
   @Post(':id/discount')
   applyDiscount(
     @Param('id', ParseUUIDPipe) id: string,
@@ -106,7 +107,7 @@ export class CustomersController {
   }
 
   // #5 Borcu kapat: tahsil edilen tutar + kalan fark indirim (tek transaction).
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
+  @ShopAccess('payments', 'write')
   @Post(':id/settle')
   settleDebt(
     @Param('id', ParseUUIDPipe) id: string,
@@ -115,7 +116,6 @@ export class CustomersController {
     return this.customersService.settleDebt(id, dto);
   }
 
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -124,14 +124,12 @@ export class CustomersController {
     return this.customersService.update(id, dto);
   }
 
-  @Roles(UserRole.OWNER)
   @Delete(':id')
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.customersService.remove(id);
   }
 
   // Müşteri portalı için salt-okunur paylaşılabilir bağlantı üretir/yeniler.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Post(':id/portal-token')
   async issuePortalToken(@Param('id', ParseUUIDPipe) id: string) {
     const token = await this.customersService.issuePortalToken(id);
@@ -139,7 +137,6 @@ export class CustomersController {
   }
 
   // Portal erişimini iptal eder.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Delete(':id/portal-token')
   revokePortalToken(@Param('id', ParseUUIDPipe) id: string) {
     return this.customersService.revokePortalToken(id);

@@ -1,5 +1,5 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /**
  * Kategoriye özel marka kataloğu (örn. Pleksi → "Plexiglas", "Setacryl").
@@ -7,7 +7,7 @@ import { BaseEntity } from '../../../common/entities/base.entity';
  * `categoryId` zorunludur — şablon/plaka oluştururken kategori eşleşmesi doğrulanır.
  */
 @Entity('material_brands')
-export class MaterialBrand extends BaseEntity {
+export class MaterialBrand extends ShopScopedEntity {
   @Column()
   name: string;
 

@@ -29,6 +29,7 @@ import { MaterialSizesService } from './material-sizes.service';
 import { MaterialThicknessesService } from './material-thicknesses.service';
 import { CustomersService } from '../../customers/services/customers.service';
 import { TransferOwnershipDto } from '../dto/transfer-ownership.dto';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 @Injectable()
 export class PlatesService {
@@ -290,10 +291,11 @@ export class PlatesService {
          FROM stock_levels sl
          JOIN customers c ON c.id = sl.owner_customer_id
         WHERE sl.plate_id = ANY($1)
+          AND sl.shop_id = $2
           AND sl.owner_customer_id IS NOT NULL
           AND sl.quantity > 0
           AND sl.deleted_at IS NULL`,
-        [ids],
+        [ids, ShopContext.requireShopId()],
       );
     const consignByPlate = new Map<string, { id: string; name: string }[]>();
     for (const r of rows) {

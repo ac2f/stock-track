@@ -6,10 +6,11 @@ import { MoreThan, Repository } from 'typeorm';
 import { Customer } from '../../customers/entities/customer.entity';
 import { NotificationType } from '../enums/notification.enums';
 import { NotificationsService } from '../notifications.service';
+import { ShopAccessService } from '../../shops/shop-access.service';
 
 /**
  * Borç hatırlatma. Eşik üstü bakiyesi olan müşterilere periyodik hatırlatma
- * gönderir. SCHEDULER_ENABLED=false ise çalışmaz (cluster'da tek replikada açık).
+ * gönderir (her dükkân kendi müşterilerine). SCHEDULER_ENABLED=false ise çalışmaz (cluster'da tek replikada açık).
  */
 @Injectable()
 export class DebtReminderScheduler {
@@ -20,6 +21,7 @@ export class DebtReminderScheduler {
 
   constructor(
     private readonly notifications: NotificationsService,
+    private readonly shops: ShopAccessService,
     @InjectRepository(Customer)
     private readonly customersRepo: Repository<Customer>,
     configService: ConfigService,
@@ -36,6 +38,11 @@ export class DebtReminderScheduler {
     if (!this.enabled) {
       return;
     }
+    await this.shops.forEachShop('Borç hatırlatma', () => this.remindShop());
+  }
+
+  /** O anki dükkânın borçlularına hatırlatma. */
+  private async remindShop(): Promise<void> {
     const debtors = await this.customersRepo.find({
       where: { currentBalance: MoreThan(this.threshold) },
     });

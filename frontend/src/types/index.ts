@@ -108,11 +108,44 @@ export interface ExpenseSummary {
 }
 export type PriceUnit = 'per_plate' | 'per_m2' | 'per_kg';
 
+/** Dükkân içi yetki alanları (backend: common/shop/shop-permissions.ts). */
+export type ShopModule =
+  | 'stock'
+  | 'catalog'
+  | 'purchases'
+  | 'processing'
+  | 'quotes'
+  | 'sales'
+  | 'customers'
+  | 'payments'
+  | 'expenses'
+  | 'banking'
+  | 'reports'
+  | 'settings';
+
+export interface ModuleAccess {
+  read: boolean;
+  write: boolean;
+}
+
+export type ShopPermissions = Record<ShopModule, ModuleAccess>;
+
+/** Kullanıcının girebildiği bir dükkân ve oradaki izinleri. */
+export interface ShopAccess {
+  id: string;
+  name: string;
+  isActive: boolean;
+  isAdmin: boolean;
+  permissions: ShopPermissions;
+}
+
 export interface AuthUser {
   id: string;
   fullName: string;
   email: string;
   role: UserRole;
+  /** `/auth/me` doldurur; girişte boş gelir, hemen ardından yüklenir. */
+  shops?: ShopAccess[];
 }
 
 export interface ApiEnvelope<T> {

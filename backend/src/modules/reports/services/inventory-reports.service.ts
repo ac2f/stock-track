@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { roundMoney } from '../../../common/utils/area.util';
 import { StockLevel } from '../../materials/entities/stock-level.entity';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 export interface WarehouseStockValue {
   warehouseId: string;
@@ -37,6 +38,8 @@ export class InventoryReportsService {
    * konsinye stok sahip bazında listelenir.
    */
   async stockValue(warehouseId?: string): Promise<StockValueReport> {
+    // Ham SQL dükkân süzgecinden geçmez: dükkân koşulu elle yazılır.
+    const shopId = ShopContext.requireShopId();
     const byWarehouseRaw = await this.stockRepo.query(
       `
       SELECT w.id AS "warehouseId",
@@ -54,11 +57,12 @@ export class InventoryReportsService {
       ) uc ON true
       WHERE sl.owner_customer_id IS NULL
         AND sl.deleted_at IS NULL
+        AND sl.shop_id = $2
         AND ($1::uuid IS NULL OR sl.warehouse_id = $1::uuid)
       GROUP BY w.id, w.name
       ORDER BY "value" DESC
       `,
-      [warehouseId ?? null],
+      [warehouseId ?? null, shopId],
     );
 
     const consignmentRaw = await this.stockRepo.query(
@@ -72,9 +76,11 @@ export class InventoryReportsService {
       WHERE sl.owner_customer_id IS NOT NULL
         AND sl.deleted_at IS NULL
         AND sl.quantity > 0
+        AND sl.shop_id = $1
       GROUP BY sl.owner_customer_id, c.name
       ORDER BY "quantity" DESC
       `,
+      [shopId],
     );
 
     const byWarehouse: WarehouseStockValue[] = byWarehouseRaw.map((r: Record<string, string>) => ({

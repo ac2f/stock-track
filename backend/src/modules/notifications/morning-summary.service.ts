@@ -15,6 +15,7 @@ import {
   NotificationType,
 } from './enums/notification.enums';
 import { NotificationsService } from './notifications.service';
+import { ShopAccessService } from '../shops/shop-access.service';
 import {
   buildMorningSummary,
   plateText,
@@ -46,6 +47,7 @@ export class MorningSummaryService {
     private readonly quotesRepo: Repository<Quote>,
     private readonly settings: SettingsService,
     private readonly notifications: NotificationsService,
+    private readonly shops: ShopAccessService,
     configService: ConfigService,
   ) {
     this.schedulerEnabled =
@@ -57,8 +59,11 @@ export class MorningSummaryService {
   })
   async scheduled(): Promise<void> {
     if (!this.schedulerEnabled) return;
-    if (!(await this.settings.getMorningSummary()).enabled) return;
-    await this.send();
+    // Her dükkânın özeti kendi sohbetine; özeti kapalı dükkân atlanır.
+    await this.shops.forEachShop('Sabah özeti', async () => {
+      if (!(await this.settings.getMorningSummary()).enabled) return;
+      await this.send();
+    });
   }
 
   /** Özeti üretir ve Telegram'a gönderir; gönderilen metni döner. */

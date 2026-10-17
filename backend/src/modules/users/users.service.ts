@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { ShopMember } from '../shops/entities/shop-member.entity';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -74,9 +75,13 @@ export class UsersService {
     return this.usersRepo.save(user);
   }
 
+  /** Kullanıcıyı siler; dükkân üyelikleri de kalkar (erişimi hemen biter). */
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
-    await this.usersRepo.softRemove(user);
+    await this.usersRepo.manager.transaction(async (manager) => {
+      await manager.delete(ShopMember, { userId: user.id });
+      await manager.softRemove(user);
+    });
   }
 
   static verifyPassword(plain: string, hash: string): Promise<boolean> {

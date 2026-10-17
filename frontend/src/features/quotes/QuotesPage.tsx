@@ -1,3 +1,4 @@
+import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import {
@@ -558,9 +559,11 @@ export function QuotesPage() {
         <h1 className="text-xl font-bold">Teklifler</h1>
         <div className="flex items-center gap-2">
           <DensityToggle mini={mini} onToggle={toggleMini} />
-          <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'Kapat' : '+ Yeni Teklif'}
-          </button>
+          <Can module="quotes" level="write">
+            <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? 'Kapat' : '+ Yeni Teklif'}
+            </button>
+          </Can>
         </div>
       </div>
 

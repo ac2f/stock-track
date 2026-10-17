@@ -1,14 +1,15 @@
 import { Controller, Delete, Get, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
 import { TelegramChannel } from './channels/telegram.channel';
 import { NotificationsService } from './notifications.service';
 import { MorningSummaryService } from './morning-summary.service';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/enums/user-role.enum';
+import { ShopScope } from '../../common/shop/shop-access.decorator';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
-@Roles(UserRole.OWNER)
+@ShopScope('settings')
 @Controller({ path: 'notifications', version: '1' })
 export class NotificationsController {
   constructor(
@@ -46,6 +47,7 @@ export class NotificationsController {
    * Telegram'ı "yeniden başlatır": ayarları yeniden okur ve jetonu getMe ile
    * doğrular. Bot adını ve mesajların gideceği sohbet kimliklerini döndürür.
    */
+  @Roles(UserRole.OWNER)
   @Post('telegram/reload')
   reloadTelegram() {
     return this.telegram.verify();

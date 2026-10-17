@@ -1,5 +1,5 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 /**
@@ -7,11 +7,11 @@ import { MeasurementType } from '../../../common/enums/measurement-type.enum';
  * işletmesine özgü türleri ekleyebilir/düzenleyebilir/silebilir.
  */
 @Entity('material_categories')
-export class MaterialCategoryEntity extends BaseEntity {
+@Index(['shopId', 'code'], { unique: true })
+export class MaterialCategoryEntity extends ShopScopedEntity {
   @Column()
   name: string; // "Alüminyum"
 
-  @Index({ unique: true })
   @Column()
   code: string; // slug, ör. "aluminum"
 

@@ -10,6 +10,11 @@ import { Warehouse } from '../modules/warehouses/entities/warehouse.entity';
 import { MaterialPlate } from '../modules/materials/entities/material-plate.entity';
 import { MaterialCategoryEntity } from '../modules/materials/entities/material-category.entity';
 import { StockLevel } from '../modules/materials/entities/stock-level.entity';
+import { AppSetting } from '../modules/settings/entities/app-setting.entity';
+import { Shop } from '../modules/shops/entities/shop.entity';
+import { migrateToShops } from '../modules/shops/shop-migration';
+import { ShopContext } from '../common/shop/shop-context';
+import { installShopScope } from '../common/shop/shop-scope.typeorm';
 
 /** Örnek malzeme türleri — İşletme Sahibi bunları dilediği gibi düzenleyebilir/silebilir. */
 const DEFAULT_MATERIAL_CATEGORIES: {
@@ -31,8 +36,8 @@ const DEFAULT_MATERIAL_CATEGORIES: {
 /**
  * İlk kurulum tohumlaması (idempotent).
  *  - İlk İşletme Sahibi (OWNER) hesabı (aksi halde kimse giriş yapamaz).
- *  - Varsayılan m² ve metre (kutu harf) işleme tarifeleri.
- *  - Varsayılan "Merkez Depo" + mevcut stoğun StockLevel'a backfill'i.
+ *  - Her açık dükkânın varsayılanları (bkz. seedShopDefaults).
+ * Dükkânların kendisi migrateToShops ile (açılışta, bundan önce) kurulur.
  *
  * Çalıştırma:  npm run seed  (CLI)  ·  veya açılışta otomatik (SEED_ON_BOOT).
  *
@@ -42,10 +47,8 @@ const DEFAULT_MATERIAL_CATEGORIES: {
 export async function runSeed(ds: DataSource): Promise<void> {
   const email = process.env.SEED_OWNER_EMAIL ?? 'owner@stocktrack.local';
   const password = process.env.SEED_OWNER_PASSWORD ?? 'Owner123!';
-  const currency = process.env.DEFAULT_CURRENCY ?? 'TRY';
-  const warehouseCode = process.env.DEFAULT_WAREHOUSE_CODE ?? 'MERKEZ';
 
-  // ── OWNER ──
+  // ── OWNER (sistem sahibi; dükkândan bağımsız) ──
   const usersRepo = ds.getRepository(User);
   if (!(await usersRepo.findOne({ where: { email } }))) {
     await usersRepo.save(
@@ -60,6 +63,44 @@ export async function runSeed(ds: DataSource): Promise<void> {
     console.log(`✓ OWNER oluşturuldu: ${email} / ${password}`);
   } else {
     console.log(`• OWNER zaten mevcut: ${email}`);
+  }
+
+  // ── Her açık dükkânın varsayılanları ──
+  const shops = await ShopContext.unscoped(() =>
+    ds.getRepository(Shop).find({ where: { isActive: true }, order: { createdAt: 'ASC' } }),
+  );
+  for (const shop of shops) {
+    await ShopContext.forShop(shop.id, () => seedShopDefaults(ds, { businessName: shop.name, log: true }));
+  }
+  console.log('Tohumlama tamamlandı.');
+}
+
+/**
+ * Bir dükkânın varsayılanları (idempotent). O anki dükkân bağlamında çalışır:
+ *   ShopContext.forShop(shopId, () => seedShopDefaults(ds))
+ *  - Ayar satırı (işletme adı = dükkân adı).
+ *  - Varsayılan m² ve metre (kutu harf) işleme tarifeleri.
+ *  - Örnek malzeme türleri.
+ *  - Varsayılan "Merkez Depo" + mevcut stoğun StockLevel'a backfill'i.
+ */
+export async function seedShopDefaults(
+  ds: DataSource,
+  opts: { businessName?: string; log?: boolean } = {},
+): Promise<void> {
+  const currency = process.env.DEFAULT_CURRENCY ?? 'TRY';
+  const warehouseCode = process.env.DEFAULT_WAREHOUSE_CODE ?? 'MERKEZ';
+  const log = (m: string) => {
+    if (opts.log) console.log(m);
+  };
+
+  // ── Ayar satırı ──
+  const settingsRepo = ds.getRepository(AppSetting);
+  if (!(await settingsRepo.findOne({ where: {}, withDeleted: true }))) {
+    await settingsRepo.save(
+      settingsRepo.create({
+        businessName: opts.businessName || process.env.BUSINESS_NAME || 'StockTrack',
+      }),
+    );
   }
 
   // ── İşleme tarifeleri (m² ve metre) ──
@@ -83,7 +124,7 @@ export async function runSeed(ds: DataSource): Promise<void> {
         isActive: true,
       }),
     ]);
-    console.log('✓ Varsayılan işleme tarifeleri (m² + metre) oluşturuldu.');
+    log('✓ Varsayılan işleme tarifeleri (m² + metre) oluşturuldu.');
   }
 
   // ── Malzeme türleri (örnek; OWNER düzenleyebilir/silebilir) ──
@@ -109,10 +150,10 @@ export async function runSeed(ds: DataSource): Promise<void> {
     }
   }
   if (createdCategories > 0) {
-    console.log(`✓ ${createdCategories} malzeme türü (örnek) oluşturuldu.`);
+    log(`✓ ${createdCategories} malzeme türü (örnek) oluşturuldu.`);
   }
   if (restoredCategories > 0) {
-    console.log(`✓ ${restoredCategories} silinmiş malzeme türü geri yüklendi.`);
+    log(`✓ ${restoredCategories} silinmiş malzeme türü geri yüklendi.`);
   }
 
   // ── Merkez Depo + stok backfill ──
@@ -125,13 +166,13 @@ export async function runSeed(ds: DataSource): Promise<void> {
     warehouse = await warehousesRepo.save(
       warehousesRepo.create({ name: 'Merkez Depo', code: warehouseCode, isActive: true }),
     );
-    console.log(`✓ "${warehouse.name}" (${warehouseCode}) oluşturuldu.`);
+    log(`✓ "${warehouse.name}" (${warehouseCode}) oluşturuldu.`);
   } else if (warehouse.deletedAt) {
     // Silinmiş varsayılan depoyu geri yükle ki backfill aktif depoya yazsın.
     warehouse.deletedAt = null;
     warehouse.isActive = true;
     warehouse = await warehousesRepo.save(warehouse);
-    console.log(`✓ "${warehouse.name}" (${warehouseCode}) geri yüklendi.`);
+    log(`✓ "${warehouse.name}" (${warehouseCode}) geri yüklendi.`);
   }
 
   const platesRepo = ds.getRepository(MaterialPlate);
@@ -157,17 +198,17 @@ export async function runSeed(ds: DataSource): Promise<void> {
     }
   }
   if (backfilled > 0) {
-    console.log(`✓ ${backfilled} kalemin stoğu Merkez Depo'ya taşındı (backfill).`);
+    log(`✓ ${backfilled} kalemin stoğu Merkez Depo'ya taşındı (backfill).`);
   }
-
-  console.log('Tohumlama tamamlandı.');
 }
 
 /** CLI: bağımsız DataSource'u açar, tohumlar ve kapatır (npm run seed). */
 async function seedCli(): Promise<void> {
   loadEnv();
   await dataSource.initialize();
+  installShopScope(dataSource);
   try {
+    await migrateToShops(dataSource);
     await runSeed(dataSource);
   } finally {
     await dataSource.destroy();

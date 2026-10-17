@@ -1,5 +1,5 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /**
  * Kategoriye özel renk kataloğu. İsim + kod birlikte tek kayıtta tutulur,
@@ -7,7 +7,7 @@ import { BaseEntity } from '../../../common/entities/base.entity';
  * "koddan isme" eşleme mantığına gerek kalmaz.
  */
 @Entity('material_colors')
-export class MaterialColor extends BaseEntity {
+export class MaterialColor extends ShopScopedEntity {
   @Column()
   name: string;
 

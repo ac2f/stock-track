@@ -1,5 +1,5 @@
 import { Column, Entity, Index } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 
 /**
@@ -7,11 +7,11 @@ import { MeasurementType } from '../../../common/enums/measurement-type.enum';
  * Üretim kuyruğunda işler makineye göre gruplanır → "hangi makinede ne bekliyor".
  */
 @Entity('machines')
-export class Machine extends BaseEntity {
+@Index(['shopId', 'code'], { unique: true })
+export class Machine extends ShopScopedEntity {
   @Column()
   name: string;
 
-  @Index({ unique: true })
   @Column()
   code: string; // ör. "KESIM", "KUTU-HARF"
 

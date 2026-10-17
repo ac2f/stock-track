@@ -34,8 +34,7 @@ export class TelegramChannel implements NotificationChannelPort {
   constructor(private readonly settings: SettingsService) {}
 
   async isEnabled(): Promise<boolean> {
-    const { botToken } = await this.settings.getTelegram();
-    return !!botToken;
+    return !!(await this.settings.getBotToken());
   }
 
   async send(message: OutboundMessage): Promise<ChannelResult> {

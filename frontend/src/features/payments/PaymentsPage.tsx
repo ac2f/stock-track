@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { fetchCustomer } from '../../api/customers.api';
 import { CustomerPicker } from '../../components/CustomerPicker';
-import { fetchEmployees } from '../../api/users.api';
+import { fetchStaff, type StaffMember } from '../../api/shops.api';
 import {
   createBankAccount,
   deleteBankAccount,
@@ -23,7 +23,7 @@ import {
   type UpdatePaymentInput,
 } from '../../api/payments.api';
 import { useAuth } from '../../context/AuthContext';
-import type { Employee, BankAccount, Payment, PaymentMethod } from '../../types';
+import type { BankAccount, Payment, PaymentMethod } from '../../types';
 
 /**
  * Bir ödeme, kaydından sonra en fazla bu kadar gün düzenlenebilir/silinebilir.
@@ -61,7 +61,7 @@ const EMPTY: CreatePaymentInput = {
 /** Müşteri ödemeleri (tahsilat/ödeme) girişi ve sorgulanabilir geçmişi. */
 export function PaymentsPage() {
   const qc = useQueryClient();
-  const { hasRole } = useAuth();
+  const { can, isShopAdmin } = useAuth();
   const [customerId, setCustomerId] = useState('');
   const [form, setForm] = useState<CreatePaymentInput>(EMPTY);
   const [lastBalance, setLastBalance] = useState<number | null>(null);
@@ -70,7 +70,7 @@ export function PaymentsPage() {
   const [histTo, setHistTo] = useState('');
   const [histMethod, setHistMethod] = useState<'' | PaymentMethod>('');
 
-  const { data: employees } = useQuery({ queryKey: ['employees'], queryFn: fetchEmployees });
+  const { data: employees } = useQuery({ queryKey: ['staff'], queryFn: fetchStaff });
   const { data: banks } = useQuery({ queryKey: ['bank-accounts'], queryFn: fetchBankAccounts });
   const { data: payments } = useQuery({
     queryKey: ['payments', customerId],
@@ -118,11 +118,11 @@ export function PaymentsPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Ödemeler / Tahsilat</h1>
 
-      {/* #4/#5 Çalışan kasası — yalnızca İşletme Sahibi */}
-      {hasRole('owner') && <CashCollectionsPanel />}
+      {/* #4/#5 Çalışan kasası — dükkân yöneticisi (ödeme yazma izniyle) */}
+      {isShopAdmin && can('payments', 'write') && <CashCollectionsPanel />}
 
       {/* Uyumluluk: eski "borç kapatma" hareketlerini ödemeye çevirme */}
-      {hasRole('owner') && <LegacyDebtClosePanel employees={employees} banks={banks} />}
+      {isShopAdmin && can('payments', 'write') && <LegacyDebtClosePanel employees={employees} banks={banks} />}
 
       {/* #1 Müşteri arama — teklislerdeki gibi klavye destekli seçici. */}
       <div className="card space-y-2">
@@ -450,7 +450,7 @@ function PaymentRow({
 }: {
   customerId: string;
   payment: Payment;
-  employees?: Employee[];
+  employees?: StaffMember[];
   banks?: BankAccount[];
   onChanged: (balance: number) => void;
 }) {
@@ -695,7 +695,7 @@ function LegacyDebtClosePanel({
   employees,
   banks,
 }: {
-  employees?: Employee[];
+  employees?: StaffMember[];
   banks?: BankAccount[];
 }) {
   const { data: legacy } = useQuery({
@@ -733,7 +733,7 @@ function LegacyDebtCloseRow({
   banks,
 }: {
   row: { ledgerEntryId: string; customerName: string; amount: number; occurredAt: string };
-  employees?: Employee[];
+  employees?: StaffMember[];
   banks?: BankAccount[];
 }) {
   const qc = useQueryClient();

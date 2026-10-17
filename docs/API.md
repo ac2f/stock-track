@@ -8,27 +8,122 @@ Tüm yanıtlar `TransformInterceptor` ile sarmalanır:
 
 Kimlik doğrulama: `Authorization: Bearer <accessToken>` (login hariç tüm uçlar).
 
+### Dükkân seçimi ve izinler
+
+Veriler **dükkân başınadır**: stok, müşteri, teklif, ödeme, gider, ayarlar ...
+her dükkânın kendisinindir. Her istek bir dükkân adına yapılır:
+
+```
+X-Shop-Id: <dükkân id>
+```
+
+Başlık yoksa ve kullanıcının tek dükkânı varsa o kullanılır; birden çoksa
+`400 Dükkân seçilmedi`. Kullanıcının dükkânları ve izinleri `GET /auth/me`
+yanıtındaki `shops` dizisindedir.
+
+Her kullanıcının her dükkânda, her **alan** için ayrı **okuma** ve **yazma**
+izni vardır. Bir rotanın alanı aşağıdaki tablodadır; seviye HTTP yönteminden
+çıkar (GET → okuma, diğerleri → yazma) — açıkça belirtilen birkaç istisna
+dışında (ör. müşteri ekstresi `payments` okuması ister).
+
+| Alan (`module`) | Rotalar |
+| --------------- | ------- |
+| `stock` | `/plates/*`, depolar (yazma) |
+| `catalog` | `/material-*` (yazma), `/processing-rates`, `/machines` (yazma) |
+| `purchases` | `/purchases/*`, tedarikçi ve araç (yazma) |
+| `processing` | `/processing/*` |
+| `quotes` | `/quotes/*`, teklif belgeleri |
+| `sales` | `/sales/*`, satış belgesi |
+| `customers` | `/customers` (liste, kart, ekleme, düzenleme, portal bağlantısı) |
+| `payments` | `/customers/:id/payments/*`, `/payments/*`, cari hareket/ekstre/indirim |
+| `expenses` | `/expenses/*`, `/expense-categories/*`, `/projects/*` |
+| `banking` | `/bank-reconciliation/*`, banka hesapları (yazma) |
+| `reports` | `/reports/*`, rapor belgeleri ve Excel |
+| `settings` | `/settings/*` (yazma), `/notifications/*` |
+
+Formlarda seçilen kısa listeler **dükkânın her üyesine** açıktır (alan izni
+aranmaz): depolar, banka hesapları, makineler, tarifeler, tedarikçiler,
+araçlar, katalog listeleri, `GET /settings/business|display|pricing|cut-pricing`,
+`GET /shops/current/staff`.
+
 | Yetki gösterimi | Anlam |
 | --------------- | ----- |
 | 🔓 Public       | Token gerekmez |
 | 👥 Auth         | Giriş yapmış herhangi bir kullanıcı |
-| 👔 OWNER        | Sadece İşletme Sahibi |
-| 🧑‍🔧 EMPLOYEE+   | Çalışan veya Sahip |
+| 👔 OWNER        | Sistem sahibi (her dükkânda her şey). Aşağıdaki eski bölümlerde "👔" işaretli iş uçları artık o alanın iznine bağlıdır (tablo yukarıda); yalnız yedek, kullanıcı hesapları, dükkân açma, kur girişi ve Telegram botu sistem sahibinindir. |
+| 🧑‍🔧 EMPLOYEE+   | Dükkânda ilgili alan izni olan herkes |
+
+Yetkisiz istek `403` döner; ileti hangi alanda hangi iznin eksik olduğunu söyler.
+
+### Tekrar güvenli yazma istekleri
+
+Yazma isteklerine (POST/PUT/PATCH/DELETE) benzersiz bir anahtar konabilir:
+
+```
+Idempotency-Key: 6f1c2a4e-...   (8–100 karakter: harf, rakam, - _)
+```
+
+Aynı kullanıcı aynı anahtarla isteği yeniden gönderirse **yeniden işlenmez**;
+ilk yanıt aynen döner (`Idempotent-Replay: true` başlığıyla). İlk istek hâlâ
+işleniyorsa `409`. Hata veren istek anahtarı tüketmez (düzeltilip aynı
+anahtarla yeniden gönderilebilir). Arayüz her yazma isteğine anahtar koyar;
+çevrimdışı kuyruk da gönderimlerinde aynı anahtarı kullanır. Kayıtlar
+`IDEMPOTENCY_TTL_DAYS` (varsayılan 14) gün sonra her gece silinir.
+
+Veritabanı kısıt ihlali (aynı kodla ikinci depo gibi) `409`, veritabanına
+ulaşılamaması `503` döner.
 
 ## Auth
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | POST | `/auth/login` | 🔓 | `{ email, password }` → `{ accessToken, refreshToken, user }` |
 | POST | `/auth/refresh` | 🔓 | `{ refreshToken }` → yeni access token |
-| GET  | `/auth/me` | 👥 | Oturum sahibinin profili |
+| GET  | `/auth/me` | 👥 | Profil + `shops: [{ id, name, isActive, isAdmin, permissions }]` |
+| GET  | `/health` | 🔓 | `200 { status, db: "up" }`; veritabanına ulaşılamıyorsa `503` |
 
-## Users (Personel)
+## Users (Hesaplar — 👔 sistem sahibi, dükkân seçimi gerekmez)
 | Metot | Yol | Yetki |
 |-------|-----|-------|
 | POST | `/users` | 👔 |
 | GET | `/users` | 👔 |
-| PATCH | `/users/:id` | 👔 |
-| DELETE | `/users/:id` | 👔 |
+| PATCH | `/users/:id` | 👔 (rol: `owner` = sistem sahibi, `employee` = kullanıcı) |
+| DELETE | `/users/:id` | 👔 (dükkân üyelikleri de silinir) |
+
+## Dükkânlar ve ekip
+
+Dükkân seçimi gerektirmez; hangi dükkânın ekibi düzenleniyorsa adreste yazar.
+Sistem sahibi her şeyi yapar. **Dükkân yöneticisi** (`isAdmin`) yalnız kendi
+dükkânının ekibini düzenler ve: kendi üyeliğini değiştiremez, kendinde
+olmayan bir izni veremez, izinleri kendisininkini aşan birine dokunamaz,
+başka dükkânda da çalışan birinin hesabını (parola vb.) değiştiremez.
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/shops/mine` | 👥 | Girebildiğim dükkânlar ve izinlerim |
+| GET | `/shops/modules` | 👥 | İzin alanları ve adları |
+| GET | `/shops/current/staff` | dükkân üyesi | Seçili dükkânın personeli (`X-Shop-Id`) |
+| GET | `/shops` | sahip / yönetici | Ekip ekranındaki dükkânlar (+ `memberCount`) |
+| POST | `/shops` | 👔 | `{ name, copyFromShopId?, copyCatalog?, copySettings? }` |
+| PATCH | `/shops/:id` | 👔 | `{ name?, isActive? }` (son açık dükkân kapatılamaz) |
+| GET | `/shops/:id/members` | sahip / yönetici | Üyeler, izinleri, `editable` |
+| POST | `/shops/:id/members` | sahip / yönetici | `{ newUser? \| email? \| userId?, isAdmin?, permissions }` |
+| PATCH | `/shops/:id/members/:memberId` | sahip / yönetici | `{ isAdmin?, permissions? }` |
+| PATCH | `/shops/:id/members/:memberId/account` | sahip / yönetici | `{ fullName?, phone?, password?, isActive? }` |
+| DELETE | `/shops/:id/members/:memberId` | sahip / yönetici | Dükkândan çıkarır (hesap kalır) |
+
+`permissions` örneği: `{ "quotes": { "read": true, "write": true }, "reports": { "read": true, "write": false } }`
+— bilinmeyen alanlar atılır, yazılmayanlar kapalı sayılır.
+
+Yeni dükkân boş başlar (stok/müşteri/teklif kopyalanmaz); varsayılan depo,
+tarifeler ve malzeme türleri kurulur. `copyCatalog` malzeme türü/şablon/
+marka/renk/ebat/kalınlık, tarife, makine ve gider türlerini; `copySettings`
+fiyat, kesim fiyatlandırması ve işletme bilgilerini (ad ve Corel anahtarı
+hariç) kopyalar.
+
+**Geçiş:** ilk açılışta mevcut bütün kayıtlar "ilk dükkân"a (adı işletme
+adından) atanır; mevcut çalışanlar oraya stok, satın alma, iş kuyruğu, teklif,
+satış, müşteri ve ödemelerde okuma+yazma izniyle eklenir. Sistem sahibi
+üyelik istemez.
 
 ## Materials — Türler (Kategoriler)
 | Metot | Yol | Yetki | Açıklama |
@@ -499,6 +594,30 @@ zaman "1 döviz = N TL" yönünde okur. Sağlayıcı beklenen tabanı vermezse v
 
 ---
 
+## Çevrimdışı çalışma (arayüz)
+
+Sunucuya (ya da veritabanına) ulaşılamadığında arayüz çalışmaya devam eder:
+
+- **Uygulama kabuğu** (sayfa, JS, CSS) tarayıcıda saklanır (`/sw.js`, yalnız
+  HTTPS ya da localhost'ta); sunucu kapalıyken sayfa yine açılır.
+- **Okuma:** her başarılı GET yanıtı cihazda (IndexedDB) saklanır; çevrimdışıyken
+  son kopya gösterilir. Listelerde yazılan arama çevrimdışıyken cihazdaki
+  kopyalarda yapılır.
+- **Yazma:** müşteri ekleme/düzenleme, tahsilat, indirim/borç kapatma, teklif
+  (ekleme, düzenleme, durum), satış, iş (ekleme, durum), gider, satın alma ve
+  stok girişi **sıraya alınır**; diğerleri (silme, dönüştürme, ayar, ekip)
+  açık bir uyarıyla reddedilir. Yeni kayıt geçici bir kimlik alır; aynı
+  kuyrukta ona bağlı işlemler (yeni müşteriye tahsilat) kayıt sunucuda
+  açılınca gerçek kimliğe çevrilir.
+- **Eşzamanlama:** sağlık ucu tekrar `200` olunca kuyruk sırayla, her işlem
+  kendi `Idempotency-Key`'iyle (bir kez işlenir) gönderilir. Sunucunun
+  reddettiği işlem "işlenemedi" olarak kalır, ona bağlı olanlar bekler;
+  kullanıcı düzeltip yeniden dener ya da siler.
+- **Çöp temizliği:** gönderilen işlemler kuyruktan, 14 günden eski ve
+  sınırı (400) aşan kopyalar önbellekten, eski sürüm dosyaları kabuktan
+  silinir; oturum kapanınca o kullanıcının önbelleği silinir (kuyruğu
+  kalır). Sunucuda tekrar koruması kayıtları her gece temizlenir.
+
 ## CorelDRAW eklentisi (ac2f pack)
 
 Corel'deki `ac2fJob` modülü müşteriyi ve stoktaki malzemeyi buradan okur;
@@ -507,13 +626,16 @@ Uçlar **salt-okunurdur**, hiçbir kayıt yazmaz.
 
 **Kimlik:** JWT değil, `X-Api-Key` başlığı. Anahtar *Ayarlar › Corel
 entegrasyonu* bölümünden üretilir ve eklentinin kurulumuna bir kez
-yapıştırılır. Anahtar boşken entegrasyon kapalıdır (401).
+yapıştırılır. Anahtar boşken entegrasyon kapalıdır (401). **Her dükkânın
+kendi anahtarı vardır ve anahtar dükkânı belirler:** eklenti hangi anahtarı
+taşıyorsa o dükkânın müşteri/stok/teklif listesini görür (`X-Shop-Id`
+gerekmez).
 
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| GET | `/settings/corel` | 👔 | `{ enabled, apiKey }` |
-| POST | `/settings/corel/rotate` | 👔 | Yeni anahtar; eskisi anında geçersiz |
-| DELETE | `/settings/corel` | 👔 | Anahtarı siler, entegrasyonu kapatır |
+| GET | `/settings/corel` | ayarlar (yazma) | `{ enabled, apiKey }` — anahtar bir tür paroladır |
+| POST | `/settings/corel/rotate` | ayarlar (yazma) | Yeni anahtar; eskisi anında geçersiz |
+| DELETE | `/settings/corel` | ayarlar (yazma) | Anahtarı siler, entegrasyonu kapatır |
 | GET | `/corel/ping` | 🔑 | `ok <TAB> işletme adı` |
 | GET | `/corel/customers?q=&limit=` | 🔑 | Müşteriler; `q` boşsa son güncellenenler |
 | GET | `/corel/customers/:id` | 🔑 | Tek müşteri |

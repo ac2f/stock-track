@@ -105,7 +105,13 @@ export function CustomerPicker({
                   idx === active ? 'bg-slate-100 dark:bg-slate-700' : ''
                 }`}
                 onMouseEnter={() => setActive(idx)}
-                onClick={() => choose({ id: c.id, name: c.name })}
+                onClick={(e) => {
+                  // Seçici çoğu formda bir <label> içinde: tıklama varsayılanı
+                  // engellenmezse etiket onu yeni beliren "değiştir" düğmesine
+                  // iletir ve seçim anında geri alınır (fare/dokunmatik).
+                  e.preventDefault();
+                  choose({ id: c.id, name: c.name });
+                }}
               >
                 <span className="font-medium">{c.name}</span>
                 {c.companyName ? (

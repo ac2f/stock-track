@@ -1,12 +1,12 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /**
  * İş / Proje (ör. "Ahmet Tabela"). Bir işe ait tüm giderler (LED, profil, demir
  * vb.) bu kayda bağlanır; iş bazlı toplam maliyet böyle görüntülenebilir.
  */
 @Entity('projects')
-export class Project extends BaseEntity {
+export class Project extends ShopScopedEntity {
   @Column()
   name: string;
 

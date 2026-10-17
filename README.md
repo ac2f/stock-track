@@ -15,7 +15,7 @@ tek bir çatı altında toplar.
 - [Teknoloji Yığını](#teknoloji-yığını)
 - [Proje Klasör Yapısı](#proje-klasör-yapısı)
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
-- [Rol Tabanlı Yetkilendirme (RBAC)](#rol-tabanlı-yetkilendirme-rbac)
+- [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
 - [Kurulum](#kurulum)
 - [Cluster & Stateless Mimari](#cluster--stateless-mimari)
 - [Dokümantasyon](#dokümantasyon)
@@ -84,7 +84,8 @@ backend/src/
 │   ├── guards/                 # JwtAuthGuard, RolesGuard
 │   └── interceptors/           # Yanıt sarmalama, loglama
 └── modules/                    # Bağımsız iş modülleri (bounded contexts)
-    ├── auth/                   # Giriş, token üretimi, RBAC
+    ├── shops/                  # Dükkânlar, ekip, alan bazlı okuma/yazma izinleri
+    ├── auth/                   # Giriş, token üretimi
     ├── users/                  # Personel yönetimi
     ├── suppliers/              # Tedarikçiler
     ├── vehicles/               # Araç bilgileri (satın almada kullanılan)
@@ -115,15 +116,31 @@ backend/src/
 
 Ayrıntılı veri modeli için [`docs/DATABASE.md`](docs/DATABASE.md).
 
-## Rol Tabanlı Yetkilendirme (RBAC)
+## Dükkânlar ve Yetkiler
 
-| Rol                          | Yetkiler                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------- |
-| **OWNER** (İşletme Sahibi)   | Tüm yetkiler + mali raporlar, fiyat şablonları, kullanıcı yönetimi.      |
-| **EMPLOYEE** (Çalışan)       | Stok girişi, işleme kaydı, nakit tahsilat. Mali raporlara erişemez.      |
+Birden çok dükkân (şube ya da ayrı işletme) tek kurulumda çalışır; her
+dükkânın **deposu, müşterileri, teklifleri, ödemeleri, giderleri ve ayarları
+birbirinden bağımsızdır**.
 
-Yetkilendirme `@Roles(...)` dekoratörü + `RolesGuard` ile bildirimsel olarak
-uygulanır. Örnek için `modules/customers/customers.controller.ts`.
+| Kim | Ne yapar |
+| --- | -------- |
+| **Sistem sahibi** (`owner`) | Her dükkânda her şey; dükkân açar/kapatır, herkesin izinlerini düzenler, yedek ve Telegram botu. |
+| **Dükkân yöneticisi** | Yönettiği dükkânın ekibini düzenler — yalnız kendisinde olan izinleri verebilir, kendi üyeliğini değiştiremez. Kendi veri erişimi de izin tablosuna bağlıdır. |
+| **Kullanıcı** | Üye olduğu her dükkânda, verilen izinlerle. |
+
+İzinler dükkân ve alan başınadır, **okuma ve yazma ayrı** işaretlenir.
+Alanlar: stok, katalog/tarifeler, satın alma, iş kuyruğu, teklif, satış,
+müşteri, ödeme ve cari, gider, banka ve mutabakat, rapor, dükkân ayarları.
+
+Sunucu tarafında ayrım altyapıdadır: her istek `X-Shop-Id` ile bir dükkân
+adına yapılır, global `ShopAccessGuard` üyeliği ve alan iznini denetler,
+TypeORM süzgeci her sorguya dükkân koşulunu kendiliğinden ekler (bkz.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) § 6).
+
+**Çevrimdışı:** sunucuya ulaşılamazken arayüz son verilerle açılır; müşteri,
+tahsilat, teklif, satış, iş, gider, satın alma ve stok girişi cihazda sıraya
+alınır ve bağlantı gelince bir kez gönderilir (bkz.
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) § 6–8).
 
 ## Kurulum
 

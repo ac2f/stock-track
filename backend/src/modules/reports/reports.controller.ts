@@ -1,8 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
 import {
   AgingQueryDto,
   ReportQueryDto,
@@ -11,11 +9,12 @@ import {
 import { DashboardService } from './services/dashboard.service';
 import { FinancialReportsService } from './services/financial-reports.service';
 import { InventoryReportsService } from './services/inventory-reports.service';
+import { ShopScope } from '../../common/shop/shop-access.decorator';
 
 /** Mali raporlar — yalnızca İşletme Sahibi (OWNER). */
 @ApiTags('reports')
 @ApiBearerAuth()
-@Roles(UserRole.OWNER)
+@ShopScope('reports')
 @Controller({ path: 'reports', version: '1' })
 export class ReportsController {
   private readonly baseCurrency: string;

@@ -11,8 +11,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '../../../common/enums/user-role.enum';
 import { PriceUnit } from '../../../common/enums/price-unit.enum';
 import { CreatePlateDto } from '../dto/create-plate.dto';
 import { UpdatePlateDto } from '../dto/update-plate.dto';
@@ -25,9 +23,11 @@ import { PlateIntakeService } from '../services/plate-intake.service';
 import { SetRetailPriceDto } from '../dto/set-retail-price.dto';
 import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
 import { SupplierPricesService } from '../services/supplier-prices.service';
+import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
 @ApiTags('plates')
 @ApiBearerAuth()
+@ShopScope('stock')
 @Controller({ path: 'plates', version: '1' })
 export class PlatesController {
   constructor(
@@ -42,14 +42,12 @@ export class PlatesController {
    * ebat/kalınlık) ADLA verilebilir; yoksa kendiliğinden açılır ve yanıtta
    * hangilerinin açıldığı raporlanır.
    */
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Post('batch')
   createBatch(@Body() dto: BatchCreatePlatesDto) {
     return this.intakeService.createBatch(dto);
   }
 
   // Stok girişi çalışanın da yetkisindedir.
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Post()
   create(@Body() dto: CreatePlateDto) {
     return this.platesService.create(dto);
@@ -72,7 +70,6 @@ export class PlatesController {
   }
 
   // Stok sahipliğini taraflar arasında serbestçe aktar (işletme↔müşteri, müşteri↔müşteri).
-  @Roles(UserRole.OWNER)
   @Post(':id/transfer-ownership')
   transferOwnership(
     @Param('id', ParseUUIDPipe) id: string,
@@ -82,13 +79,11 @@ export class PlatesController {
   }
 
   // "Tamamını sat" / stoktan tamamen çıkar (soft-delete).
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Post(':id/deplete')
   deplete(@Param('id', ParseUUIDPipe) id: string) {
     return this.platesService.deplete(id);
   }
 
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -97,7 +92,6 @@ export class PlatesController {
     return this.platesService.update(id, dto);
   }
 
-  @Roles(UserRole.OWNER)
   @Delete(':id')
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.platesService.remove(id);
@@ -109,7 +103,6 @@ export class PlatesController {
     return this.supplierPricesService.list(id);
   }
 
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Put(':id/prices')
   upsertPrice(
     @Param('id', ParseUUIDPipe) id: string,
@@ -126,7 +119,6 @@ export class PlatesController {
     return this.supplierPricesService.compare(id, unit);
   }
 
-  @Roles(UserRole.OWNER)
   @Delete(':id/prices/:priceId')
   removePrice(
     @Param('id', ParseUUIDPipe) id: string,
@@ -145,7 +137,6 @@ export class PlatesController {
   }
 
   /** Perakende fiyatı girer/günceller (TRY varsayılan; USD/EUR de olabilir). */
-  @Roles(UserRole.OWNER, UserRole.EMPLOYEE)
   @Put(':id/retail-price')
   setRetailPrice(
     @Param('id', ParseUUIDPipe) id: string,

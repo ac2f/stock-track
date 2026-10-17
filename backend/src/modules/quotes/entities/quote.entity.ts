@@ -6,7 +6,7 @@ import {
   ManyToOne,
   OneToMany,
 } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { QuoteStatus } from '../../../common/enums/quote-status.enum';
 import { Customer } from '../../customers/entities/customer.entity';
 import { QuoteItem } from './quote-item.entity';
@@ -19,8 +19,8 @@ import { QuoteItem } from './quote-item.entity';
 @Entity('quotes')
 @Index(['buyerCustomerId'])
 @Index(['status'])
-export class Quote extends BaseEntity {
-  @Index({ unique: true })
+@Index(['shopId', 'quoteNo'], { unique: true })
+export class Quote extends ShopScopedEntity {
   @Column({ name: 'quote_no' })
   quoteNo: string; // ör. TKF-2026-0001
 

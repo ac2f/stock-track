@@ -1,6 +1,6 @@
+import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Protected, ResponsiveLayout } from './layouts/ResponsiveLayout';
-import { RoleGate } from './components/RoleGate';
 import { LoginPage } from './features/auth/LoginPage';
 import { PlatesListPage } from './features/materials/PlatesListPage';
 import { MaterialCategoriesPage } from './features/materials/MaterialCategoriesPage';
@@ -10,12 +10,20 @@ import { DashboardPage } from './features/reports/DashboardPage';
 import { QuotesPage } from './features/quotes/QuotesPage';
 import { ProcessingQueuePage } from './features/processing/ProcessingQueuePage';
 import { PortalPage } from './features/portal/PortalPage';
-import { EmployeesPage } from './features/employees/EmployeesPage';
+import { TeamPage } from './features/team/TeamPage';
+import { Can, NoAccess } from './components/Can';
+import { useAuth } from './context/AuthContext';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 import { BankReconciliationPage } from './features/banking/BankReconciliationPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
 import { PurchasesPage } from './features/purchases/PurchasesPage';
 import { SettingsPage } from './features/settings/SettingsPage';
+
+/** Ekip ekranı: sistem sahibi ve en az bir dükkânın yöneticisi. */
+function TeamGate({ children }: { children: ReactNode }) {
+  const { managesAnyShop } = useAuth();
+  return <>{managesAnyShop ? children : <NoAccess what="Ekip ve yetkiler" />}</>;
+}
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -26,6 +34,26 @@ function Placeholder({ title }: { title: string }) {
       </p>
     </div>
   );
+}
+
+/** Açılış ekranı: görebildiği ilk alan (stok görmeyen çalışan boş sayfaya düşmesin). */
+function HomeRedirect() {
+  const { can, managesAnyShop } = useAuth();
+  const first =
+    (
+      [
+        ['stock', '/plates'],
+        ['quotes', '/quotes'],
+        ['processing', '/queue'],
+        ['customers', '/customers'],
+        ['payments', '/payments'],
+        ['purchases', '/purchases'],
+        ['expenses', '/expenses'],
+        ['reports', '/reports'],
+        ['settings', '/settings'],
+      ] as const
+    ).find(([m]) => can(m))?.[1] ?? (managesAnyShop ? '/team' : '/plates');
+  return <Navigate to={first} replace />;
 }
 
 export default function App() {
@@ -43,78 +71,117 @@ export default function App() {
           </Protected>
         }
       >
-        <Route index element={<Navigate to="/plates" replace />} />
-        <Route path="/plates" element={<PlatesListPage />} />
+        <Route index element={<HomeRedirect />} />
+        <Route
+          path="/plates"
+          element={
+            <Can module="stock" fallback={<NoAccess what="Stok" />}>
+              <PlatesListPage />
+            </Can>
+          }
+        />
         <Route
           path="/material-categories"
           element={
-            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+            <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
               <MaterialCategoriesPage />
-            </RoleGate>
+            </Can>
           }
         />
         <Route
           path="/material-templates"
           element={
-            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+            <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
               <MaterialTemplatesPage />
-            </RoleGate>
+            </Can>
           }
         />
-        <Route path="/purchases" element={<PurchasesPage />} />
+        <Route
+          path="/purchases"
+          element={
+            <Can module="purchases" fallback={<NoAccess what="Satın alma" />}>
+              <PurchasesPage />
+            </Can>
+          }
+        />
         <Route path="/processing" element={<Placeholder title="İşleme" />} />
-        <Route path="/queue" element={<ProcessingQueuePage />} />
-        <Route path="/quotes" element={<QuotesPage />} />
-        <Route path="/customers" element={<CustomersListPage />} />
-        <Route path="/payments" element={<PaymentsPage />} />
+        <Route
+          path="/queue"
+          element={
+            <Can module="processing" fallback={<NoAccess what="İş kuyruğu" />}>
+              <ProcessingQueuePage />
+            </Can>
+          }
+        />
+        <Route
+          path="/quotes"
+          element={
+            <Can module="quotes" fallback={<NoAccess what="Teklifler" />}>
+              <QuotesPage />
+            </Can>
+          }
+        />
+        <Route
+          path="/customers"
+          element={
+            <Can module="customers" fallback={<NoAccess what="Müşteriler" />}>
+              <CustomersListPage />
+            </Can>
+          }
+        />
+        <Route
+          path="/payments"
+          element={
+            <Can module="payments" fallback={<NoAccess what="Ödemeler" />}>
+              <PaymentsPage />
+            </Can>
+          }
+        />
         <Route
           path="/bank-reconciliation"
           element={
-            <RoleGate roles={['owner']}>
+            <Can module="banking" fallback={<NoAccess what="Banka mutabakatı" />}>
               <BankReconciliationPage />
-            </RoleGate>
+            </Can>
           }
         />
         <Route
-          path="/employees"
+          path="/team"
           element={
-            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
-              <EmployeesPage />
-            </RoleGate>
+            <TeamGate>
+              <TeamPage />
+            </TeamGate>
           }
         />
+        <Route path="/employees" element={<Navigate to="/team" replace />} />
         <Route
           path="/expenses"
           element={
-            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+            <Can module="expenses" fallback={<NoAccess what="Giderler" />}>
               <ExpensesPage />
-            </RoleGate>
+            </Can>
           }
         />
-        {/* Mali raporlar yalnızca İşletme Sahibi (RBAC). */}
+        {/* Her ekran seçili dükkândaki okuma iznine bağlı (sunucu da denetler). */}
         <Route
           path="/reports"
           element={
-            <RoleGate
-              roles={['owner']}
-              fallback={<Placeholder title="Yetkisiz" />}
-            >
+            <Can module="reports" fallback={<NoAccess what="Raporlar" />}>
               <DashboardPage />
-            </RoleGate>
+            </Can>
           }
         />
-        {/* Ayarlar (işletme/proje kimliği) yalnızca İşletme Sahibi. */}
         <Route
           path="/settings"
           element={
-            <RoleGate roles={['owner']} fallback={<Placeholder title="Yetkisiz" />}>
+            <Can module="settings" fallback={<NoAccess what="Dükkân ayarları" />}>
               <SettingsPage />
-            </RoleGate>
+            </Can>
           }
         />
       </Route>
 
-      <Route path="*" element={<Navigate to="/plates" replace />} />
+      <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );
 }

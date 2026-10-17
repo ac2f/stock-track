@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
@@ -22,7 +22,7 @@ import { ProcessingRate } from './processing-rate.entity';
  */
 @Entity('processing_jobs')
 @Index(['customerId', 'processedAt'])
-export class ProcessingJob extends BaseEntity {
+export class ProcessingJob extends ShopScopedEntity {
   @ManyToOne(() => MaterialPlate, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'plate_id' })
   plate: MaterialPlate;

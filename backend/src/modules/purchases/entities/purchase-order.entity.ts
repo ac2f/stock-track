@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { Vehicle } from '../../vehicles/entities/vehicle.entity';
 import { User } from '../../users/entities/user.entity';
@@ -14,7 +14,7 @@ import { PurchaseOrderItem } from './purchase-order-item.entity';
  * kayıt altına alınır. Kalemler stoğa giriş yapar.
  */
 @Entity('purchase_orders')
-export class PurchaseOrder extends BaseEntity {
+export class PurchaseOrder extends ShopScopedEntity {
   @ManyToOne(() => Supplier, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'supplier_id' })
   supplier: Supplier;

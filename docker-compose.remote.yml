@@ -1,0 +1,50 @@
+# ───────────────────────────────────────────────────────────────────────────
+# UZAK SUNUCU (internet) eki: HTTPS.
+#
+# docker-compose.prod.yml'in üstüne eklenir. Caddy alan adınız için otomatik
+# (Let's Encrypt) sertifika alır, HTTP'yi HTTPS'e yönlendirir ve her şeyi web
+# servisine iletir (web de /api isteklerini API'ye iletir). API ve web artık
+# doğrudan dışarı açılmaz; yalnız 80 ve 443.
+#
+# Neden şart: internette şifresiz bağlantıda oturum anahtarı ve veriler açık
+# gider; ayrıca arayüzün çevrimdışı kabuğu (service worker) tarayıcıda yalnız
+# HTTPS'te çalışır.
+#
+# Ön koşullar: alan adının DNS kaydı (A) sunucunun IP'sini göstermeli; 80 ve
+# 443 portları açık olmalı; Docker Compose 2.24 ya da yenisi (!reset için).
+#
+#   DOMAIN=stok.ornek.com docker compose \
+#     -f docker-compose.prod.yml -f docker-compose.remote.yml up -d --build
+#
+# Corel eklentisinin sunucu adresi: https://stok.ornek.com/api/v1
+# ───────────────────────────────────────────────────────────────────────────
+services:
+  web:
+    ports: !reset []
+
+  api:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: stocktrack-caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    ports:
+      - '80:80'
+      - '443:443'
+    command: caddy reverse-proxy --from ${DOMAIN:?DOMAIN ortam değişkeni gerekli (örn. stok.ornek.com)} --to web:80
+    volumes:
+      # Sertifikalar kalıcı: her yeniden başlatmada yeniden alınmasın.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

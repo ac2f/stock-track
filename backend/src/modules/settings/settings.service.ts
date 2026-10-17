@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -8,7 +8,9 @@ import {
   BusinessConfig,
   NotificationsConfig,
 } from '../../config/configuration';
+import { ShopContext } from '../../common/shop/shop-context';
 import { AppSetting } from './entities/app-setting.entity';
+import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
 
@@ -101,9 +103,11 @@ export interface TelegramStatus {
 }
 
 /**
- * Çalışma-zamanı ayarları. Tek satır tutulur; ilk erişimde .env (BusinessConfig)
- * varsayılanlarından tohumlanır. Belge servisleri ve portal, işletme kimliğini
- * BURADAN okur — böylece ad/adres tek ekrandan düzenlenebilir.
+ * Çalışma-zamanı ayarları. Her dükkânın kendi satırı vardır (işletme kimliği,
+ * fiyatlar, bildirim sohbeti, Corel anahtarı ...); o anki dükkân bağlamındaki
+ * satır okunur. İlk erişimde .env (BusinessConfig) varsayılanlarından
+ * tohumlanır. Bütün sisteme ait olanlar (Telegram botu, yetkili Telegram
+ * kullanıcıları, yedek sohbeti) tek satırlık SystemSetting'dedir.
  */
 @Injectable()
 export class SettingsService {
@@ -114,6 +118,8 @@ export class SettingsService {
   constructor(
     @InjectRepository(AppSetting)
     private readonly repo: Repository<AppSetting>,
+    @InjectRepository(SystemSetting)
+    private readonly systemRepo: Repository<SystemSetting>,
     configService: ConfigService,
   ) {
     this.business = configService.get<BusinessConfig>('business')!;
@@ -121,7 +127,7 @@ export class SettingsService {
     this.envBackup = configService.get<BackupConfig>('backup')!;
   }
 
-  /** Tek ayar satırını döndürür; yoksa .env varsayılanlarıyla oluşturur. */
+  /** Dükkânın ayar satırını döndürür; yoksa .env varsayılanlarıyla oluşturur. */
   async getOrCreate(): Promise<AppSetting> {
     const existing = await this.repo.findOne({
       where: {},
@@ -286,40 +292,69 @@ export class SettingsService {
     return this.getCorelStatus();
   }
 
-  /** Eklentinin gönderdiği anahtarı sabit zamanlı karşılaştırır. */
-  async checkCorelKey(candidate: string): Promise<CorelKeyCheck> {
-    const { apiKey } = await this.getCorelStatus();
-    if (!apiKey) return 'disabled';
+  /**
+   * Eklentinin gönderdiği anahtar hangi dükkânın? Her dükkânın kendi
+   * anahtarı vardır; anahtar dükkânı da belirler. Karşılaştırma sabit
+   * zamanlıdır.
+   */
+  async resolveCorelKey(candidate: string): Promise<{ check: CorelKeyCheck; shopId?: string }> {
+    const rows = await ShopContext.unscoped(() =>
+      this.repo
+        .createQueryBuilder('s')
+        .select(['s.id', 's.shopId', 's.corelApiKey'])
+        .where("s.corel_api_key <> ''")
+        .getMany(),
+    );
+    if (!rows.length) return { check: 'disabled' };
     const a = Buffer.from(candidate.trim());
-    const b = Buffer.from(apiKey);
-    if (a.length !== b.length) return 'invalid';
-    return timingSafeEqual(a, b) ? 'ok' : 'invalid';
+    let shopId: string | undefined;
+    for (const row of rows) {
+      const b = Buffer.from(row.corelApiKey.trim());
+      if (a.length === b.length && timingSafeEqual(a, b) && row.shopId) shopId = row.shopId;
+    }
+    return shopId ? { check: 'ok', shopId } : { check: 'invalid' };
   }
 
   // ── Telegram ────────────────────────────────────────────────────────
 
+  /** Sisteme ait tek satır; yoksa oluşturulur. */
+  async getSystem(): Promise<SystemSetting> {
+    const existing = await this.systemRepo.findOne({ where: {}, order: { createdAt: 'ASC' } });
+    if (existing) return existing;
+    return this.systemRepo.save(this.systemRepo.create({}));
+  }
+
+  /** Yalnız bot jetonu (dükkân bağlamı gerekmez: bot döngüsü, kanal denetimi). */
+  async getBotToken(): Promise<string> {
+    const sys = await this.getSystem();
+    return sys.telegramBotToken?.trim() || this.envNotifications.telegramBotToken || '';
+  }
+
   /**
    * Gönderim anında çağrılır (açılışta DEĞİL) → arayüzden yapılan değişiklik
    * container'ı yeniden başlatmadan hemen geçerli olur.
-   * Öncelik: veritabanı → .env. Yedek sohbeti boşsa bildirim sohbetine düşer.
+   * Öncelik: veritabanı → .env. Bot ve yedek sohbeti sisteme, bildirim
+   * sohbeti o anki dükkâna aittir; dükkân bağlamı yoksa (yedek görevi) ilk
+   * dükkânın sohbeti kullanılır. Yedek sohbeti boşsa bildirim sohbetine düşer.
    */
   async getTelegram(): Promise<ResolvedTelegram> {
-    const s = await this.getOrCreate();
+    const sys = await this.getSystem();
     const botToken =
-      s.telegramBotToken?.trim() || this.envNotifications.telegramBotToken || '';
-    const chatId =
-      s.telegramChatId?.trim() ||
-      this.envNotifications.telegramOwnerChatId ||
-      '';
+      sys.telegramBotToken?.trim() || this.envNotifications.telegramBotToken || '';
+    const shopChat = ShopContext.shopId()
+      ? (await this.getOrCreate()).telegramChatId?.trim()
+      : await this.firstShopChat();
+    const chatId = shopChat || this.envNotifications.telegramOwnerChatId || '';
     const backupChatId =
-      s.backupTelegramChatId?.trim() || this.envBackup.telegramChatId || '';
+      sys.backupTelegramChatId?.trim() || this.envBackup.telegramChatId || '';
     return { botToken, chatId, backupChatId: backupChatId || chatId };
   }
 
   /** Arayüz için durum — jeton maskelenir, asla açık dönmez. */
   async getTelegramStatus(): Promise<TelegramStatus> {
+    const sys = await this.getSystem();
     const s = await this.getOrCreate();
-    const dbToken = s.telegramBotToken?.trim() ?? '';
+    const dbToken = sys.telegramBotToken?.trim() ?? '';
     const envToken = this.envNotifications.telegramBotToken ?? '';
     const token = dbToken || envToken;
 
@@ -327,7 +362,7 @@ export class SettingsService {
     const envChat = this.envNotifications.telegramOwnerChatId ?? '';
     const chatId = dbChat || envChat;
 
-    const backupChatId = s.backupTelegramChatId?.trim() ?? '';
+    const backupChatId = sys.backupTelegramChatId?.trim() ?? '';
     const resolved = await this.getTelegram();
 
     return {
@@ -345,12 +380,13 @@ export class SettingsService {
   }
 
   /**
-   * Telegram üzerinden işlem yapmaya yetkili kullanıcı kimlikleri.
+   * Telegram üzerinden işlem yapmaya yetkili kullanıcı kimlikleri (sisteme
+   * ait; bu kişiler botta her dükkâna erişir).
    * Boş liste = hiç kimse yetkili değil (güvenli varsayılan).
    */
   async getAllowedUserIds(): Promise<string[]> {
-    const s = await this.getOrCreate();
-    return (s.telegramAllowedUserIds ?? '')
+    const sys = await this.getSystem();
+    return (sys.telegramAllowedUserIds ?? '')
       .split(/[,\s;]+/)
       .map((x) => x.trim())
       .filter(Boolean);
@@ -366,32 +402,59 @@ export class SettingsService {
    * Telegram ayarlarını günceller.
    *  - alan verilmediyse (undefined) DEĞİŞMEZ,
    *  - boş string gönderilirse TEMİZLENİR (→ .env değerine geri düşer).
+   * Bot jetonu, yedek sohbeti ve yetkili kullanıcılar sisteme aittir:
+   * yalnız sistem sahibi (`system: true`) değiştirebilir. Bildirim sohbeti
+   * dükkânındır.
    */
-  async updateTelegram(dto: UpdateTelegramDto): Promise<TelegramStatus> {
-    const s = await this.getOrCreate();
-    if (dto.telegramBotToken !== undefined) {
-      s.telegramBotToken = dto.telegramBotToken.trim();
+  async updateTelegram(dto: UpdateTelegramDto, system: boolean): Promise<TelegramStatus> {
+    const touchesSystem =
+      dto.telegramBotToken !== undefined ||
+      dto.backupTelegramChatId !== undefined ||
+      dto.telegramAllowedUserIds !== undefined;
+    if (touchesSystem && !system) {
+      throw new ForbiddenException(
+        'Bot jetonu, yedek sohbeti ve yetkili kullanıcıları yalnız sistem sahibi değiştirebilir.',
+      );
     }
     if (dto.telegramChatId !== undefined) {
+      const s = await this.getOrCreate();
       s.telegramChatId = dto.telegramChatId.trim();
+      await this.repo.save(s);
     }
-    if (dto.backupTelegramChatId !== undefined) {
-      s.backupTelegramChatId = dto.backupTelegramChatId.trim();
+    if (touchesSystem) {
+      const sys = await this.getSystem();
+      if (dto.telegramBotToken !== undefined) {
+        sys.telegramBotToken = dto.telegramBotToken.trim();
+      }
+      if (dto.backupTelegramChatId !== undefined) {
+        sys.backupTelegramChatId = dto.backupTelegramChatId.trim();
+      }
+      if (dto.telegramAllowedUserIds !== undefined) {
+        // Serbest girilen listeyi tekilleştirip normalize et.
+        const ids = [
+          ...new Set(
+            dto.telegramAllowedUserIds
+              .split(/[,\s;]+/)
+              .map((x) => x.trim())
+              .filter(Boolean),
+          ),
+        ];
+        sys.telegramAllowedUserIds = ids.join(',');
+      }
+      await this.systemRepo.save(sys);
     }
-    if (dto.telegramAllowedUserIds !== undefined) {
-      // Serbest girilen listeyi tekilleştirip normalize et.
-      const ids = [
-        ...new Set(
-          dto.telegramAllowedUserIds
-            .split(/[,\s;]+/)
-            .map((x) => x.trim())
-            .filter(Boolean),
-        ),
-      ];
-      s.telegramAllowedUserIds = ids.join(',');
-    }
-    await this.repo.save(s);
     return this.getTelegramStatus();
+  }
+
+  /** Dükkân bağlamı olmadan (yedek görevi): ilk açık dükkânın bildirim sohbeti. */
+  private async firstShopChat(): Promise<string> {
+    const rows: { telegram_chat_id: string }[] = await this.repo.query(
+      `SELECT s."telegram_chat_id" FROM "app_settings" s
+         JOIN "shops" sh ON sh."id" = s."shop_id"
+        WHERE s."deleted_at" IS NULL AND sh."is_active" = true AND s."telegram_chat_id" <> ''
+        ORDER BY sh."created_at" ASC LIMIT 1`,
+    );
+    return rows[0]?.telegram_chat_id?.trim() ?? '';
   }
 
   /**

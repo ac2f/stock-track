@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppSetting } from './entities/app-setting.entity';
+import { SystemSetting } from './entities/system-setting.entity';
 import { SettingsService } from './settings.service';
 import { SettingsController } from './settings.controller';
 
@@ -9,7 +10,7 @@ import { SettingsController } from './settings.controller';
  * SettingsService'i kullanır.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([AppSetting])],
+  imports: [TypeOrmModule.forFeature([AppSetting, SystemSetting])],
   controllers: [SettingsController],
   providers: [SettingsService],
   exports: [SettingsService],

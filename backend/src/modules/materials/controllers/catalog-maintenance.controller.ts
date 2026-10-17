@@ -1,8 +1,7 @@
 import { Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '../../../common/enums/user-role.enum';
 import { CatalogDedupeService } from '../services/catalog-dedupe.service';
+import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
 /**
  * Katalog bakımı (yalnızca İşletme Sahibi): geçmişte oluşmuş tür/marka/renk/
@@ -13,7 +12,7 @@ import { CatalogDedupeService } from '../services/catalog-dedupe.service';
  */
 @ApiTags('materials')
 @ApiBearerAuth()
-@Roles(UserRole.OWNER)
+@ShopScope('catalog')
 @Controller({ path: 'material-catalog', version: '1' })
 export class CatalogMaintenanceController {
   constructor(private readonly dedupe: CatalogDedupeService) {}

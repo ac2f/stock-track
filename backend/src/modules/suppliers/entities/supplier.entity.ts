@@ -1,9 +1,9 @@
 import { Column, Entity } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /** Tedarikçi (malzemeci). Satın alma ve piyasa fiyatlarıyla ilişkilidir. */
 @Entity('suppliers')
-export class Supplier extends BaseEntity {
+export class Supplier extends ShopScopedEntity {
   @Column()
   name: string;
 

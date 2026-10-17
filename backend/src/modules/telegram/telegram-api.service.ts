@@ -37,7 +37,7 @@ export class TelegramApiService {
   constructor(private readonly settings: SettingsService) {}
 
   async token(): Promise<string> {
-    return (await this.settings.getTelegram()).botToken;
+    return this.settings.getBotToken();
   }
 
   /** Inline düğme dizilimini Telegram'ın beklediği yapıya çevirir. */

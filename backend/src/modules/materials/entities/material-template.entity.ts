@@ -1,5 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { MaterialCategoryEntity } from './material-category.entity';
 import { MaterialPlate } from './material-plate.entity';
@@ -20,7 +20,7 @@ import { MaterialThickness } from './material-thickness.entity';
  * (kategori eşleşmesi servis katmanında doğrulanır).
  */
 @Entity('material_templates')
-export class MaterialTemplate extends BaseEntity {
+export class MaterialTemplate extends ShopScopedEntity {
   @Column()
   name: string; // "Alüminyum Kompozit 3mm"
 

@@ -40,6 +40,8 @@ describe('TelegramBotService — yetki doğrulaması', () => {
     };
 
     const sessions = {
+      shopOf: jest.fn(() => undefined),
+      setShop: jest.fn(),
       get: jest.fn(() => ({ data: {}, updatedAt: Date.now() })),
       patch: jest.fn(),
       reset: jest.fn(),
@@ -54,11 +56,16 @@ describe('TelegramBotService — yetki doğrulaması', () => {
       ),
     };
 
+    const shopAccess = {
+      activeShops: jest.fn(async () => [{ id: '00000000-0000-4000-8000-000000000001', name: 'Ana' }]),
+    };
+
     const bot = new TelegramBotService(
       api as never,
       screens as never,
       sessions as never,
       settings as never,
+      shopAccess as never,
       { get: jest.fn(() => true) } as never,
     );
     return { bot, api, sent, screensCalled, settings };

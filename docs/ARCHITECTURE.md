@@ -164,7 +164,38 @@ işleme ile maliyet & cari borç) **tek bir veritabanı transaction'ı** içinde
 yürütülür (`DataSource.transaction(...)`). Böylece kısmi yazımlar engellenir ve
 cari bakiye ile defter (ledger) her zaman tutarlı kalır.
 
-## 6. Genişletme Senaryoları
+## 6. Dükkân ayrımı (çok dükkân)
+
+Her iş kaydı bir dükkâna aittir (`ShopScopedEntity` → `shop_id`). Ayrım
+servislerde tek tek değil, altyapıda sağlanır:
+
+1. `shopContextMiddleware` her isteği boş bir bağlamla (AsyncLocalStorage)
+   başlatır.
+2. Global `ShopAccessGuard` (JWT ve rol korumasından sonra) `X-Shop-Id`
+   başlığındaki dükkâna üyeliği ve rotanın alan iznini (`@ShopScope`,
+   `@ShopAccess`, `@AnyShopMember`, `@NoShop`) denetler, dükkânı bağlama yazar.
+   Yetki tanımı olmayan rota reddedilir; bir birim testi her rotanın
+   tanımlı olduğunu denetler.
+3. TypeORM süzgeci dükkâna bağlı her sorguya `shop_id` koşulunu ekler; abone
+   eklemelerde `shop_id`'yi yazar ve başka dükkânın kaydına bağlanmayı
+   engeller.
+4. Corel anahtarı ve portal jetonu kendi dükkânlarını bağlama yazar;
+   zamanlanmış görevler `ShopAccessService.forEachShop` ile her dükkânda
+   ayrı çalışır; Telegram botu sohbet başına seçili dükkânda çalışır.
+
+## 7. Çevrimdışı çalışma ve tekrar güvenli istekler
+
+- Sunucu: `IdempotencyInterceptor` (en dıştaki interceptor) `Idempotency-Key`
+  taşıyan yazma isteğini bir kez işler, yanıtı saklar ve tekrarında aynen
+  döndürür. Veritabanına ulaşılamazsa `503`, kısıt ihlalinde `409` döner
+  (istemci 5xx'i "sonra dene", 4xx'i "kullanıcı baksın" sayar).
+- Arayüz (`frontend/src/offline`): GET yanıtlarını IndexedDB'de saklar;
+  sunucu yokken sıraya alınabilen yazmaları kuyruğa koyar ve geçici kimlik
+  verir; sağlık ucu dönünce kuyruğu sırasıyla gönderir, geçici kimlikleri
+  gerçeğiyle değiştirir, gönderilenleri ve eskiyen kopyaları siler.
+  Uygulama kabuğunu `public/sw.js` saklar.
+
+## 8. Genişletme Senaryoları
 
 | İhtiyaç                         | Nasıl eklenir                                              |
 | ------------------------------- | --------------------------------------------------------- |

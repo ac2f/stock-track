@@ -1,5 +1,5 @@
 import { Column, Entity, Index, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../common/entities/base.entity';
+import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { CustomerLedgerEntry } from './customer-ledger-entry.entity';
 import { Payment } from './payment.entity';
 
@@ -9,7 +9,7 @@ import { Payment } from './payment.entity';
  * (cache). Kaynağı: opening_balance + Σ DEBIT − Σ CREDIT.
  */
 @Entity('customers')
-export class Customer extends BaseEntity {
+export class Customer extends ShopScopedEntity {
   @Index()
   @Column()
   name: string;

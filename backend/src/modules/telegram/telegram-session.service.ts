@@ -23,6 +23,20 @@ const TTL_MS = 15 * 60 * 1000;
 @Injectable()
 export class TelegramSessionService {
   private readonly sessions = new Map<number, Session>();
+  /**
+   * Sohbetin çalıştığı dükkân. Akış oturumundan ayrı tutulur: menüye dönmek
+   * ya da oturumun süresinin dolması seçimi unutturmaz (yeniden başlatma
+   * unutturur; o zaman ilk dükkâna dönülür).
+   */
+  private readonly shops = new Map<number, string>();
+
+  shopOf(chatId: number): string | undefined {
+    return this.shops.get(chatId);
+  }
+
+  setShop(chatId: number, shopId: string): void {
+    this.shops.set(chatId, shopId);
+  }
 
   get(chatId: number): Session {
     const existing = this.sessions.get(chatId);

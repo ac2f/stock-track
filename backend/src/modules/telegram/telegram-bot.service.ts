@@ -4,6 +4,8 @@ import { Interval } from '@nestjs/schedule';
 import { LedgerEntryType } from '../../common/enums/ledger-entry-type.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { SettingsService } from '../settings/settings.service';
+import { ShopAccessService } from '../shops/shop-access.service';
+import { ShopContext } from '../../common/shop/shop-context';
 import {
   Keyboard,
   TelegramApiService,
@@ -41,6 +43,7 @@ export class TelegramBotService {
     private readonly screens: TelegramScreensService,
     private readonly sessions: TelegramSessionService,
     private readonly settings: SettingsService,
+    private readonly shopAccess: ShopAccessService,
     configService: ConfigService,
   ) {
     this.enabled = configService.get<boolean>('scheduler.enabled') ?? true;
@@ -113,18 +116,48 @@ export class TelegramBotService {
       return;
     }
 
-    if (callback) {
-      await this.api.answerCallback(callback.id);
-      await this.route(
-        chatId,
-        callback.data ?? 'home',
-        callback.message?.message_id,
-      );
+    // Sohbetin dükkânı: seçilmişse o (hâlâ açıksa), yoksa ilk açık dükkân.
+    // Bundan sonraki her okuma/yazma o dükkânın bağlamında yapılır.
+    const shopId = await this.shopFor(chatId, callback?.data);
+    if (!shopId) {
+      await this.api.sendMessage(chatId, 'Açık bir dükkân yok.');
       return;
     }
 
-    if (!text) return;
-    await this.handleText(chatId, text);
+    await ShopContext.forShop(shopId, async () => {
+      if (callback) {
+        await this.api.answerCallback(callback.id);
+        await this.route(
+          chatId,
+          callback.data ?? 'home',
+          callback.message?.message_id,
+        );
+        return;
+      }
+
+      if (!text) return;
+      await this.handleText(chatId, text);
+    });
+  }
+
+  /**
+   * Sohbetin dükkânı. Yetkili Telegram kullanıcıları (sistem sahibinin
+   * eklediği kişiler) bütün açık dükkânlara girebilir; "shop:<id>" düğmesi
+   * seçimi değiştirir.
+   */
+  private async shopFor(chatId: number, data?: string): Promise<string | undefined> {
+    const shops = await this.shopAccess.activeShops();
+    const picked = data?.startsWith('shop:') ? data.slice(5) : undefined;
+    if (picked && shops.some((s) => s.id === picked)) {
+      this.sessions.setShop(chatId, picked);
+      this.sessions.reset(chatId);
+      return picked;
+    }
+    const current = this.sessions.shopOf(chatId);
+    if (current && shops.some((s) => s.id === current)) return current;
+    const first = shops[0]?.id;
+    if (first) this.sessions.setShop(chatId, first);
+    return first;
   }
 
   /** Yetkisiz kişiye: ne yapıldığı ve kendi kimliği (veri sızmaz). */
@@ -258,6 +291,11 @@ export class TelegramBotService {
     switch (head) {
       case 'home':
         this.sessions.reset(chatId);
+        return this.show(chatId, await this.screens.home(), messageId);
+      case 'shops':
+        return this.show(chatId, await this.screens.shopPicker(), messageId);
+      case 'shop':
+        // Seçim shopFor'da yapıldı; yeni dükkânın ana menüsü.
         return this.show(chatId, await this.screens.home(), messageId);
       case 'help':
         return this.show(chatId, this.screens.help(), messageId);

@@ -4,9 +4,11 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { CurrencyService } from './currency.service';
 import { CreateExchangeRateDto } from './dto/create-exchange-rate.dto';
+import { NoShop } from '../../common/shop/shop-access.decorator';
 
 @ApiTags('currency')
 @ApiBearerAuth()
+@NoShop()
 @Controller({ path: 'exchange-rates', version: '1' })
 export class CurrencyController {
   constructor(private readonly currencyService: CurrencyService) {}

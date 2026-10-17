@@ -8,6 +8,7 @@ import { ProcessingJob } from '../processing/entities/processing-job.entity';
 import { CustomersService } from '../customers/services/customers.service';
 import { CustomerAccountService } from '../customers/services/customer-account.service';
 import { SettingsService } from '../settings/settings.service';
+import { ShopContext } from '../../common/shop/shop-context';
 
 /**
  * Müşteri self-servis portalı — salt-okunur, token doğrulamalı.
@@ -92,11 +93,19 @@ export class PortalService {
     };
   }
 
+  /**
+   * Jetonun müşterisini bulur ve isteği o müşterinin dükkânına bağlar: portal
+   * oturumsuzdur, dükkânı jeton belirler. (Jetonlar tüm dükkânlarda
+   * tekildir; arama bu yüzden dükkân süzgecisiz yapılır.)
+   */
   private async resolve(token: string): Promise<Customer> {
-    const customer = await this.customersService.findByPortalToken(token);
+    const customer = await ShopContext.unscoped(() =>
+      this.customersService.findByPortalToken(token),
+    );
     if (!customer) {
       throw new NotFoundException('Geçersiz veya iptal edilmiş portal bağlantısı.');
     }
+    ShopContext.enter(customer.shopId);
     return customer;
   }
 }
