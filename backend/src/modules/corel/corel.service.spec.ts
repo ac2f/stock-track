@@ -24,6 +24,7 @@ describe('CorelService', () => {
     ownedPlates?: unknown[];
     business?: unknown[];
     customers?: unknown[];
+    quotes?: unknown[];
   }) {
     const qb = {
       select: jest.fn().mockReturnThis(),
@@ -50,6 +51,16 @@ describe('CorelService', () => {
       findOne: jest.fn(() => Promise.resolve(null)),
     };
     const stockLevelsRepo = { createQueryBuilder: jest.fn(() => qb) };
+    const quotesRepo = {
+      find: jest.fn(() => Promise.resolve(opts.quotes ?? [])),
+      findOne: jest.fn(({ where }: { where: { id: string } }) =>
+        Promise.resolve(
+          (opts.quotes as { id: string }[] | undefined)?.find(
+            (q) => q.id === where.id,
+          ) ?? null,
+        ),
+      ),
+    };
     const settings = {
       getBusiness: jest.fn(() => Promise.resolve({ name: 'Acme Reklam' })),
     };
@@ -57,6 +68,7 @@ describe('CorelService', () => {
       customersRepo as never,
       platesRepo as never,
       stockLevelsRepo as never,
+      quotesRepo as never,
       settings as never,
     );
   }
@@ -111,6 +123,44 @@ describe('CorelService', () => {
 
     expect(out.map((l) => l.split('\t')[0])).toEqual(['c2', 'c1']);
     expect(out[0].split('\t')[1]).toBe('Ozturk Reklam');
+  });
+
+  it('teklif kullanımı yalnız tabaka kalemlerini verir', async () => {
+    const sheet = { ...pleksi('p1', 'Beyaz'), measurementType: 'area' };
+    const roll = { ...pleksi('p2', 'Profil'), measurementType: 'length' };
+    const svc = build({
+      quotes: [
+        {
+          id: 'q1',
+          quoteNo: 'TKF-2026-0001',
+          status: 'draft',
+          createdAt: new Date('2026-10-17T10:00:00Z'),
+          items: [
+            {
+              id: 'i1',
+              quantity: '1',
+              widthMm: '1220',
+              heightMm: '900',
+              plate: sheet,
+            },
+            { id: 'i2', quantity: '3', plate: roll },
+            { id: 'i3', quantity: '1', plate: null, itemName: 'Montaj' },
+          ],
+        },
+      ],
+    });
+
+    const qs = lines(await svc.quotes('c1'));
+    expect(qs).toEqual(['q1\tTKF-2026-0001\t2026-10-17\tdraft\t1']);
+
+    const used = lines(await svc.quoteUsage('q1'));
+    expect(used).toHaveLength(1);
+    expect(used[0].split('\t').slice(0, 3)).toEqual(['i1', 'Q', 'pleksi']);
+    expect(used[0].split('\t').slice(7, 9)).toEqual(['1220', '900']);
+  });
+
+  it('teklif listesi müşteri ister', async () => {
+    await expect(build({}).quotes(undefined)).rejects.toThrow('customerId');
   });
 
   it('ping işletme adını döner', async () => {

@@ -254,3 +254,71 @@ export function materialHaystack(p: CorelPlateLike): string {
     w && h ? `${w}x${h}` : '',
   ]);
 }
+
+// ── Teklifler ──────────────────────────────────────────────────────────
+
+/** Satır üretmek için gereken teklif başlığı alanları. */
+export interface CorelQuoteLike {
+  id: string;
+  quoteNo: string;
+  status: string;
+  createdAt: Date;
+}
+
+/** Teklif satırı: id, teklif no, tarih (YYYY-AA-GG), durum, tabaka kalemi sayısı. */
+export function quoteLine(q: CorelQuoteLike, sheetLines: number): string {
+  return tsvLine([
+    q.id,
+    q.quoteNo,
+    q.createdAt.toISOString().slice(0, 10),
+    q.status,
+    sheetLines,
+  ]);
+}
+
+/** Satır üretmek için gereken teklif kalemi alanları. */
+export interface CorelQuoteItemLike {
+  id: string;
+  quantity: number | string;
+  widthMm?: number | string | null;
+  heightMm?: number | string | null;
+  plate?: CorelPlateLike | null;
+}
+
+/**
+ * Teklifte bir tabakadan kullanılan parça. Malzeme satırıyla AYNI düzen
+ * (eklenti ikisini aynı kodla okur); sahip yerine `Q`, en/boy yerine
+ * kalemin KULLANILAN ölçüsü:
+ *   id, Q, tür, kalınlık µm, marka, varyant, renk, kullanılan en, boy, adet, ad
+ * Kalemde ölçü yoksa plakanınki geçer (tamamı kullanılmış sayılır).
+ */
+export function usageLine(item: CorelQuoteItemLike): string {
+  const p = item.plate!;
+  const w = mmText(item.widthMm ?? p.widthMm);
+  const h = mmText(item.heightMm ?? p.heightMm);
+  const thick = Number(p.thicknessMm);
+  const label = [
+    p.template?.category?.name || p.template?.name || p.name,
+    thick > 0 ? `${Math.round(thick * 100) / 100}mm` : '',
+    p.brand,
+    p.variant,
+    p.color,
+    w && h ? `${w}x${h}` : '',
+    `x${qtyText(Number(item.quantity))}`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return tsvLine([
+    item.id,
+    'Q',
+    plateKind(p),
+    thicknessMicrons(p.thicknessMm),
+    nameToken(p.brand),
+    nameToken(p.variant),
+    nameToken(p.color),
+    w,
+    h,
+    qtyText(Number(item.quantity)),
+    label,
+  ]);
+}

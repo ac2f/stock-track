@@ -69,4 +69,28 @@ export class CorelController {
     res.set({ 'Content-Type': TEXT });
     return this.corel.materials(query.customerId, query.q, query.limit);
   }
+
+  /** Satır: `id, teklif no, tarih, durum, tabaka kalemi sayısı`; yeniden eskiye. */
+  @Get('quotes')
+  quotes(
+    @Query() query: QueryCorelDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    res.set({ 'Content-Type': TEXT });
+    return this.corel.quotes(query.customerId, query.limit);
+  }
+
+  /**
+   * Teklifin tabaka kalemleri, malzeme satırıyla aynı düzende; en/boy
+   * kullanılan ölçüdür. Eklenti tabakanın bir kısmı kullanıldıysa takım yolu
+   * klasörüne `u135x100` dosyası koyar.
+   */
+  @Get('quotes/:id/usage')
+  quoteUsage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    res.set({ 'Content-Type': TEXT });
+    return this.corel.quoteUsage(id);
+  }
 }

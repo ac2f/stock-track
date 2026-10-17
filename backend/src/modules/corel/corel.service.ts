@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThan, Repository } from 'typeorm';
 import { MeasurementType } from '../../common/enums/measurement-type.enum';
 import { Customer } from '../customers/entities/customer.entity';
 import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { StockLevel } from '../materials/entities/stock-level.entity';
+import { Quote } from '../quotes/entities/quote.entity';
+import { QuoteItem } from '../quotes/entities/quote-item.entity';
 import { SettingsService } from '../settings/settings.service';
 import {
   customerFolderName,
@@ -14,13 +20,21 @@ import {
   materialLine,
   matchesTokens,
   plateKind,
+  quoteLine,
   searchTokens,
   tsvBody,
   tsvLine,
+  usageLine,
 } from './corel-naming.util';
 
 const DEFAULT_CUSTOMERS = 25;
 const DEFAULT_MATERIALS = 40;
+const DEFAULT_QUOTES = 6;
+
+/** Tabakadan parça kullanan teklif kalemi: plakalı ve m² ölçülen. */
+function isSheetItem(item: QuoteItem): boolean {
+  return !!item.plate && item.plate.measurementType === MeasurementType.AREA;
+}
 
 /**
  * CorelDRAW eklentisinin okuduğu listeler. Yanıtlar sekmeyle ayrılmış düz
@@ -39,6 +53,8 @@ export class CorelService {
     private readonly platesRepo: Repository<MaterialPlate>,
     @InjectRepository(StockLevel)
     private readonly stockLevelsRepo: Repository<StockLevel>,
+    @InjectRepository(Quote)
+    private readonly quotesRepo: Repository<Quote>,
     private readonly settings: SettingsService,
   ) {}
 
@@ -155,5 +171,32 @@ export class CorelService {
     return tsvBody(
       hits.slice(0, limit).map((r) => materialLine(r.plate, r.owner, r.qty)),
     );
+  }
+
+  /**
+   * Müşterinin son teklifleri (yeniden eskiye). Eklenti, teklif kesildikten
+   * sonra tabakanın ne kadarının kullanıldığını buradan öğrenir.
+   */
+  async quotes(customerId?: string, limit = DEFAULT_QUOTES): Promise<string> {
+    if (!customerId) {
+      throw new BadRequestException('customerId gerekli.');
+    }
+    const quotes = await this.quotesRepo.find({
+      where: { buyerCustomerId: customerId },
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+    return tsvBody(
+      quotes.map((q) =>
+        quoteLine(q, (q.items ?? []).filter(isSheetItem).length),
+      ),
+    );
+  }
+
+  /** Bir teklifin tabaka kalemleri ve her birinden kullanılan ölçü. */
+  async quoteUsage(id: string): Promise<string> {
+    const quote = await this.quotesRepo.findOne({ where: { id } });
+    if (!quote) throw new NotFoundException('Teklif bulunamadı.');
+    return tsvBody((quote.items ?? []).filter(isSheetItem).map(usageLine));
   }
 }

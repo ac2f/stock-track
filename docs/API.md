@@ -518,6 +518,8 @@ yapıştırılır. Anahtar boşken entegrasyon kapalıdır (401).
 | GET | `/corel/customers?q=&limit=` | 🔑 | Müşteriler; `q` boşsa son güncellenenler |
 | GET | `/corel/customers/:id` | 🔑 | Tek müşteri |
 | GET | `/corel/materials?customerId=&q=&limit=` | 🔑 | Stoktaki tabakalar; müşterinin malzemesi önce |
+| GET | `/corel/quotes?customerId=&limit=` | 🔑 | Müşterinin son teklifleri (yeniden eskiye) |
+| GET | `/corel/quotes/:id/usage` | 🔑 | Teklifin tabaka kalemleri ve kullanılan ölçü |
 
 **Yanıt biçimi:** `text/plain`, sekmeyle ayrılmış, tamamen ASCII (Türkçe
 harfler katlanır: `Öztürk` → `Ozturk`). İlk satır sürüm başlığıdır
@@ -544,3 +546,23 @@ id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen 
 - **Arama** Türkçe harfe duyarsızdır ve her kelime geçmelidir:
   `dokme beyaz 2,8` → *Dökme*, *Beyaz*, *2.8mm*. Kalınlık `2800um`, ebat
   `1220x2440`, renk kodu ve stok kodu da aranır.
+
+### Tekliften kullanılan tabaka ölçüsü
+
+Teklif kesildikten sonra eklenti (`ac2fJobUsage`) teklifin tabaka
+kalemlerini okur; bir tabakanın yalnız bir kısmı kullanıldıysa o
+tabakanın takım yolu klasörüne `u135x100` adlı bir dosya koyar.
+
+```
+# /corel/quotes?customerId=e8a0…
+id  teklif no  tarih  durum  tabaka kalemi
+72cf…  TKF-2026-0001  2026-10-17  draft  2
+
+# /corel/quotes/72cf…/usage   (malzeme satırıyla aynı düzen; en/boy KULLANILAN ölçü)
+id  Q  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen ad
+c1b4…  Q  pleksi  2800  akpolimer  dokme  beyaz  1000  1220  1  Pleksi 2.8mm Akpolimer Dokme Beyaz 1000x1220 x1
+```
+
+Yalnız plakalı ve m² ölçülen kalemler listelenir. Kalemde ölçü
+girilmemişse plakanın ölçüsü yazılır, yani tabakanın tamamı kullanılmış
+sayılır. Tarih UTC'dir; eklenti klasörü o günden geriye doğru arar.

@@ -8,9 +8,11 @@ import {
   matchesTokens,
   nameToken,
   plateKind,
+  quoteLine,
   searchTokens,
   thicknessMicrons,
   tsvBody,
+  usageLine,
 } from './corel-naming.util';
 
 /**
@@ -131,6 +133,59 @@ describe('Corel isimlendirme', () => {
       plateKind({ id: 'p', name: 'X', template: { name: 'Dekota' } }),
     ).toBe('dekota');
     expect(plateKind({ id: 'p', name: '' })).toBe('malzeme');
+  });
+
+  it('teklif satırı: id, no, tarih, durum, tabaka kalemi sayısı', () => {
+    expect(
+      quoteLine(
+        {
+          id: 'q1',
+          quoteNo: 'TKF-2026-0012',
+          status: 'draft',
+          createdAt: new Date('2026-10-17T09:30:00Z'),
+        },
+        2,
+      ),
+    ).toBe('q1\tTKF-2026-0012\t2026-10-17\tdraft\t2');
+  });
+
+  it('kullanım satırı malzeme satırının düzeninde, en/boy kullanılan ölçü', () => {
+    const plate = {
+      id: 'p1',
+      name: 'Pleksi',
+      brand: 'Akpolimer',
+      variant: 'Dökme',
+      color: 'Beyaz',
+      thicknessMm: '2.80',
+      widthMm: '1350.00',
+      heightMm: '2000.00',
+      template: { name: 'Pleksi', category: { name: 'Pleksi' } },
+    };
+    expect(
+      usageLine({
+        id: 'i1',
+        quantity: '1.00',
+        widthMm: '1000',
+        heightMm: '1350',
+        plate,
+      }).split('\t'),
+    ).toEqual([
+      'i1',
+      'Q',
+      'pleksi',
+      '2800',
+      'akpolimer',
+      'dokme',
+      'beyaz',
+      '1000',
+      '1350',
+      '1',
+      'Pleksi 2.8mm Akpolimer Dokme Beyaz 1000x1350 x1',
+    ]);
+    // ölçü verilmemiş kalem: plakanın tamamı
+    expect(
+      usageLine({ id: 'i2', quantity: 2, plate }).split('\t').slice(7, 10),
+    ).toEqual(['1350', '2000', '2']);
   });
 
   it('gövde sürüm başlığıyla başlar', () => {
