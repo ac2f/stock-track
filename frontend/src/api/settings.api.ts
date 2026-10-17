@@ -144,3 +144,30 @@ export async function updateDisplaySettings(
   const { data } = await api.put<DisplaySettings>('/settings/display', input);
   return data;
 }
+
+// ── Corel entegrasyonu ──────────────────────────────────────────────────
+/**
+ * CorelDRAW eklentisinin (ac2f pack) anahtarı. Eklenti müşteri ve stok
+ * listesini bu anahtarla okur; boşken entegrasyon kapalıdır.
+ */
+export interface CorelIntegration {
+  enabled: boolean;
+  apiKey: string;
+}
+
+export async function fetchCorelIntegration(): Promise<CorelIntegration> {
+  const { data } = await api.get<CorelIntegration>('/settings/corel');
+  return data;
+}
+
+/** Yeni anahtar üretir; eski anahtar o anda geçersiz olur. */
+export async function rotateCorelKey(): Promise<CorelIntegration> {
+  const { data } = await api.post<CorelIntegration>('/settings/corel/rotate');
+  return data;
+}
+
+/** Anahtarı siler, entegrasyonu kapatır. */
+export async function disableCorelIntegration(): Promise<CorelIntegration> {
+  const { data } = await api.delete<CorelIntegration>('/settings/corel');
+  return data;
+}

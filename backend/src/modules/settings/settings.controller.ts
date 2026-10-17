@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -55,6 +55,30 @@ export class SettingsController {
   @Put('pricing')
   updatePricing(@Body() dto: UpdatePricingDto) {
     return this.settings.updatePricing(dto);
+  }
+
+  /**
+   * CorelDRAW eklentisinin anahtarı. Eklentinin ayarına bir kez yapıştırılır;
+   * müşteri ve stok listesini okumasını sağlar.
+   */
+  @Roles(UserRole.OWNER)
+  @Get('corel')
+  getCorel() {
+    return this.settings.getCorelStatus();
+  }
+
+  /** Yeni anahtar üretir; eski anahtarla gelen istekler reddedilir. */
+  @Roles(UserRole.OWNER)
+  @Post('corel/rotate')
+  rotateCorel() {
+    return this.settings.rotateCorelKey();
+  }
+
+  /** Anahtarı siler, entegrasyonu kapatır. */
+  @Roles(UserRole.OWNER)
+  @Delete('corel')
+  disableCorel() {
+    return this.settings.disableCorelKey();
   }
 
   /**

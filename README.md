@@ -100,7 +100,8 @@ backend/src/
     ├── reports/                # Mali raporlar & dashboard (OWNER)
     ├── documents/              # PDF (fatura/irsaliye/teklif/ekstre) + Excel/CSV dışa aktarım
     ├── portal/                 # Müşteri self-servis portalı (public, token'lı, salt-okunur)
-    └── notifications/          # Bildirim & hatırlatma (Log + Telegram + WhatsApp)
+    ├── notifications/          # Bildirim & hatırlatma (Log + Telegram + WhatsApp)
+    └── corel/                  # CorelDRAW eklentisi (ac2f pack): anahtarlı, salt-okunur müşteri/stok listesi
 ```
 
 ## Çekirdek İş Alanları (Domain)

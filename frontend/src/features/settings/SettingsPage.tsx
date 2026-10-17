@@ -11,6 +11,9 @@ import {
   updateDisplaySettings,
   updatePricingSettings,
   updateTelegramSettings,
+  fetchCorelIntegration,
+  rotateCorelKey,
+  disableCorelIntegration,
   type SettingSource,
   type UpdateBusinessInput,
 } from '../../api/settings.api';
@@ -35,6 +38,7 @@ import {
   fetchCatalogDuplicates,
 } from '../../api/materials.api';
 import { useLock } from '../../context/LockContext';
+import { API_URL } from '../../api/client';
 
 /** Etiketli form alanı. */
 function Field({
@@ -169,6 +173,7 @@ export function SettingsPage() {
 
       <DisplaySettingsCard />
       <PricingSettingsCard />
+      <CorelIntegrationCard />
       <CatalogHealthCard />
       <ScreenLockSettings />
       <TelegramSettings />
@@ -332,6 +337,163 @@ function PricingSettingsCard() {
       >
         Kaydet
       </button>
+    </div>
+  );
+}
+
+/**
+ * 🖌️ Corel entegrasyonu: CorelDRAW eklentisi (ac2f pack) müşteriyi ve
+ * stoktaki malzemeyi buradan okur, dışa aktarılan dosyaya ve takım yolu
+ * klasörlerine adı bu bilgilerle verir. Eklenti yalnızca okur.
+ */
+function CorelIntegrationCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['settings', 'corel'],
+    queryFn: fetchCorelIntegration,
+  });
+  const [show, setShow] = useState(false);
+  const [copied, setCopied] = useState<'key' | 'url' | null>(null);
+
+  const onDone = () => qc.invalidateQueries({ queryKey: ['settings', 'corel'] });
+  const rotate = useMutation({ mutationFn: rotateCorelKey, onSuccess: onDone });
+  const disable = useMutation({
+    mutationFn: disableCorelIntegration,
+    onSuccess: onDone,
+  });
+
+  // Eklentiye yazılacak adres: arayüzün açıldığı sunucu + API öneki.
+  const serverUrl = new URL(API_URL, window.location.origin).href.replace(/\/$/, '');
+  const onLocalhost = /\/\/(localhost|127\.0\.0\.1)[:/]/.test(serverUrl);
+
+  const copy = async (what: 'key' | 'url', text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopied(null);
+    }
+  };
+
+  const enabled = data?.enabled === true;
+  const busy = rotate.isPending || disable.isPending;
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">🖌️ Corel entegrasyonu</h2>
+      <p className="text-sm text-slate-500">
+        CorelDRAW eklentisi (ac2f pack) dosyayı bir müşteriye bağlarken müşteri
+        listesini, malzeme seçerken stoğu buradan okur. Dışa aktarılan DXF ve
+        takım yolu klasörleri bu bilgilerle otomatik adlandırılır. Eklenti
+        hiçbir kayıt yazmaz.
+      </p>
+
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <p
+          className={`text-xs font-medium ${
+            enabled ? 'text-emerald-700' : 'text-slate-500'
+          }`}
+        >
+          {enabled
+            ? '✅ Açık — eklenti aşağıdaki anahtarla bağlanabilir.'
+            : 'Kapalı — eklentinin bağlanması için anahtar oluşturun.'}
+        </p>
+
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            Sunucu adresi
+          </span>
+          <div className="flex gap-2">
+            <input className="input font-mono text-xs" readOnly value={serverUrl} />
+            <button
+              className="btn bg-slate-100 text-xs"
+              onClick={() => copy('url', serverUrl)}
+            >
+              {copied === 'url' ? '✓' : 'Kopyala'}
+            </button>
+          </div>
+          {onLocalhost && (
+            <span className="mt-1 block text-xs text-amber-700">
+              Corel başka bir bilgisayardaysa <code>localhost</code> yerine bu
+              sunucunun yerel ağ adresini yazın (ör. 192.168.1.50).
+            </span>
+          )}
+        </label>
+
+        {enabled && data && (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-slate-600">
+              Anahtar
+            </span>
+            <div className="flex gap-2">
+              <input
+                className="input font-mono text-xs"
+                readOnly
+                type={show ? 'text' : 'password'}
+                value={data.apiKey}
+                onFocus={(e) => e.target.select()}
+              />
+              <button
+                className="btn bg-slate-100 text-xs"
+                onClick={() => setShow((v) => !v)}
+              >
+                {show ? 'Gizle' : 'Göster'}
+              </button>
+              <button
+                className="btn bg-slate-100 text-xs"
+                onClick={() => copy('key', data.apiKey)}
+              >
+                {copied === 'key' ? '✓' : 'Kopyala'}
+              </button>
+            </div>
+          </label>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="btn-primary"
+            disabled={!data || busy}
+            onClick={() => {
+              if (
+                enabled &&
+                !window.confirm(
+                  'Yeni anahtar üretilince eski anahtar çalışmaz; eklentiye yenisini yapıştırmanız gerekir. Devam edilsin mi?',
+                )
+              )
+                return;
+              rotate.mutate();
+            }}
+          >
+            {enabled ? 'Yeni anahtar üret' : 'Anahtar oluştur'}
+          </button>
+          {enabled && (
+            <button
+              className="btn bg-slate-100"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm('Corel entegrasyonu kapatılsın mı?')) {
+                  disable.mutate();
+                }
+              }}
+            >
+              Kapat
+            </button>
+          )}
+        </div>
+        {(rotate.isError || disable.isError) && (
+          <p className="text-xs text-red-600">İşlem yapılamadı.</p>
+        )}
+
+        <div className="rounded bg-slate-50 p-2 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <p className="font-medium">Corel tarafında:</p>
+          <p>
+            ac2fPack menüsü › <b>Job setup</b> › sunucu adresini ve anahtarı
+            yapıştırın. Ardından <b>Link customer</b> ile dosyayı müşteriye
+            bağlayın.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

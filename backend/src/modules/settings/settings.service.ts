@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -47,6 +48,15 @@ export interface DisplaySettings {
    */
   showLedgerUndo: boolean;
 }
+
+/** Corel eklentisi entegrasyonu: anahtar yalnızca İşletme Sahibine döner. */
+export interface CorelIntegrationStatus {
+  enabled: boolean;
+  apiKey: string;
+}
+
+/** Corel anahtarı denetiminin sonucu. */
+export type CorelKeyCheck = 'ok' | 'invalid' | 'disabled';
 
 /** Ayar değerinin nereden geldiği — arayüzde gösterilir. */
 export type SettingSource = 'db' | 'env' | 'none';
@@ -173,6 +183,40 @@ export class SettingsService {
     }
     await this.repo.save(s);
     return this.getPricing();
+  }
+
+  // ── Corel entegrasyonu ──────────────────────────────────────────────
+
+  async getCorelStatus(): Promise<CorelIntegrationStatus> {
+    const s = await this.getOrCreate();
+    const apiKey = s.corelApiKey?.trim() ?? '';
+    return { enabled: !!apiKey, apiKey };
+  }
+
+  /** Yeni anahtar üretir; eskisi o anda geçersiz olur. */
+  async rotateCorelKey(): Promise<CorelIntegrationStatus> {
+    const s = await this.getOrCreate();
+    s.corelApiKey = randomBytes(20).toString('hex');
+    await this.repo.save(s);
+    return this.getCorelStatus();
+  }
+
+  /** Anahtarı siler → entegrasyon kapanır. */
+  async disableCorelKey(): Promise<CorelIntegrationStatus> {
+    const s = await this.getOrCreate();
+    s.corelApiKey = '';
+    await this.repo.save(s);
+    return this.getCorelStatus();
+  }
+
+  /** Eklentinin gönderdiği anahtarı sabit zamanlı karşılaştırır. */
+  async checkCorelKey(candidate: string): Promise<CorelKeyCheck> {
+    const { apiKey } = await this.getCorelStatus();
+    if (!apiKey) return 'disabled';
+    const a = Buffer.from(candidate.trim());
+    const b = Buffer.from(apiKey);
+    if (a.length !== b.length) return 'invalid';
+    return timingSafeEqual(a, b) ? 'ok' : 'invalid';
   }
 
   // ── Telegram ────────────────────────────────────────────────────────

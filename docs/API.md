@@ -496,3 +496,51 @@ Sağlayıcılar "1 baz birim kaç döviz eder" verir (1 TRY = 0,029 USD);
 veritabanında **tersi** saklanır (1 USD = 34,48 TRY) — uygulama kurları her
 zaman "1 döviz = N TL" yönünde okur. Sağlayıcı beklenen tabanı vermezse veriler
 **yazılmaz** (sessizce ters hesap yapılmaz).
+
+---
+
+## CorelDRAW eklentisi (ac2f pack)
+
+Corel'deki `ac2fJob` modülü müşteriyi ve stoktaki malzemeyi buradan okur;
+dışa aktarılan DXF ile takım yolu klasörlerine ad bu bilgilerle verilir.
+Uçlar **salt-okunurdur**, hiçbir kayıt yazmaz.
+
+**Kimlik:** JWT değil, `X-Api-Key` başlığı. Anahtar *Ayarlar › Corel
+entegrasyonu* bölümünden üretilir ve eklentinin kurulumuna bir kez
+yapıştırılır. Anahtar boşken entegrasyon kapalıdır (401).
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/settings/corel` | 👔 | `{ enabled, apiKey }` |
+| POST | `/settings/corel/rotate` | 👔 | Yeni anahtar; eskisi anında geçersiz |
+| DELETE | `/settings/corel` | 👔 | Anahtarı siler, entegrasyonu kapatır |
+| GET | `/corel/ping` | 🔑 | `ok <TAB> işletme adı` |
+| GET | `/corel/customers?q=&limit=` | 🔑 | Müşteriler; `q` boşsa son güncellenenler |
+| GET | `/corel/customers/:id` | 🔑 | Tek müşteri |
+| GET | `/corel/materials?customerId=&q=&limit=` | 🔑 | Stoktaki tabakalar; müşterinin malzemesi önce |
+
+**Yanıt biçimi:** `text/plain`, sekmeyle ayrılmış, tamamen ASCII (Türkçe
+harfler katlanır: `Öztürk` → `Ozturk`). İlk satır sürüm başlığıdır
+(`#ac2f-corel 1`); `#` ile başlayan satırlar atlanır. Hata yanıtları her
+zamanki JSON gövdesidir.
+
+```
+# /corel/customers
+id  klasör adı  görünen ad
+e8a0…  Ozturk Reklam Ltd. Sti  Ozturk Reklam Ltd. Sti. (Ayse Yilmaz) 0555…
+
+# /corel/materials?customerId=e8a0…
+id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen ad
+0a65…  C  pleksi  5000  plexiglas    siyah  1220  2440  1  Pleksi 5mm Plexiglas Siyah 1220x2440 x1 [musterinin]
+3bb3…  B  pleksi  2800  akpolimer  dokme  beyaz  1220  2440  3  Pleksi 2.8mm Akpolimer Dokme Beyaz 1220x2440 x3
+```
+
+- **Klasör adı:** firma adı varsa o, yoksa kişi adı; Windows'un yasakladığı
+  karakterler boşluğa döner, sondaki nokta atılır.
+- **Jetonlar** (tür, marka, varyant, renk): küçük harf, harf/rakam dışı her
+  dizi tek `-`. `--` eklentide alan grubu ayracıdır, jetonda geçmez.
+- **Sahip:** `C` müşterinin konsinye stoğu (yalnız `customerId` verilince),
+  `B` işletme stoğu. Yalnız tabaka (`area`) kalemler listelenir.
+- **Arama** Türkçe harfe duyarsızdır ve her kelime geçmelidir:
+  `dokme beyaz 2,8` → *Dökme*, *Beyaz*, *2.8mm*. Kalınlık `2800um`, ebat
+  `1220x2440`, renk kodu ve stok kodu da aranır.

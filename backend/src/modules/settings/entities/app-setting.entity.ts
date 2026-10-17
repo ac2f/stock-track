@@ -75,6 +75,15 @@ export class AppSetting extends BaseEntity {
   })
   consignmentCommissionPercent: number;
 
+  // ── Corel entegrasyonu ──
+  /**
+   * CorelDRAW eklentisinin (ac2f pack) müşteri/malzeme listesini okurken
+   * gönderdiği anahtar (X-Api-Key). Boşken entegrasyon kapalıdır. Yalnız
+   * okuma uçlarını açar; hiçbir kayıt yazmaz.
+   */
+  @Column({ name: 'corel_api_key', default: '' })
+  corelApiKey: string;
+
   // ── Görünüm ──
   /**
    * Cari ekstresinde hareketleri geri alma (silme) düğmeleri görünsün mü?
