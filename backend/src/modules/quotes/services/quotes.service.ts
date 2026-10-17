@@ -20,13 +20,17 @@ import {
 } from '../../../common/dto/paginated-result';
 import { roundMoney } from '../../../common/utils/area.util';
 import { lineTotalOf } from '../../sales/sale-calc.util';
-import { computeQuantityValue } from '../../processing/processing-calc.util';
+import {
+  billedMinutes,
+  computeQuantityValue,
+} from '../../processing/processing-calc.util';
 import { PlatesService } from '../../materials/services/plates.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { CustomersService } from '../../customers/services/customers.service';
 import { CustomerAccountService } from '../../customers/services/customer-account.service';
 import { SalesService } from '../../sales/sales.service';
 import { ProcessingService } from '../../processing/services/processing.service';
+import { SettingsService } from '../../settings/settings.service';
 import { CreateSaleDto } from '../../sales/dto/create-sale.dto';
 import { CreateProcessingJobDto } from '../../processing/dto/create-processing-job.dto';
 import { Quote } from '../entities/quote.entity';
@@ -55,6 +59,7 @@ export class QuotesService {
     private readonly accountService: CustomerAccountService,
     private readonly salesService: SalesService,
     private readonly processingService: ProcessingService,
+    private readonly settings: SettingsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     configService: ConfigService,
@@ -293,6 +298,8 @@ export class QuotesService {
           heightMm: l.heightMm != null ? Number(l.heightMm) : undefined,
           lengthMeters:
             l.lengthMeters != null ? Number(l.lengthMeters) : undefined,
+          durationMinutes:
+            l.durationMinutes != null ? Number(l.durationMinutes) : undefined,
           overrideRatePerUnit: Number(l.unitPrice),
           currency: quote.currency,
           warehouseId: quote.warehouseId ?? undefined,
@@ -399,8 +406,28 @@ export class QuotesService {
     }
     const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
 
+    // Süreyle faturalanan kalemde "iş en az X dakikadan başlar".
+    const minMinutes = dto.items.some(
+      (i) => i.billingUnit === MeasurementType.TIME,
+    )
+      ? (await this.settings.getCutPricing()).minMinutes
+      : 0;
+
     const items: QuoteItem[] = [];
-    for (const itemDto of dto.items) {
+    for (const rawDto of dto.items) {
+      const isTime = rawDto.billingUnit === MeasurementType.TIME;
+      if (isTime && rawDto.durationMinutes == null) {
+        throw new BadRequestException(
+          'Süreyle fiyatlanan kalemde süre (dakika) girilmelidir.',
+        );
+      }
+      const itemDto: QuoteItemDto = isTime
+        ? {
+            ...rawDto,
+            durationMinutes:
+              billedMinutes(rawDto.durationMinutes, minMinutes) ?? undefined,
+          }
+        : rawDto;
       // Serbest (stoksuz) kalemde plaka yoktur.
       const plate = itemDto.plateId
         ? await this.platesService.findOne(itemDto.plateId)
@@ -421,9 +448,12 @@ export class QuotesService {
           // m²/metre gösterimi ve hesabı için ölçü birimi ve ebatları (gerekirse
           // plakadan) kaleme yansıtılır — satış kaleminde de m² görünür.
           billingUnit: itemDto.billingUnit ?? plate?.measurementType ?? null,
+          // Süreyle kalemde ebat yalnız kullanılan parçadır (u-dosyası ve
+          // stoktan düşüm); verilmezse plakanın tamamı sayılır.
           widthMm: itemDto.widthMm ?? plate?.widthMm ?? null,
           heightMm: itemDto.heightMm ?? plate?.heightMm ?? null,
           lengthMeters: itemDto.lengthMeters ?? null,
+          durationMinutes: isTime ? itemDto.durationMinutes ?? null : null,
           stockSource: itemDto.stockSource ?? null,
           ownerSettlement: itemDto.ownerSettlement ?? null,
           commissionPercent: itemDto.commissionPercent ?? null,
@@ -490,6 +520,7 @@ export class QuotesService {
     }
     const quantityValue = computeQuantityValue({
       billingUnit,
+      durationMinutes: item.durationMinutes,
       quantity: item.quantity,
       widthMm,
       heightMm,

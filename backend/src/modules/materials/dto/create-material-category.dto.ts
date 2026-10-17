@@ -1,5 +1,15 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
-import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
+import {
+  MeasurementType,
+  MATERIAL_MEASUREMENT_TYPES,
+} from '../../../common/enums/measurement-type.enum';
 
 export class CreateMaterialCategoryDto {
   @IsString()
@@ -13,7 +23,7 @@ export class CreateMaterialCategoryDto {
   code?: string;
 
   @IsOptional()
-  @IsEnum(MeasurementType)
+  @IsIn(MATERIAL_MEASUREMENT_TYPES)
   defaultMeasurementType?: MeasurementType;
 
   @IsOptional()

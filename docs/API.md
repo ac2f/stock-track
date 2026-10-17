@@ -520,6 +520,7 @@ yapıştırılır. Anahtar boşken entegrasyon kapalıdır (401).
 | GET | `/corel/materials?customerId=&q=&limit=` | 🔑 | Stoktaki tabakalar; müşterinin malzemesi önce |
 | GET | `/corel/quotes?customerId=&limit=` | 🔑 | Müşterinin son teklifleri (yeniden eskiye) |
 | GET | `/corel/quotes/:id/usage` | 🔑 | Teklifin tabaka kalemleri ve kullanılan ölçü |
+| GET | `/corel/pricing` | 🔑 | Kesim fiyatlandırması (süre ve m² modülleri) |
 
 **Yanıt biçimi:** `text/plain`, sekmeyle ayrılmış, tamamen ASCII (Türkçe
 harfler katlanır: `Öztürk` → `Ozturk`). İlk satır sürüm başlığıdır
@@ -566,3 +567,55 @@ c1b4…  Q  pleksi  2800  akpolimer  dokme  beyaz  1000  1220  1  Pleksi 2.8mm A
 Yalnız plakalı ve m² ölçülen kalemler listelenir. Kalemde ölçü
 girilmemişse plakanın ölçüsü yazılır, yani tabakanın tamamı kullanılmış
 sayılır. Tarih UTC'dir; eklenti klasörü o günden geriye doğru arar.
+
+---
+
+## Süreyle fiyat ve kesim fiyatlandırması
+
+İşleme kalemi (teklif ve işleme kaydı) artık **süreyle** de fiyatlanabilir:
+`billingUnit: "time"` ve `durationMinutes`. Ölçü saattir, birim fiyat
+**saatlik** ücrettir: `tutar = süre(dk) / 60 × birim fiyat`. Süre işin
+toplamıdır, adetle çarpılmaz (adet işlenen plaka sayısıdır, stok içindir).
+
+- **Asgari süre:** Ayarlar'daki "iş en az X dakikadan başlar" sunucuda
+  uygulanır; kayda **faturalanan** süre yazılır (12 dk girilip asgari 30
+  ise 30). Teklif → işleme dönüşümü bu süreyi taşır.
+- **Kullanılan parça:** süreyle kalemde `widthMm`/`heightMm` tabakanın
+  kullanılan parçasıdır; iş tamamlanınca stoktan o kadarı düşülür ve Corel
+  `u…` dosyasını buna göre yazar. Verilmezse teklifte tabakanın ölçüsü yazılır.
+- Süre **malzeme ölçüsü değildir**: tür/şablon/plaka ve satış kalemi
+  `time` kabul etmez.
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/settings/cut-pricing` | 👥 | Saatlik ücret, asgari dk, m² ücreti, asgari m², makine hızları |
+| PUT | `/settings/cut-pricing` | 👔 | Kısmi güncelleme |
+
+```json
+{ "hourlyRate": 1500, "minMinutes": 30, "areaRate": 450, "minArea": 0.5,
+  "feedMmS": 25, "rapidMmS": 120, "plungeSec": 1.5, "passDepthMm": 3, "currency": "TRY" }
+```
+
+`/corel/pricing` aynı değerleri tek TSV satırı olarak verir (nokta ondalıklı):
+`saatlik, asgari dk, m² ücreti, asgari m², kesim mm/sn, boşta mm/sn, dalma sn,
+paso derinliği mm, para birimi`. Asgari m² yalnız Corel'in m² modülünde
+uygulanır; teklifteki m² kalemleri değişmedi.
+
+## Sabah özeti (Telegram)
+
+Her sabah (varsayılan 08:00, Türkiye saati) Telegram'a: bekleyen işler
+(makineye göre, süreyle işlerde dakika), henüz stoğu düşülmemiş işlerin
+gerektirdiği plakalar ve stokta olup olmadığı, sipariş seviyesinin altına
+düşen malzemeler, onaylanıp işe dönüşmemiş teklifler.
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/settings/morning-summary` | 👔 | `{ enabled, cron }` |
+| PUT | `/settings/morning-summary` | 👔 | `{ enabled }` |
+| GET | `/notifications/morning-summary` | 👔 | Bugünkü özet metni (göndermeden) |
+| POST | `/notifications/morning-summary/send` | 👔 | Şimdi gönder |
+
+Zaman `MORNING_SUMMARY_CRON` (varsayılan `0 8 * * *`) ve
+`MORNING_SUMMARY_TZ` (varsayılan `Europe/Istanbul`) ile değişir;
+`SCHEDULER_ENABLED=false` iken zamanlı gönderim çalışmaz. Yalnız Telegram'a
+gider (müşterilere WhatsApp gitmez).

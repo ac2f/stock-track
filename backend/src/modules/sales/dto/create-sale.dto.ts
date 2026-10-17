@@ -4,6 +4,7 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -17,7 +18,10 @@ import {
   OwnerSettlementType,
   SaleStockSource,
 } from '../../../common/enums/sale-source.enum';
-import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import {
+  MeasurementType,
+  MATERIAL_MEASUREMENT_TYPES,
+} from '../../../common/enums/measurement-type.enum';
 
 export class SaleItemDto {
   // Stoktaki malzeme seçildiğinde plaka kimliği. Serbest (stoksuz) satış
@@ -33,7 +37,7 @@ export class SaleItemDto {
 
   // Serbest kalemde fiyatlama birimi (m²/metre/adet). Plaka varsa ölçüm tipinden gelir.
   @IsOptional()
-  @IsEnum(MeasurementType)
+  @IsIn(MATERIAL_MEASUREMENT_TYPES)
   billingUnit?: MeasurementType;
 
   @IsNumber()

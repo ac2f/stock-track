@@ -22,6 +22,8 @@ import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
  * Faturalama birimi (billingUnit) verilmezse malzemenin ölçüm tipinden alınır:
  *  - AREA   → en/boy gerekir (verilmezse plakadan); m² = en×boy×adet
  *  - LENGTH → lengthMeters gerekir; metre = lengthMeters×adet  (kutu harf)
+ *  - TIME   → durationMinutes; saat = süre/60 (birim fiyat saatlik). En/boy
+ *             verilirse plakadan o kadarı düşülür (kullanılan parça).
  *  - PIECE  → adet
  */
 export class CreateProcessingJobDto {
@@ -56,6 +58,12 @@ export class CreateProcessingJobDto {
   @IsNumber()
   @Min(0)
   lengthMeters?: number;
+
+  // TIME birimi: işin toplam süresi (dakika). Asgari süre sunucuda uygulanır.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  durationMinutes?: number;
 
   @IsOptional()
   @IsUUID()

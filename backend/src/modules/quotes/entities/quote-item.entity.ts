@@ -94,6 +94,19 @@ export class QuoteItem extends BaseEntity {
   })
   lengthMeters?: number | null;
 
+  /**
+   * Süreyle (TIME) faturalanan işin FATURALANAN süresi (dakika) — asgari süre
+   * uygulanmış hâli. Birim fiyat saatliktir.
+   */
+  @Column({
+    name: 'duration_minutes',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  durationMinutes?: number | null;
+
   // ── Satış (SALE) kalemi alanları ──
   @Column({
     name: 'stock_source',

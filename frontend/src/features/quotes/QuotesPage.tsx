@@ -33,6 +33,7 @@ import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
+import { fetchCutPricing } from '../../api/settings.api';
 import type {
   MeasurementType,
   Plate,
@@ -1096,6 +1097,8 @@ function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
     widthMm: it.widthMm != null ? Number(it.widthMm) : undefined,
     heightMm: it.heightMm != null ? Number(it.heightMm) : undefined,
     lengthMeters: it.lengthMeters != null ? Number(it.lengthMeters) : undefined,
+    durationMinutes:
+      it.durationMinutes != null ? Number(it.durationMinutes) : undefined,
     stockSource: it.stockSource,
     commissionPercent:
       it.commissionPercent != null ? Number(it.commissionPercent) : undefined,
@@ -1133,6 +1136,12 @@ function NewQuoteForm({
   });
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
+  // Süreyle/m² ile işleme: varsayılan saatlik ve m² ücreti, asgari süre.
+  const { data: cutPricing } = useQuery({
+    queryKey: ['settings', 'cut-pricing'],
+    queryFn: fetchCutPricing,
+  });
+  const minMinutes = cutPricing?.minMinutes ?? 0;
   // #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygulama.
   const [applyPrice, setApplyPrice] = useState('');
   const [applyNote, setApplyNote] = useState('');
@@ -1282,7 +1291,10 @@ function NewQuoteForm({
     // gelir: şeritte (LENGTH) METRE, tabakada (AREA) en/boy. Şeritte kalan uzunluk
     // (metre) ön-doldurulur ve yükseklik/ebat KULLANILMAZ (yükseklik = uzunluk
     // karışıklığını önler).
-    if (lineKind === 'processing' && plate) {
+    if (lineKind === 'processing' && plate && items[i]?.billingUnit === 'time') {
+      // Süreyle fiyatlanan iş süreyle kalır; en/boy kullanılan parçadır.
+      p.lengthMeters = undefined;
+    } else if (lineKind === 'processing' && plate) {
       const mt = (plate.measurementType ?? 'area') as MeasurementType;
       p.billingUnit = mt;
       if (mt === 'length') {
@@ -1349,7 +1361,7 @@ function NewQuoteForm({
 
   // Teklif henüz oluşturulmadan satır tutarları + genel toplam (canlı tahmin).
   const grandTotal = items.reduce(
-    (sum, it) => sum + quoteLinePreview(it, getPlate(it.plateId))
+    (sum, it) => sum + quoteLinePreview(it, getPlate(it.plateId), minMinutes)
         .lineTotal,
     0,
   );
@@ -1358,7 +1370,7 @@ function NewQuoteForm({
   // işletmenin kendi malıysa satış tutarının tamamı (maliyet ayrı/giderde tutulur).
   const estimatedSalesProfit = items.reduce((sum, it) => {
     if (it.lineKind !== 'sale') return sum;
-    const line = quoteLinePreview(it, getPlate(it.plateId)).lineTotal;
+    const line = quoteLinePreview(it, getPlate(it.plateId), minMinutes).lineTotal;
     return (
       sum +
       (it.ownerCustomerId
@@ -1585,7 +1597,7 @@ function NewQuoteForm({
 
       {items.map((item, i) => {
         const plate = getPlate(item.plateId);
-        const preview = quoteLinePreview(item, plate);
+        const preview = quoteLinePreview(item, plate, minMinutes);
         // Satış kaleminin ölçü birimi: serbest kalemde kalemin billingUnit'i,
         // plaka seçilmişse plakanın ölçüm tipi. Adet/ebat alanlarını bu belirler.
         const saleUnit: MeasurementType | undefined = item.adhoc
@@ -2012,17 +2024,44 @@ function NewQuoteForm({
                 <select
                   className="input w-auto"
                   value={item.billingUnit}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const unit = e.target.value as QuoteItemInput['billingUnit'];
+                    // Süre seçilince saatlik, m² seçilince m² ücreti gelir
+                    // (Ayarlar › Kesim fiyatlandırması'nda tanımlıysa).
+                    const rate =
+                      unit === 'time'
+                        ? cutPricing?.hourlyRate
+                        : unit === 'area'
+                          ? cutPricing?.areaRate
+                          : undefined;
                     patch(i, {
-                      billingUnit: e.target.value as QuoteItemInput['billingUnit'],
-                    })
-                  }
+                      billingUnit: unit,
+                      ...(rate ? { unitPrice: rate } : {}),
+                    });
+                  }}
                 >
                   <option value="area">m²</option>
+                  <option value="time">süre</option>
                   <option value="length">metre</option>
                   <option value="piece">adet</option>
                 </select>
               </Field>
+              {item.billingUnit === 'time' && (
+                <Field label="Süre (dk)" className="w-28">
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    placeholder="dk"
+                    value={item.durationMinutes ?? ''}
+                    onChange={(e) =>
+                      patch(i, {
+                        durationMinutes: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                </Field>
+              )}
               {item.billingUnit === 'length' && (
                 <Field label="Uzunluk (metre)" className="flex-1">
                   <input
@@ -2034,9 +2073,12 @@ function NewQuoteForm({
                   />
                 </Field>
               )}
-              {item.billingUnit === 'area' && (
+              {(item.billingUnit === 'area' || item.billingUnit === 'time') && (
                 <>
-                  <Field label="En (mm)" className="flex-1">
+                  <Field
+                    label={item.billingUnit === 'time' ? 'Kullanılan en (mm)' : 'En (mm)'}
+                    className="flex-1"
+                  >
                     <input
                       className="input"
                       type="number"
@@ -2045,7 +2087,10 @@ function NewQuoteForm({
                       onChange={(e) => patch(i, { widthMm: Number(e.target.value) })}
                     />
                   </Field>
-                  <Field label="Boy (mm)" className="flex-1">
+                  <Field
+                    label={item.billingUnit === 'time' ? 'Kullanılan boy (mm)' : 'Boy (mm)'}
+                    className="flex-1"
+                  >
                     <input
                       className="input"
                       type="number"
@@ -2058,15 +2103,34 @@ function NewQuoteForm({
               )}
             </div>
           )}
+          {item.lineKind === 'processing' && item.billingUnit === 'time' && (
+            <p className="text-xs text-slate-500">
+              Birim fiyat saatliktir.
+              {minMinutes > 0 && ` İş en az ${minMinutes} dk'dan faturalanır.`} En/boy,
+              tabakanın kullanılan parçası: stoktan o kadarı düşülür ve Corel takım
+              yolu klasörüne parça dosyası (u1350x1000) yazar. Tamamı
+              kullanıldıysa tabakanın ölçüsü kalsın.
+            </p>
+          )}
 
           {/* Satır tutarı önizleme (teklif oluşturulmadan) */}
           <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
             <span className="text-slate-500">
-              {preview.measure != null
-                ? `${preview.measure.toLocaleString('tr-TR', {
-                    maximumFractionDigits: 2,
-                  })} ${UNIT_LABEL[preview.unit]} × ${money.format(item.unitPrice || 0)}`
-                : 'Tutar için ebat/fiyat girin'}
+              {preview.unit === 'time'
+                ? preview.billedMinutes != null
+                  ? `${preview.billedMinutes.toLocaleString('tr-TR', {
+                      maximumFractionDigits: 2,
+                    })} dk${
+                      preview.billedMinutes > Number(item.durationMinutes ?? 0)
+                        ? ' (asgari)'
+                        : ''
+                    } × ${money.format(item.unitPrice || 0)}/saat`
+                  : 'Tutar için süre (dk) girin'
+                : preview.measure != null
+                  ? `${preview.measure.toLocaleString('tr-TR', {
+                      maximumFractionDigits: 2,
+                    })} ${UNIT_LABEL[preview.unit]} × ${money.format(item.unitPrice || 0)}`
+                  : 'Tutar için ebat/fiyat girin'}
             </span>
             <span className="font-semibold">{money.format(preview.lineTotal)}</span>
           </div>

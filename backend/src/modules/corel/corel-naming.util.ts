@@ -322,3 +322,37 @@ export function usageLine(item: CorelQuoteItemLike): string {
     label,
   ]);
 }
+
+// ── Kesim fiyatlandırması ──────────────────────────────────────────────
+
+/** Satır üretmek için gereken fiyat ayarları. */
+export interface CorelPricingLike {
+  hourlyRate: number;
+  minMinutes: number;
+  areaRate: number;
+  minArea: number;
+  feedMmS: number;
+  rapidMmS: number;
+  plungeSec: number;
+  passDepthMm: number;
+  currency: string;
+}
+
+/**
+ * Fiyat satırı (sayılar nokta ondalıklı):
+ *   saatlik ücret, asgari dk, m² ücreti, asgari m², kesim mm/sn,
+ *   boşta mm/sn, dalma sn, paso derinliği mm, para birimi
+ */
+export function pricingLine(p: CorelPricingLike): string {
+  return tsvLine([
+    p.hourlyRate,
+    p.minMinutes,
+    p.areaRate,
+    p.minArea,
+    p.feedMmS,
+    p.rapidMmS,
+    p.plungeSec,
+    p.passDepthMm,
+    p.currency,
+  ]);
+}

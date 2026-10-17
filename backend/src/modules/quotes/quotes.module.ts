@@ -5,6 +5,7 @@ import { CustomersModule } from '../customers/customers.module';
 import { CurrencyModule } from '../currency/currency.module';
 import { SalesModule } from '../sales/sales.module';
 import { ProcessingModule } from '../processing/processing.module';
+import { SettingsModule } from '../settings/settings.module';
 import { Quote } from './entities/quote.entity';
 import { QuoteItem } from './entities/quote-item.entity';
 import { QuotesController } from './quotes.controller';
@@ -22,6 +23,7 @@ import { QuotesService } from './services/quotes.service';
     CurrencyModule, // baz para çevrimi
     SalesModule, // satış dönüşümü (SalesService)
     ProcessingModule, // işleme dönüşümü (ProcessingService)
+    SettingsModule, // süreyle kalemde asgari süre
   ],
   controllers: [QuotesController],
   providers: [QuotesService],

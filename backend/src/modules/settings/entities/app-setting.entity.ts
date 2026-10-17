@@ -84,6 +84,94 @@ export class AppSetting extends BaseEntity {
   @Column({ name: 'corel_api_key', default: '' })
   corelApiKey: string;
 
+  // ── Kesim fiyatlandırması ──
+  // Teklifte süreyle/m² ile fiyatın ücretleri ve asgarileri; Corel eklentisi
+  // fiyat tahmininde bunları ve makine hızlarını okur.
+  /** Süreyle faturalanan işin saatlik ücreti (baz para birimi). */
+  @Column({
+    name: 'cut_hourly_rate',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  cutHourlyRate: number;
+
+  /** "İş en az X dakikadan başlar": süreyle işte asgari süre. */
+  @Column({
+    name: 'cut_min_minutes',
+    type: 'numeric',
+    precision: 8,
+    scale: 2,
+    default: 0,
+  })
+  cutMinMinutes: number;
+
+  /** m² ile fiyatta m² ücreti (baz para birimi). */
+  @Column({
+    name: 'cut_area_rate',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  cutAreaRate: number;
+
+  /** m² ile fiyatta asgari alan (m²). */
+  @Column({
+    name: 'cut_min_area',
+    type: 'numeric',
+    precision: 8,
+    scale: 3,
+    default: 0,
+  })
+  cutMinArea: number;
+
+  /** Kesim (ilerleme) hızı, mm/sn — Corel süre hesabı. */
+  @Column({
+    name: 'cut_feed_mm_s',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    default: 20,
+  })
+  cutFeedMmS: number;
+
+  /** Boşta gezme hızı, mm/sn — Corel süre hesabı. */
+  @Column({
+    name: 'cut_rapid_mm_s',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    default: 100,
+  })
+  cutRapidMmS: number;
+
+  /** Kontur başına dalma/kalkma süresi, sn — Corel süre hesabı. */
+  @Column({
+    name: 'cut_plunge_sec',
+    type: 'numeric',
+    precision: 8,
+    scale: 2,
+    default: 1,
+  })
+  cutPlungeSec: number;
+
+  /** Paso derinliği (mm); 0 = tek paso. Kalınlık / derinlik = paso sayısı. */
+  @Column({
+    name: 'cut_pass_depth_mm',
+    type: 'numeric',
+    precision: 8,
+    scale: 2,
+    default: 0,
+  })
+  cutPassDepthMm: number;
+
+  // ── Sabah özeti ──
+  /** Her sabah Telegram'a günün işleri, gereken plakalar ve stok uyarıları. */
+  @Column({ name: 'morning_summary_enabled', default: false })
+  morningSummaryEnabled: boolean;
+
   // ── Görünüm ──
   /**
    * Cari ekstresinde hareketleri geri alma (silme) düğmeleri görünsün mü?

@@ -8,12 +8,16 @@ export interface QuantityInput {
   widthMm?: number | null;
   heightMm?: number | null;
   lengthMeters?: number | null;
+  /** TIME: işin toplam süresi (dakika). */
+  durationMinutes?: number | null;
 }
 
 /**
  * Faturalanan ölçü miktarını birime göre hesaplar (saf fonksiyon).
  *  - AREA   → m² = en × boy × adet
  *  - LENGTH → metre = uzunluk × adet   [kutu harf makineleri]
+ *  - TIME   → saat = süre (dk) / 60 — süre işin TOPLAMIDIR, adetle çarpılmaz
+ *             (adet işlenen plaka sayısıdır, stok için). Süre yoksa adet dakika.
  *  - PIECE / WEIGHT → doğrudan adet/miktar
  *
  * Hem ProcessingService (gerçek kayıt) hem QuotesService (teklif tahmini) kullanır.
@@ -38,8 +42,27 @@ export function computeQuantityValue(input: QuantityInput): number {
       }
       return round(input.lengthMeters * quantity, 4);
     }
+    case MeasurementType.TIME: {
+      const minutes =
+        input.durationMinutes != null ? Number(input.durationMinutes) : quantity;
+      return round(minutes / 60, 4);
+    }
     default:
       // PIECE / WEIGHT → doğrudan adet/miktar.
       return round(quantity, 4);
   }
+}
+
+/**
+ * Süreyle faturalanan işte asgari süre: "iş en az X dakikadan başlar".
+ * Girilen süre bundan kısaysa asgari süre faturalanır. Kayda FATURALANAN süre
+ * yazılır; böylece teklif, işleme ve belgeler aynı süreyi gösterir.
+ */
+export function billedMinutes(
+  minutes: number | null | undefined,
+  minMinutes: number | null | undefined,
+): number | null {
+  if (minutes == null) return null;
+  const min = Number(minMinutes) || 0;
+  return round(Math.max(Number(minutes), min), 2);
 }

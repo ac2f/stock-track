@@ -1,13 +1,17 @@
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   MinLength,
 } from 'class-validator';
-import { MeasurementType } from '../../../common/enums/measurement-type.enum';
+import {
+  MeasurementType,
+  MATERIAL_MEASUREMENT_TYPES,
+} from '../../../common/enums/measurement-type.enum';
 
 export class CreateMaterialTemplateDto {
   @IsString()
@@ -19,7 +23,7 @@ export class CreateMaterialTemplateDto {
 
   // Belirtilmezse AREA (tabaka, m²) varsayılır.
   @IsOptional()
-  @IsEnum(MeasurementType)
+  @IsIn(MATERIAL_MEASUREMENT_TYPES)
   measurementType?: MeasurementType;
 
   // Kategori bazlı kataloglardan seçilir; sunucu, kategorinin şablonunkiyle

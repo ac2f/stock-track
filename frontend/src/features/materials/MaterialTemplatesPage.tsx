@@ -25,9 +25,9 @@ import {
   type MaterialTemplateInput,
 } from '../../api/materials.api';
 import { GroupSection } from '../../components/GroupSection';
-import type { MeasurementType } from '../../types';
+import type { MaterialMeasurementType, MeasurementType } from '../../types';
 
-const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
+const MEASUREMENT_LABELS: Record<MaterialMeasurementType, string> = {
   area: 'Alan (m²)',
   length: 'Uzunluk (metre)',
   piece: 'Adet',
@@ -806,7 +806,7 @@ export function MaterialTemplatesPage() {
                   )}
                 </h3>
                 <p className="text-sm text-slate-500">
-                  {t.category?.name ?? '—'} · {MEASUREMENT_LABELS[t.measurementType]}
+                  {t.category?.name ?? '—'} · {MEASUREMENT_LABELS[t.measurementType as MaterialMeasurementType]}
                   {t.defaultVariant ? ` · ${t.defaultVariant}` : ''}
                 </p>
                 <p className="text-xs text-slate-400">

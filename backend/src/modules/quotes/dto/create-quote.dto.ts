@@ -74,6 +74,12 @@ export class QuoteItemDto {
   @Min(0)
   lengthMeters?: number;
 
+  // TIME birimi: işin toplam süresi (dakika). Asgari süre sunucuda uygulanır.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  durationMinutes?: number;
+
   // ── SALE kalemi ──
   @IsOptional()
   @IsEnum(SaleStockSource)

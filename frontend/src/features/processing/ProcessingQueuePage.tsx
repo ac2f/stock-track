@@ -464,7 +464,16 @@ const unitLabel: Record<string, string> = {
   length: 'm',
   piece: 'adet',
   weight: 'kg',
+  time: 'saat',
 };
+
+/** İşin ölçüsü: süreyle işte dakika ("30 dk"), diğerlerinde miktar + birim. */
+function jobMeasure(job: ProcessingJob): string {
+  if (job.billingUnit === 'time' && job.durationMinutes != null) {
+    return `${Number(job.durationMinutes).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} dk`;
+  }
+  return `${job.quantityValue} ${unitLabel[job.billingUnit] ?? ''}`;
+}
 
 /**
  * Üretim Kuyruğu — bekleyen/işlenen işler makineye göre gruplu. Çalışan işi
@@ -704,8 +713,7 @@ function QueueJobCard({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{job.plate?.name ?? '—'}</p>
           <p className="truncate text-xs text-slate-500">
-            {job.customer?.name ?? 'Müşterisiz'} · {job.quantityValue}{' '}
-            {unitLabel[job.billingUnit] ?? ''}
+            {job.customer?.name ?? 'Müşterisiz'} · {jobMeasure(job)}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -746,8 +754,7 @@ function QueueJobCard({
         <div>
           <p className="font-medium">{job.plate?.name ?? '—'}</p>
           <p className="text-sm text-slate-500">
-            {job.customer?.name ?? 'Müşterisiz'} · {job.quantityValue}{' '}
-            {unitLabel[job.billingUnit] ?? ''}
+            {job.customer?.name ?? 'Müşterisiz'} · {jobMeasure(job)}
           </p>
           {remaining && (
             <p

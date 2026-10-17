@@ -30,6 +30,7 @@ const UNIT_LABELS: Record<string, string> = {
   [MeasurementType.LENGTH]: 'metre',
   [MeasurementType.PIECE]: 'adet',
   [MeasurementType.WEIGHT]: 'kg',
+  [MeasurementType.TIME]: 'saat',
 };
 
 interface Party {

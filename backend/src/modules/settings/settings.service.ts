@@ -49,6 +49,26 @@ export interface DisplaySettings {
   showLedgerUndo: boolean;
 }
 
+/** Kesim fiyatlandırması (teklif + Corel fiyat tahmini). */
+export interface CutPricingSettings {
+  hourlyRate: number;
+  minMinutes: number;
+  areaRate: number;
+  minArea: number;
+  feedMmS: number;
+  rapidMmS: number;
+  plungeSec: number;
+  passDepthMm: number;
+  /** Ücretlerin para birimi (baz para birimi). */
+  currency: string;
+}
+
+/** Sabah özeti: açık mı, ne zaman gider. */
+export interface MorningSummarySettings {
+  enabled: boolean;
+  cron: string;
+}
+
 /** Corel eklentisi entegrasyonu: anahtar yalnızca İşletme Sahibine döner. */
 export interface CorelIntegrationStatus {
   enabled: boolean;
@@ -183,6 +203,63 @@ export class SettingsService {
     }
     await this.repo.save(s);
     return this.getPricing();
+  }
+
+  // ── Kesim fiyatlandırması ───────────────────────────────────────────
+
+  async getCutPricing(): Promise<CutPricingSettings> {
+    const s = await this.getOrCreate();
+    return {
+      hourlyRate: Number(s.cutHourlyRate ?? 0),
+      minMinutes: Number(s.cutMinMinutes ?? 0),
+      areaRate: Number(s.cutAreaRate ?? 0),
+      minArea: Number(s.cutMinArea ?? 0),
+      feedMmS: Number(s.cutFeedMmS ?? 20),
+      rapidMmS: Number(s.cutRapidMmS ?? 100),
+      plungeSec: Number(s.cutPlungeSec ?? 1),
+      passDepthMm: Number(s.cutPassDepthMm ?? 0),
+      currency: this.business.defaultCurrency,
+    };
+  }
+
+  async updateCutPricing(
+    dto: Partial<Omit<CutPricingSettings, 'currency'>>,
+  ): Promise<CutPricingSettings> {
+    const s = await this.getOrCreate();
+    const map: [keyof typeof dto, keyof AppSetting][] = [
+      ['hourlyRate', 'cutHourlyRate'],
+      ['minMinutes', 'cutMinMinutes'],
+      ['areaRate', 'cutAreaRate'],
+      ['minArea', 'cutMinArea'],
+      ['feedMmS', 'cutFeedMmS'],
+      ['rapidMmS', 'cutRapidMmS'],
+      ['plungeSec', 'cutPlungeSec'],
+      ['passDepthMm', 'cutPassDepthMm'],
+    ];
+    for (const [from, to] of map) {
+      if (dto[from] !== undefined) {
+        (s as unknown as Record<string, number>)[to] = Number(dto[from]);
+      }
+    }
+    await this.repo.save(s);
+    return this.getCutPricing();
+  }
+
+  // ── Sabah özeti ─────────────────────────────────────────────────────
+
+  async getMorningSummary(): Promise<MorningSummarySettings> {
+    const s = await this.getOrCreate();
+    return {
+      enabled: !!s.morningSummaryEnabled,
+      cron: process.env.MORNING_SUMMARY_CRON || '0 8 * * *',
+    };
+  }
+
+  async updateMorningSummary(enabled: boolean): Promise<MorningSummarySettings> {
+    const s = await this.getOrCreate();
+    s.morningSummaryEnabled = enabled;
+    await this.repo.save(s);
+    return this.getMorningSummary();
   }
 
   // ── Corel entegrasyonu ──────────────────────────────────────────────

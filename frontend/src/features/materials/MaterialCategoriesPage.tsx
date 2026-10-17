@@ -7,9 +7,9 @@ import {
   updateMaterialCategory,
   type MaterialCategoryInput,
 } from '../../api/materials.api';
-import type { MeasurementType } from '../../types';
+import type { MaterialMeasurementType, MeasurementType } from '../../types';
 
-const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
+const MEASUREMENT_LABELS: Record<MaterialMeasurementType, string> = {
   area: 'Alan (m²)',
   length: 'Uzunluk (metre)',
   piece: 'Adet',
@@ -166,7 +166,7 @@ export function MaterialCategoriesPage() {
                   )}
                 </h3>
                 <p className="text-sm text-slate-500">
-                  {c.code} · {MEASUREMENT_LABELS[c.defaultMeasurementType]}
+                  {c.code} · {MEASUREMENT_LABELS[c.defaultMeasurementType as MaterialMeasurementType]}
                 </p>
               </div>
               <div className="flex gap-2">

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
+  NotificationChannel,
   NotificationStatus,
   NotificationType,
 } from './enums/notification.enums';
@@ -20,6 +21,8 @@ export interface NotifyParams {
   whatsappPhone?: string; // WhatsApp'a özel hedef (telefon)
   relatedType?: string;
   relatedId?: string;
+  /** Yalnız bu kanallar (verilmezse etkin olan hepsi). */
+  channels?: NotificationChannel[];
 }
 
 @Injectable()
@@ -43,6 +46,9 @@ export class NotificationsService {
    */
   async notify(params: NotifyParams): Promise<void> {
     for (const channel of this.channels) {
+      if (params.channels && !params.channels.includes(channel.channel)) {
+        continue;
+      }
       // Kanal ayarlarını çalışma zamanında okuyabilir (Telegram) → await.
       if (!(await channel.isEnabled())) {
         continue;

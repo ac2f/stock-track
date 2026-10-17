@@ -14,6 +14,13 @@ import {
   fetchCorelIntegration,
   rotateCorelKey,
   disableCorelIntegration,
+  fetchCutPricing,
+  updateCutPricing,
+  fetchMorningSummary,
+  updateMorningSummary,
+  previewMorningSummary,
+  sendMorningSummary,
+  type CutPricing,
   type SettingSource,
   type UpdateBusinessInput,
 } from '../../api/settings.api';
@@ -173,10 +180,12 @@ export function SettingsPage() {
 
       <DisplaySettingsCard />
       <PricingSettingsCard />
+      <CutPricingCard />
       <CorelIntegrationCard />
       <CatalogHealthCard />
       <ScreenLockSettings />
       <TelegramSettings />
+      <MorningSummaryCard />
       <BackupSection />
       <MaintenanceSection />
       <NotificationsHistory />
@@ -337,6 +346,221 @@ function PricingSettingsCard() {
       >
         Kaydet
       </button>
+    </div>
+  );
+}
+
+/** Sayı alanı: boş bırakılırsa 0. */
+function NumField({
+  label,
+  value,
+  onChange,
+  hint,
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  hint?: string;
+  step?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium text-slate-600">{label}</span>
+      <input
+        className="input"
+        type="number"
+        min={0}
+        step={step ?? 'any'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
+    </label>
+  );
+}
+
+type CutForm = Record<Exclude<keyof CutPricing, 'currency'>, string>;
+
+/**
+ * ⏱️ Kesim fiyatlandırması: teklifte süreyle ve m² ile fiyatın ücretleri ve
+ * asgarileri. Corel eklentisinin süre ve m² fiyat modülleri de buradan okur;
+ * makine hızları yalnız Corel'in süre hesabında kullanılır.
+ */
+function CutPricingCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['settings', 'cut-pricing'], queryFn: fetchCutPricing });
+  const [f, setF] = useState<CutForm | null>(null);
+  useEffect(() => {
+    if (data) {
+      setF({
+        hourlyRate: String(data.hourlyRate),
+        minMinutes: String(data.minMinutes),
+        areaRate: String(data.areaRate),
+        minArea: String(data.minArea),
+        feedMmS: String(data.feedMmS),
+        rapidMmS: String(data.rapidMmS),
+        plungeSec: String(data.plungeSec),
+        passDepthMm: String(data.passDepthMm),
+      });
+    }
+  }, [data]);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      updateCutPricing(
+        Object.fromEntries(
+          Object.entries(f ?? {}).map(([k, v]) => [k, Number(v) || 0]),
+        ) as Partial<CutPricing>,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'cut-pricing'] }),
+  });
+
+  if (!f) return null;
+  const set = (k: keyof CutForm) => (v: string) => setF({ ...f, [k]: v });
+  const cur = data?.currency ?? 'TRY';
+  const rate = Number(f.hourlyRate) || 0;
+  const minMin = Number(f.minMinutes) || 0;
+  const example = (Math.max(12, minMin) / 60) * rate;
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">⏱️ Kesim fiyatlandırması</h2>
+      <p className="text-sm text-slate-500">
+        Teklifte işleme kalemi <b>süreyle</b> ya da <b>m² ile</b> fiyatlanabilir.
+        Süre seçilince birim fiyat olarak saatlik ücret, m² seçilince m² ücreti
+        gelir. Corel eklentisinin süre ve m² fiyat modülleri de bu değerleri
+        kullanır.
+      </p>
+
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <p className="text-sm font-medium">Süreyle</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumField label={`Saatlik ücret (${cur})`} value={f.hourlyRate} onChange={set('hourlyRate')} />
+          <NumField
+            label="İş en az kaç dakikadan başlar"
+            value={f.minMinutes}
+            onChange={set('minMinutes')}
+            hint="Daha kısa iş bu süreden faturalanır (teklifte de uygulanır)."
+          />
+        </div>
+        <p className="text-xs text-slate-400">
+          Örnek: 12 dk'lık iş → {Math.max(12, minMin)} dk × {rate} {cur}/saat ={' '}
+          {example.toFixed(2)} {cur}
+        </p>
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <p className="text-sm font-medium">m² ile</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumField label={`m² ücreti (${cur})`} value={f.areaRate} onChange={set('areaRate')} />
+          <NumField
+            label="İş en az kaç m²'den başlar"
+            value={f.minArea}
+            onChange={set('minArea')}
+            hint="Corel'in m² fiyat modülü bu alandan aşağı hesaplamaz."
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+        <p className="text-sm font-medium">Makine (Corel süre hesabı)</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumField label="Kesim hızı (mm/sn)" value={f.feedMmS} onChange={set('feedMmS')} />
+          <NumField label="Boşta gezme hızı (mm/sn)" value={f.rapidMmS} onChange={set('rapidMmS')} />
+          <NumField
+            label="Dalma/kalkma (sn, kontur başına)"
+            value={f.plungeSec}
+            onChange={set('plungeSec')}
+          />
+          <NumField
+            label="Paso derinliği (mm)"
+            value={f.passDepthMm}
+            onChange={set('passDepthMm')}
+            hint="0 = tek paso. Değilse kalınlık / derinlik kadar paso sayılır."
+          />
+        </div>
+        <p className="text-xs text-slate-400">
+          Süre = kesim boyu × paso ÷ kesim hızı + konturlar arası gezme ÷ boşta
+          hızı + kontur × paso × dalma süresi. Corel'de iş başına değiştirilebilir.
+        </p>
+      </div>
+
+      {mut.isSuccess && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
+      {mut.isError && <p className="text-sm text-red-600">Kaydedilemedi.</p>}
+      <button className="btn-primary" disabled={mut.isPending} onClick={() => mut.mutate()}>
+        Kaydet
+      </button>
+    </div>
+  );
+}
+
+/**
+ * ☀️ Sabah özeti: her sabah Telegram'a bekleyen işler, gereken plakalar ve
+ * stok durumu, azalan stok, işe dönüşmemiş onaylı teklifler.
+ */
+function MorningSummaryCard() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['settings', 'morning-summary'],
+    queryFn: fetchMorningSummary,
+  });
+  const [preview, setPreview] = useState<string | null>(null);
+
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) => updateMorningSummary(enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'morning-summary'] }),
+  });
+  const show = useMutation({ mutationFn: previewMorningSummary, onSuccess: setPreview });
+  const send = useMutation({ mutationFn: sendMorningSummary, onSuccess: setPreview });
+
+  const on = data?.enabled === true;
+  // "0 8 * * *" → "08:00"; başka biçimlerde ifadenin kendisi gösterilir.
+  const m = data?.cron.match(/^(\d+) (\d+) \* \* \*$/);
+  const when = m ? `${m[2].padStart(2, '0')}:${m[1].padStart(2, '0')}` : data?.cron;
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-lg font-semibold">☀️ Sabah özeti</h2>
+      <p className="text-sm text-slate-500">
+        Her sabah {when ?? '08:00'}'de Telegram'a: bekleyen işler (makineye göre),
+        gereken plakalar ve stokta olup olmadığı, sipariş seviyesinin altına
+        düşen malzemeler, onaylanıp işe dönüşmemiş teklifler.
+      </p>
+      <label className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={!data || toggle.isPending}
+          onChange={(e) => toggle.mutate(e.target.checked)}
+        />
+        <span className="text-sm font-medium">Her sabah gönder</span>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn bg-slate-100" disabled={show.isPending} onClick={() => show.mutate()}>
+          Bugünkü özeti göster
+        </button>
+        <button className="btn bg-slate-100" disabled={send.isPending} onClick={() => send.mutate()}>
+          Şimdi Telegram'a gönder
+        </button>
+      </div>
+      {send.isSuccess && (
+        <p className="text-xs text-emerald-600">
+          Gönderildi (Telegram ayarlıysa). Gönderim geçmişi aşağıda.
+        </p>
+      )}
+      {(show.isError || send.isError) && (
+        <p className="text-xs text-red-600">Özet alınamadı.</p>
+      )}
+      {preview && (
+        <pre className="whitespace-pre-wrap rounded bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          {preview}
+        </pre>
+      )}
+      <p className="text-xs text-slate-400">
+        Saat sunucuda <code>MORNING_SUMMARY_CRON</code> ile değişir (varsayılan
+        her gün 08:00, Türkiye saati).
+      </p>
     </div>
   );
 }

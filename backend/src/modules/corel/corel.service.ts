@@ -20,6 +20,7 @@ import {
   materialLine,
   matchesTokens,
   plateKind,
+  pricingLine,
   quoteLine,
   searchTokens,
   tsvBody,
@@ -57,6 +58,11 @@ export class CorelService {
     private readonly quotesRepo: Repository<Quote>,
     private readonly settings: SettingsService,
   ) {}
+
+  /** Kesim fiyatlandırması: süre ve m² modülleri bunu okur. */
+  async pricing(): Promise<string> {
+    return tsvBody([pricingLine(await this.settings.getCutPricing())]);
+  }
 
   /** Bağlantı ve anahtar denemesi; işletme adını döner. */
   async ping(): Promise<string> {

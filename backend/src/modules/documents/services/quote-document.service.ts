@@ -22,6 +22,7 @@ const UNIT_LABELS: Record<MeasurementType, string> = {
   [MeasurementType.LENGTH]: 'metre',
   [MeasurementType.PIECE]: 'adet',
   [MeasurementType.WEIGHT]: 'kg',
+  [MeasurementType.TIME]: 'saat',
 };
 
 /**
@@ -134,6 +135,8 @@ export class QuoteDocumentService {
         widthMm: it.widthMm != null ? Number(it.widthMm) : null,
         heightMm: it.heightMm != null ? Number(it.heightMm) : null,
         lengthMeters: it.lengthMeters != null ? Number(it.lengthMeters) : null,
+        durationMinutes:
+          it.durationMinutes != null ? Number(it.durationMinutes) : null,
       });
       return { unit, value };
     } catch {

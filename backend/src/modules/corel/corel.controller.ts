@@ -38,6 +38,16 @@ export class CorelController {
     return this.corel.ping();
   }
 
+  /**
+   * Kesim fiyatlandırması, tek satır: saatlik ücret, asgari dk, m² ücreti,
+   * asgari m², kesim mm/sn, boşta mm/sn, dalma sn, paso derinliği, para birimi.
+   */
+  @Get('pricing')
+  pricing(@Res({ passthrough: true }) res: Response): Promise<string> {
+    res.set({ 'Content-Type': TEXT });
+    return this.corel.pricing();
+  }
+
   /** Satır: `id <TAB> klasör adı <TAB> görünen ad`. */
   @Get('customers')
   customers(

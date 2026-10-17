@@ -4,6 +4,7 @@ import { MaterialsModule } from '../materials/materials.module';
 import { CustomersModule } from '../customers/customers.module';
 import { WarehousesModule } from '../warehouses/warehouses.module';
 import { CurrencyModule } from '../currency/currency.module';
+import { SettingsModule } from '../settings/settings.module';
 import { ProcessingRate } from './entities/processing-rate.entity';
 import { ProcessingJob } from './entities/processing-job.entity';
 import { Machine } from './entities/machine.entity';
@@ -21,6 +22,7 @@ import { MachinesService } from './services/machines.service';
     CustomersModule, // cariye borç yazımı (CustomerAccountService)
     WarehousesModule, // kaynak depo çözümü
     CurrencyModule, // baz para çevrimi
+    SettingsModule, // süreyle işte asgari süre
   ],
   controllers: [
     ProcessingRatesController,

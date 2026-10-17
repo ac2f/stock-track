@@ -4,13 +4,24 @@
  * - LENGTH → metre (rulo/şerit; ör. kutu harf profili).
  * - PIECE  → adet.
  * - WEIGHT → kilogram.
+ * - TIME   → süre: yalnız İŞLEME faturalamasında (malzeme ölçüsü değildir).
+ *            Ölçü saattir, birim fiyat saatlik ücrettir; süre dakika girilir.
  */
 export enum MeasurementType {
   AREA = 'area',
   LENGTH = 'length',
   PIECE = 'piece',
   WEIGHT = 'weight',
+  TIME = 'time',
 }
+
+/** Bir MALZEMENİN ölçülebileceği tipler — süre (TIME) yalnız işlemede. */
+export const MATERIAL_MEASUREMENT_TYPES: MeasurementType[] = [
+  MeasurementType.AREA,
+  MeasurementType.LENGTH,
+  MeasurementType.PIECE,
+  MeasurementType.WEIGHT,
+];
 
 /** Stok miktarının/işlemenin birimi (gösterim ve hesap için). */
 export enum UnitOfMeasure {

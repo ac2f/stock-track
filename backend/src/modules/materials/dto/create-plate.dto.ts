@@ -13,6 +13,7 @@ import {
 import {
   MeasurementType,
   UnitOfMeasure,
+  MATERIAL_MEASUREMENT_TYPES,
 } from '../../../common/enums/measurement-type.enum';
 
 /**
@@ -25,7 +26,7 @@ export class CreatePlateDto {
   templateId: string;
 
   @IsOptional()
-  @IsEnum(MeasurementType)
+  @IsIn(MATERIAL_MEASUREMENT_TYPES)
   measurementType?: MeasurementType;
 
   @IsOptional()

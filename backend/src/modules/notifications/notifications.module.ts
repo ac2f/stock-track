@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Customer } from '../customers/entities/customer.entity';
+import { MaterialPlate } from '../materials/entities/material-plate.entity';
+import { StockLevel } from '../materials/entities/stock-level.entity';
+import { ProcessingJob } from '../processing/entities/processing-job.entity';
+import { Quote } from '../quotes/entities/quote.entity';
 import { SettingsModule } from '../settings/settings.module';
 import { Notification } from './entities/notification.entity';
 import { NotificationsController } from './notifications.controller';
@@ -10,6 +14,7 @@ import { TelegramChannel } from './channels/telegram.channel';
 import { WhatsappChannel } from './channels/whatsapp.channel';
 import { NotificationListeners } from './listeners/notification.listeners';
 import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
+import { MorningSummaryService } from './morning-summary.service';
 
 /**
  * Bildirim & hatırlatma. Olay (event-emitter) dinleyicileri ve zamanlanmış
@@ -18,7 +23,18 @@ import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
  */
 @Module({
   // SettingsModule: Telegram jetonu/sohbeti gönderim anında ayarlardan okunur.
-  imports: [TypeOrmModule.forFeature([Notification, Customer]), SettingsModule],
+  // Sabah özeti işleri, plakaları, stoğu ve teklifleri salt-okunur okur.
+  imports: [
+    TypeOrmModule.forFeature([
+      Notification,
+      Customer,
+      ProcessingJob,
+      MaterialPlate,
+      StockLevel,
+      Quote,
+    ]),
+    SettingsModule,
+  ],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,
@@ -27,6 +43,7 @@ import { DebtReminderScheduler } from './schedulers/debt-reminder.scheduler';
     WhatsappChannel,
     NotificationListeners,
     DebtReminderScheduler,
+    MorningSummaryService,
   ],
   exports: [NotificationsService],
 })

@@ -15,6 +15,7 @@ import { ProcessingRate } from './processing-rate.entity';
  * göre hesaplanır: total = quantity_value × rate_per_unit + extra.
  *  - AREA  → quantity_value = m² (en×boy×adet)
  *  - LENGTH→ quantity_value = metre (uzunluk×adet)   [kutu harf makineleri]
+ *  - TIME  → quantity_value = saat (süre dk / 60; asgari süre uygulanmış)
  *  - PIECE → quantity_value = adet
  * rate_per_unit, şablondan ya da işlem anındaki dinamik değerden gelir (etkin
  * değer saklanır → geçmişe dönük doğru). Yabancı para işlemde baz tutar tutulur.
@@ -92,6 +93,10 @@ export class ProcessingJob extends BaseEntity {
   // LENGTH birimi için işlenen uzunluk (metre/adet bazında girilen).
   @Column({ name: 'length_m', type: 'numeric', precision: 12, scale: 4, nullable: true })
   lengthM?: number | null;
+
+  /** TIME birimi: faturalanan süre (dakika, asgari süre uygulanmış). */
+  @Column({ name: 'duration_minutes', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  durationMinutes?: number | null;
 
   /** Faturalama birimi (m² / metre / adet). */
   @Column({ name: 'billing_unit', type: 'enum', enum: MeasurementType })

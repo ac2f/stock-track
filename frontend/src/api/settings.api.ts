@@ -171,3 +171,73 @@ export async function disableCorelIntegration(): Promise<CorelIntegration> {
   const { data } = await api.delete<CorelIntegration>('/settings/corel');
   return data;
 }
+
+// ── Kesim fiyatlandırması ───────────────────────────────────────────────
+/**
+ * Süreyle ve m² ile fiyatın ücretleri ve asgarileri; Corel eklentisinin
+ * süre hesabında kullandığı makine hızları.
+ */
+export interface CutPricing {
+  /** Saatlik ücret (süreyle fiyat). */
+  hourlyRate: number;
+  /** İş en az bu kadar dakikadan faturalanır. */
+  minMinutes: number;
+  /** m² ücreti (m² ile fiyat). */
+  areaRate: number;
+  /** İş en az bu kadar m²'den faturalanır (Corel m² hesabı). */
+  minArea: number;
+  /** Kesim (ilerleme) hızı, mm/sn. */
+  feedMmS: number;
+  /** Boşta gezme hızı, mm/sn. */
+  rapidMmS: number;
+  /** Kontur başına dalma/kalkma süresi, sn. */
+  plungeSec: number;
+  /** Paso derinliği (mm); 0 = tek paso. */
+  passDepthMm: number;
+  currency: string;
+}
+
+export async function fetchCutPricing(): Promise<CutPricing> {
+  const { data } = await api.get<CutPricing>('/settings/cut-pricing');
+  return data;
+}
+
+export async function updateCutPricing(
+  input: Partial<Omit<CutPricing, 'currency'>>,
+): Promise<CutPricing> {
+  const { data } = await api.put<CutPricing>('/settings/cut-pricing', input);
+  return data;
+}
+
+// ── Sabah özeti ─────────────────────────────────────────────────────────
+export interface MorningSummarySettings {
+  enabled: boolean;
+  /** Gönderim zamanı (cron, Türkiye saati). */
+  cron: string;
+}
+
+export async function fetchMorningSummary(): Promise<MorningSummarySettings> {
+  const { data } = await api.get<MorningSummarySettings>('/settings/morning-summary');
+  return data;
+}
+
+export async function updateMorningSummary(
+  enabled: boolean,
+): Promise<MorningSummarySettings> {
+  const { data } = await api.put<MorningSummarySettings>('/settings/morning-summary', {
+    enabled,
+  });
+  return data;
+}
+
+/** Bugünün özeti (göndermeden). */
+export async function previewMorningSummary(): Promise<string> {
+  const { data } = await api.get<{ text: string }>('/notifications/morning-summary');
+  return data.text;
+}
+
+/** Özeti şimdi Telegram'a gönderir. */
+export async function sendMorningSummary(): Promise<string> {
+  const { data } = await api.post<{ text: string }>('/notifications/morning-summary/send');
+  return data.text;
+}

@@ -7,6 +7,8 @@ import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
 import { UpdatePricingDto } from './dto/update-pricing.dto';
 import { UpdateDisplayDto } from './dto/update-display.dto';
+import { UpdateCutPricingDto } from './dto/update-cut-pricing.dto';
+import { UpdateMorningSummaryDto } from './dto/update-morning-summary.dto';
 
 /**
  * Ayarlar. İşletme/proje kimliği (ad, adres, telefon, VKN, logo, portal adresi)
@@ -55,6 +57,35 @@ export class SettingsController {
   @Put('pricing')
   updatePricing(@Body() dto: UpdatePricingDto) {
     return this.settings.updatePricing(dto);
+  }
+
+  /**
+   * Kesim fiyatlandırması: saatlik ücret ve asgari süre, m² ücreti ve asgari
+   * alan, makine hızları. Okuma herkese (teklif ekranı varsayılan fiyatı
+   * buradan alır); yazma yalnız İşletme Sahibi.
+   */
+  @Get('cut-pricing')
+  getCutPricing() {
+    return this.settings.getCutPricing();
+  }
+
+  @Roles(UserRole.OWNER)
+  @Put('cut-pricing')
+  updateCutPricing(@Body() dto: UpdateCutPricingDto) {
+    return this.settings.updateCutPricing(dto);
+  }
+
+  /** Sabah özeti (Telegram): açık/kapalı ve gönderim zamanı. */
+  @Roles(UserRole.OWNER)
+  @Get('morning-summary')
+  getMorningSummary() {
+    return this.settings.getMorningSummary();
+  }
+
+  @Roles(UserRole.OWNER)
+  @Put('morning-summary')
+  updateMorningSummary(@Body() dto: UpdateMorningSummaryDto) {
+    return this.settings.updateMorningSummary(dto.enabled);
   }
 
   /**

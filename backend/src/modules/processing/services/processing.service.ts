@@ -16,10 +16,11 @@ import {
   PaginatedResult,
 } from '../../../common/dto/paginated-result';
 import { roundMoney } from '../../../common/utils/area.util';
-import { computeQuantityValue } from '../processing-calc.util';
+import { billedMinutes, computeQuantityValue } from '../processing-calc.util';
 import { PlatesService } from '../../materials/services/plates.service';
 import { WarehousesService } from '../../warehouses/warehouses.service';
 import { CurrencyService } from '../../currency/currency.service';
+import { SettingsService } from '../../settings/settings.service';
 import { CustomerAccountService } from '../../customers/services/customer-account.service';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import { StockLevel } from '../../materials/entities/stock-level.entity';
@@ -48,6 +49,7 @@ export class ProcessingService {
     private readonly accountService: CustomerAccountService,
     private readonly warehousesService: WarehousesService,
     private readonly currencyService: CurrencyService,
+    private readonly settings: SettingsService,
     private readonly dataSource: DataSource,
     configService: ConfigService,
   ) {
@@ -98,12 +100,17 @@ export class ProcessingService {
       dto.billingUnit ?? plate.measurementType ?? MeasurementType.AREA;
 
     const ratePerUnit = await this.resolveRate(dto);
-    const { quantityValue, widthMm, heightMm, lengthM } = this.computeQuantity(
-      billingUnit,
-      dto,
-      plate,
-      quantity,
-    );
+    const isTime = billingUnit === MeasurementType.TIME;
+    if (isTime && dto.durationMinutes == null) {
+      throw new BadRequestException(
+        'Süreyle faturalanan işte süre (dakika) girilmelidir.',
+      );
+    }
+    const minMinutes = isTime
+      ? (await this.settings.getCutPricing()).minMinutes
+      : 0;
+    const { quantityValue, widthMm, heightMm, lengthM, durationMinutes } =
+      this.computeQuantity(billingUnit, dto, plate, quantity, minMinutes);
 
     const laborCost = roundMoney(quantityValue * ratePerUnit);
     const extraCost = roundMoney(dto.extraCost ?? 0);
@@ -161,6 +168,7 @@ export class ProcessingService {
       widthMm,
       heightMm,
       lengthM,
+      durationMinutes,
       billingUnit,
       quantityValue,
       ratePerUnit,
@@ -181,15 +189,15 @@ export class ProcessingService {
 
     if (consumeNow) {
       // Tabaka (AREA) işinde giyotin kesim: kesim en/boyuna göre en VEYA boy
-      // düşülür (enlemesine dahil). Düşülen eksen iptal için saklanır.
+      // düşülür (enlemesine dahil). Düşülen eksen iptal için saklanır. Süreyle
+      // faturalanan işte de kullanılan parça girildiyse o kadarı düşülür.
+      const byDims = billingUnit === MeasurementType.AREA || isTime;
       const cut = await this.platesService.consume({
         plateId: plate.id,
         warehouseId: warehouse!.id,
         quantity,
-        consumedWidthMm:
-          billingUnit === MeasurementType.AREA ? widthMm : null,
-        consumedHeightMm:
-          billingUnit === MeasurementType.AREA ? heightMm : null,
+        consumedWidthMm: byDims ? widthMm : null,
+        consumedHeightMm: byDims ? heightMm : null,
         areaM2: billingUnit === MeasurementType.AREA ? quantityValue : null,
         manager,
       });
@@ -323,7 +331,11 @@ export class ProcessingService {
               quantity: Number(job.quantity),
               consumedWidthMm: job.widthMm != null ? Number(job.widthMm) : null,
               consumedHeightMm: job.heightMm != null ? Number(job.heightMm) : null,
-              areaM2: job.quantityValue != null ? Number(job.quantityValue) : null,
+              // Süreyle işte quantityValue saattir, m² değil.
+              areaM2:
+                job.billingUnit !== MeasurementType.TIME && job.quantityValue != null
+                  ? Number(job.quantityValue)
+                  : null,
               manager,
               // İş fiilen tamamlandı: kalan stok talep edilenden az olsa bile
               // (örn. tabaka teklifte ayrıca satılıp tükenmişse) tamamlamayı
@@ -729,26 +741,39 @@ export class ProcessingService {
     dto: CreateProcessingJobDto,
     plate: MaterialPlate,
     quantity: number,
+    minMinutes = 0,
   ): {
     quantityValue: number;
     widthMm?: number | null;
     heightMm?: number | null;
     lengthM?: number | null;
+    durationMinutes?: number | null;
   } {
+    const isTime = billingUnit === MeasurementType.TIME;
+    // m²'de ebat verilmezse tabakanın tamamı; süreyle işte ebat yalnız
+    // kullanılan parçadır (stoktan düşülecek), verilmezse boş kalır.
     const widthMm =
       billingUnit === MeasurementType.AREA
         ? dto.widthMm ?? plate.widthMm ?? null
-        : null;
+        : isTime
+          ? dto.widthMm ?? null
+          : null;
     const heightMm =
       billingUnit === MeasurementType.AREA
         ? dto.heightMm ?? plate.heightMm ?? null
-        : null;
+        : isTime
+          ? dto.heightMm ?? null
+          : null;
+    const durationMinutes = isTime
+      ? billedMinutes(dto.durationMinutes, minMinutes)
+      : null;
     const quantityValue = computeQuantityValue({
       billingUnit,
       quantity,
       widthMm,
       heightMm,
       lengthMeters: dto.lengthMeters,
+      durationMinutes,
     });
     return {
       quantityValue,
@@ -756,6 +781,7 @@ export class ProcessingService {
       heightMm,
       lengthM:
         billingUnit === MeasurementType.LENGTH ? dto.lengthMeters ?? null : null,
+      durationMinutes,
     };
   }
 
@@ -790,11 +816,18 @@ export class ProcessingService {
     const name = plate?.name ?? 'Malzeme';
     const fmt = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
     const noteStr = note?.trim() ? ` — ${note.trim()}` : '';
-    return `${head}${name} ${fmt.format(quantityValue)} ${this.unitLabel(billingUnit)}${noteStr}`;
+    // Süreyle işte saat yerine dakika okunur: "30 dk".
+    const measure =
+      billingUnit === MeasurementType.TIME
+        ? `${fmt.format(quantityValue * 60)} dk`
+        : `${fmt.format(quantityValue)} ${this.unitLabel(billingUnit)}`;
+    return `${head}${name} ${measure}${noteStr}`;
   }
 
   private unitLabel(unit: MeasurementType): string {
     switch (unit) {
+      case MeasurementType.TIME:
+        return 'saat';
       case MeasurementType.AREA:
         return 'm²';
       case MeasurementType.LENGTH:

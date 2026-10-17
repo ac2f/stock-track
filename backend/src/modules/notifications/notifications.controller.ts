@@ -4,6 +4,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { TelegramChannel } from './channels/telegram.channel';
 import { NotificationsService } from './notifications.service';
+import { MorningSummaryService } from './morning-summary.service';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class NotificationsController {
   constructor(
     private readonly notificationsService: NotificationsService,
     private readonly telegram: TelegramChannel,
+    private readonly morningSummary: MorningSummaryService,
   ) {}
 
   // Gönderim defteri (uygulama içi bildirim geçmişi).
@@ -53,5 +55,17 @@ export class NotificationsController {
   @Post('telegram/test')
   testTelegram() {
     return this.telegram.sendTest();
+  }
+
+  /** Sabah özetinin bugünkü hâli (göndermeden). */
+  @Get('morning-summary')
+  async previewMorningSummary() {
+    return { text: await this.morningSummary.build() };
+  }
+
+  /** Sabah özetini şimdi Telegram'a gönderir. */
+  @Post('morning-summary/send')
+  async sendMorningSummary() {
+    return { text: await this.morningSummary.send() };
   }
 }

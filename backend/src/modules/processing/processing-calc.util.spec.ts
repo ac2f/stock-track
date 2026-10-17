@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { MeasurementType } from '../../common/enums/measurement-type.enum';
-import { computeQuantityValue } from './processing-calc.util';
+import { billedMinutes, computeQuantityValue } from './processing-calc.util';
 
 describe('processing-calc.util — computeQuantityValue', () => {
   it('AREA: m² = en(mm)×boy(mm)×adet (m² cinsinden)', () => {
@@ -68,5 +68,24 @@ describe('processing-calc.util — computeQuantityValue', () => {
         lengthMeters: 1.5,
       }),
     ).toBe(3);
+  });
+});
+
+describe('süreyle faturalama', () => {
+  it('saat = süre / 60; adet süreyi çarpmaz', () => {
+    expect(
+      computeQuantityValue({
+        billingUnit: MeasurementType.TIME,
+        quantity: 3,
+        durationMinutes: 45,
+      }),
+    ).toBe(0.75);
+  });
+
+  it('asgari süre: kısa iş asgariden faturalanır', () => {
+    expect(billedMinutes(12, 30)).toBe(30);
+    expect(billedMinutes(45, 30)).toBe(45);
+    expect(billedMinutes(45, 0)).toBe(45);
+    expect(billedMinutes(null, 30)).toBeNull();
   });
 });

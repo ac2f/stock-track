@@ -294,7 +294,9 @@ export type QuoteStatus =
   | 'expired'
   | 'converted';
 export type QuoteLineKind = 'sale' | 'processing';
-export type MeasurementType = 'area' | 'length' | 'piece' | 'weight';
+export type MeasurementType = 'area' | 'length' | 'piece' | 'weight' | 'time';
+/** Bir malzemenin ölçülebileceği tipler — süre yalnız işleme faturalamasında. */
+export type MaterialMeasurementType = Exclude<MeasurementType, 'time'>;
 
 export interface QuoteItemInput {
   lineKind: QuoteLineKind;
@@ -312,6 +314,9 @@ export interface QuoteItemInput {
   widthMm?: number;
   heightMm?: number;
   lengthMeters?: number;
+  // Süreyle (time) fiyatlanan işleme kaleminde işin süresi (dakika). Birim
+  // fiyat saatliktir; sunucu asgari süreyi uygular.
+  durationMinutes?: number;
   stockSource?: 'business' | 'consignment_tracked' | 'third_party_untracked';
   // Konsinye (sahibin malı) satışında sahip payı yöntemi.
   ownerSettlement?: 'manual_amount' | 'commission_percent';
@@ -370,6 +375,7 @@ export interface ProcessingJob {
   status: ProcessingStatus;
   billingUnit: MeasurementType;
   quantityValue: number;
+  durationMinutes?: number | null;
   totalCost: number;
   currency: string;
   processedAt: string;

@@ -193,3 +193,22 @@ describe('Corel isimlendirme', () => {
     expect(tsvBody([])).toBe(`${COREL_PROTOCOL_HEADER}\n`);
   });
 });
+
+describe('Corel fiyat satırı', () => {
+  it('dokuz alan, nokta ondalıklı', () => {
+    const { pricingLine } = jest.requireActual('./corel-naming.util');
+    expect(
+      pricingLine({
+        hourlyRate: 1500,
+        minMinutes: 30,
+        areaRate: 450.5,
+        minArea: 0.5,
+        feedMmS: 25,
+        rapidMmS: 100,
+        plungeSec: 1.5,
+        passDepthMm: 3,
+        currency: 'TRY',
+      }).split('\t'),
+    ).toEqual(['1500', '30', '450.5', '0.5', '25', '100', '1.5', '3', 'TRY']);
+  });
+});
