@@ -122,7 +122,7 @@ describe('CorelService', () => {
     const out = lines(await svc.customers('ozturk'));
 
     expect(out.map((l) => l.split('\t')[0])).toEqual(['c2', 'c1']);
-    expect(out[0].split('\t')[1]).toBe('Ozturk Reklam');
+    expect(out[0].split('\t')[1]).toBe('ozturk-reklam');
   });
 
   it('teklif kullanımı yalnız tabaka kalemlerini verir', async () => {

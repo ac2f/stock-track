@@ -40,22 +40,18 @@ export function asciiFold(input: string | null | undefined): string {
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /**
- * Müşteri klasörü adı: firma adı varsa o, yoksa kişi adı. Büyük/küçük harf
- * ve boşluklar korunur; Windows'un yasakladığı karakterler boşluğa döner,
- * sondaki nokta/boşluk atılır.
+ * Müşteri klasörü adı: firma adı varsa o, yoksa kişi adı. Klasör ve CAM
+ * yollarında sorun çıkmasın diye boşluksuz ve küçük harf: ASCII harf/rakam
+ * dışı her dizi tek "-" olur ("Öztürk Reklam Ltd. Şti." → "ozturk-reklam-ltd-sti").
  */
 export function customerFolderName(
   name: string | null | undefined,
   companyName?: string | null,
 ): string {
   const source = companyName?.trim() ? companyName : name;
-  let s = asciiFold(source)
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[. ]+$/, '');
-  if (s.length > 60) s = s.slice(0, 60).replace(/[. ]+$/, '');
-  if (!s) return 'Musteri';
+  let s = nameToken(source);
+  if (s.length > 60) s = s.slice(0, 60).replace(/-+$/, '');
+  if (!s) return 'musteri';
   return RESERVED.test(s) ? `${s}_` : s;
 }
 

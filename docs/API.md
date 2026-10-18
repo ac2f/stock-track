@@ -652,7 +652,7 @@ zamanki JSON gövdesidir.
 ```
 # /corel/customers
 id  klasör adı  görünen ad
-e8a0…  Ozturk Reklam Ltd. Sti  Ozturk Reklam Ltd. Sti. (Ayse Yilmaz) 0555…
+e8a0…  ozturk-reklam-ltd-sti  Ozturk Reklam Ltd. Sti. (Ayse Yilmaz) 0555…
 
 # /corel/materials?customerId=e8a0…
 id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen ad
@@ -660,8 +660,8 @@ id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen 
 3bb3…  B  pleksi  2800  akpolimer  dokme  beyaz  1220  2440  3  Pleksi 2.8mm Akpolimer Dokme Beyaz 1220x2440 x3
 ```
 
-- **Klasör adı:** firma adı varsa o, yoksa kişi adı; Windows'un yasakladığı
-  karakterler boşluğa döner, sondaki nokta atılır.
+- **Klasör adı:** firma adı varsa o, yoksa kişi adı; küçük harf ve
+  boşluksuz, harf/rakam dışı her dizi tek `-` (`ozturk-reklam-ltd-sti`).
 - **Jetonlar** (tür, marka, varyant, renk): küçük harf, harf/rakam dışı her
   dizi tek `-`. `--` eklentide alan grubu ayracıdır, jetonda geçmez.
 - **Sahip:** `C` müşterinin konsinye stoğu (yalnız `customerId` verilince),

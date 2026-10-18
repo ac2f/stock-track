@@ -31,19 +31,24 @@ describe('Corel isimlendirme', () => {
 
   it('müşteri klasörü: firma adı varsa o, yoksa kişi adı', () => {
     expect(customerFolderName('Ali Veli', 'Öztürk Reklam')).toBe(
-      'Ozturk Reklam',
+      'ozturk-reklam',
     );
-    expect(customerFolderName('Ali Veli', '')).toBe('Ali Veli');
-    expect(customerFolderName('Ali Veli', '   ')).toBe('Ali Veli');
-    expect(customerFolderName('Ali Veli', null)).toBe('Ali Veli');
+    expect(customerFolderName('Ali Veli', '')).toBe('ali-veli');
+    expect(customerFolderName('Ali Veli', '   ')).toBe('ali-veli');
+    expect(customerFolderName('Ali Veli', null)).toBe('ali-veli');
   });
 
-  it('müşteri klasörü Windows için güvenli', () => {
-    expect(customerFolderName('x', 'Acar Ltd. Şti.')).toBe('Acar Ltd. Sti');
-    expect(customerFolderName('x', 'A/B: "Tabela" <1>')).toBe('A B Tabela 1');
+  it('müşteri klasörü boşluksuz, küçük harf ve Windows için güvenli', () => {
+    expect(customerFolderName('x', 'Acar Ltd. Şti.')).toBe('acar-ltd-sti');
+    expect(customerFolderName('x', 'A/B: "Tabela" <1>')).toBe('a-b-tabela-1');
+    expect(customerFolderName('x', '  İĞNE  Işık  ')).toBe('igne-isik');
     expect(customerFolderName('con')).toBe('con_');
-    expect(customerFolderName('', '')).toBe('Musteri');
-    expect(customerFolderName('a'.repeat(80)).length).toBeLessThanOrEqual(60);
+    expect(customerFolderName('', '')).toBe('musteri');
+    expect(customerFolderName('***')).toBe('musteri');
+    const long = customerFolderName('ab '.repeat(40));
+    expect(long.length).toBeLessThanOrEqual(60);
+    expect(long.endsWith('-')).toBe(false);
+    expect(customerFolderName('x', 'Öztürk Reklam')).toMatch(/^[a-z0-9-]+$/);
   });
 
   it('jeton: küçük harf, ASCII, içinde "--" olamaz', () => {
@@ -91,9 +96,9 @@ describe('Corel isimlendirme', () => {
         companyName: 'Öztürk Reklam',
         phone: '0555',
       }),
-    ).toBe('c1\tOzturk Reklam\tOzturk Reklam (Ali Veli) 0555');
+    ).toBe('c1\tozturk-reklam\tOzturk Reklam (Ali Veli) 0555');
     expect(customerLine({ id: 'c2', name: 'Şule\tTab' })).toBe(
-      'c2\tSule Tab\tSule Tab',
+      'c2\tsule-tab\tSule Tab',
     );
   });
 
