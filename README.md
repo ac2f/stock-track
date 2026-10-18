@@ -16,6 +16,7 @@ tek bir çatı altında toplar.
 - [Proje Klasör Yapısı](#proje-klasör-yapısı)
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
+- [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
 - [Kurulum](#kurulum)
 - [Cluster & Stateless Mimari](#cluster--stateless-mimari)
 - [Dokümantasyon](#dokümantasyon)
@@ -141,6 +142,23 @@ TypeORM süzgeci her sorguya dükkân koşulunu kendiliğinden ekler (bkz.
 tahsilat, teklif, satış, iş, gider, satın alma ve stok girişi cihazda sıraya
 alınır ve bağlantı gelince bir kez gönderilir (bkz.
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) § 6–8).
+
+## Arayüz ve Kısayollar
+
+- **Hızlı arama (Ctrl+K ya da 🔍):** ekran adı, işlem ("yeni teklif",
+  "tahsilat al", "gider gir") ya da müşteri/plaka adı yazın. Müşteride
+  Enter cari ekstresini, ⇧ Enter tahsilatı açar.
+- **Klavye:** `/` sayfadaki arama kutusu, `N` o sayfada yeni kayıt,
+  `Alt+1…9` menüdeki ekranlar, `Esc` pencereyi kapatır, `?` bütün liste.
+- **Görünüm** (sol alttaki kullanıcı kartı, telefonda *Menü*): açık/koyu tema,
+  yazı boyutu (A / A+ / A++), detaylı ya da sıkı liste, gruplu ya da düz liste.
+  Seçimler o cihazda hatırlanır. Yan menü « ile daraltılabilir.
+- **Telefonda** altta dört ana ekran ve *Menü*; filtreler "Filtreler"
+  düğmesinin arkasında durur, arama kutusu her zaman görünür.
+- Her kayıt, güncelleme ve silme sonucu köşede kısa bir bildirimle söylenir;
+  silme gibi işlemler okunaklı bir onay penceresi ister.
+- Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,
+  Son 30 gün, Bu yıl*.
 
 ## Kurulum
 

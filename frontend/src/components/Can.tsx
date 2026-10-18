@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { ShopModule } from '../types';
+import { EmptyState } from './ui/EmptyState';
 
 /**
  * Seçili dükkândaki izne göre UI kapısı. Sunucu aynı kuralı ayrıca uygular;
@@ -26,14 +27,18 @@ export function Can({
 
 /** Yetkisiz sayfa yerine gösterilen kart. */
 export function NoAccess({ what }: { what?: string }) {
-  const { shop } = useAuth();
+  const { shop, shops } = useAuth();
   return (
-    <div className="card">
-      <h1 className="text-xl font-bold">Yetkiniz yok</h1>
-      <p className="mt-2 text-sm text-slate-500">
-        {what ? `"${what}" alanını` : 'Bu ekranı'} {shop ? `${shop.name} dükkânında ` : ''}
-        görme izniniz bulunmuyor. Dükkân yöneticinizden izin isteyebilirsiniz.
-      </p>
-    </div>
+    <EmptyState
+      icon="🔒"
+      title={<h1 className="text-xl font-bold">Yetkiniz yok</h1>}
+      hint={
+        <>
+          {what ? `"${what}" alanını` : 'Bu ekranı'} {shop ? `${shop.name} dükkânında ` : ''}
+          görme izniniz bulunmuyor. Dükkân yöneticinizden izin isteyebilirsiniz.
+          {shops.length > 1 && ' Başka bir dükkânda izniniz varsa menüden dükkân değiştirebilirsiniz.'}
+        </>
+      }
+    />
   );
 }

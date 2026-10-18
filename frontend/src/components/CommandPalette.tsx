@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { fetchCustomers } from '../api/customers.api';
 import { fetchPlates } from '../api/materials.api';
+import { fetchQuotes } from '../api/quotes.api';
 import { applyTheme, resolveInitialTheme } from '../lib/theme';
 import { applyFontScale, getFontScale } from '../lib/fontScale';
 import type { NavItem } from '../layouts/nav';
@@ -22,7 +23,19 @@ interface Command {
   keywords?: string;
   run: () => void;
   /** İkinci eylem (⇧ Enter): ör. müşteride tahsilat. */
-  alt?: { label: string; run: () => void };
+  alt?: { label: string; run: () => void; to?: string };
+  /** Arama sonucunun adresi: "son açılanlar"da yeniden açmak için saklanır. */
+  to?: string;
+}
+
+/** Son açılanlar: sabit komutlar kimliğiyle, arama sonuçları adresleriyle saklanır. */
+interface RecentEntry {
+  id: string;
+  icon?: string;
+  label?: string;
+  to?: string;
+  altTo?: string;
+  altLabel?: string;
 }
 
 interface QuickAction {
@@ -62,18 +75,22 @@ function matches(cmd: Command, tokens: string[]): boolean {
   return tokens.every((t) => hay.includes(t));
 }
 
-function readRecent(): string[] {
+// Müşteri/teklif kimlikleri dükkâna özeldir: liste dükkân başına tutulur.
+const recentKey = (shopId: string | undefined) => `${RECENT_KEY}:${shopId ?? '-'}`;
+
+function readRecent(shopId: string | undefined): RecentEntry[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as string[];
+    const raw = JSON.parse(localStorage.getItem(recentKey(shopId)) ?? '[]') as unknown[];
+    return raw.filter((x): x is RecentEntry => !!x && typeof (x as RecentEntry).id === 'string');
   } catch {
     return [];
   }
 }
 
-function pushRecent(id: string) {
+function pushRecent(shopId: string | undefined, entry: RecentEntry) {
   try {
-    const next = [id, ...readRecent().filter((x) => x !== id)].slice(0, 5);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    const next = [entry, ...readRecent(shopId).filter((x) => x.id !== entry.id)].slice(0, 6);
+    localStorage.setItem(recentKey(shopId), JSON.stringify(next));
   } catch {
     /* depolama kapalı */
   }
@@ -91,6 +108,14 @@ function useDebounced<T>(value: T, ms = 250): T {
 
 const money = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 });
 
+function formatQuoteTotal(total: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: currency || 'TRY' }).format(Number(total) || 0);
+  } catch {
+    return money.format(Number(total) || 0);
+  }
+}
+
 export function CommandPalette({
   nav,
   onClose,
@@ -101,7 +126,7 @@ export function CommandPalette({
   onShowHelp: () => void;
 }) {
   const navigate = useNavigate();
-  const { can, logout } = useAuth();
+  const { can, logout, shop } = useAuth();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +138,12 @@ export function CommandPalette({
     queryKey: ['palette', 'customers', term],
     queryFn: () => fetchCustomers({ search: term, limit: 6 }),
     enabled: searching && can('customers'),
+    staleTime: 30_000,
+  });
+  const { data: quotes, isFetching: loadingQuotes } = useQuery({
+    queryKey: ['palette', 'quotes', term],
+    queryFn: () => fetchQuotes({ search: term, limit: 5 }),
+    enabled: searching && can('quotes'),
     staleTime: 30_000,
   });
   const { data: plates, isFetching: loadingPlates } = useQuery({
@@ -178,10 +209,23 @@ export function CommandPalette({
   const results = useMemo<Command[]>(() => {
     const out: Command[] = [];
     if (!tokens.length) {
-      const recent = readRecent()
-        .map((id) => commands.find((c) => c.id === id))
-        .filter((c): c is Command => !!c)
-        .map((c) => ({ ...c, group: 'Son kullanılanlar' }));
+      const recent = readRecent(shop?.id)
+        .map((r): Command | undefined => {
+          if (r.to) {
+            return {
+              id: r.id,
+              group: 'Son kullanılanlar',
+              icon: r.icon ?? '•',
+              label: r.label ?? r.id,
+              to: r.to,
+              run: () => go(r.to!),
+              alt: r.altTo ? { label: r.altLabel ?? 'Aç', to: r.altTo, run: () => go(r.altTo!) } : undefined,
+            };
+          }
+          const c = commands.find((x) => x.id === r.id);
+          return c && { ...c, group: 'Son kullanılanlar' };
+        })
+        .filter((c): c is Command => !!c);
       out.push(...recent);
       out.push(...commands.filter((c) => c.group === 'İşlemler' && !recent.some((r) => r.id === c.id)));
       out.push(...commands.filter((c) => c.group === 'Ekranlar'));
@@ -197,10 +241,22 @@ export function CommandPalette({
           icon: '👤',
           label: c.companyName ? `${c.name} · ${c.companyName}` : c.name,
           hint: bal > 0 ? `Borç ${money.format(bal)}` : bal < 0 ? `Alacaklı ${money.format(-bal)}` : 'Bakiye yok',
+          to: `/customers?q=${encodeURIComponent(c.name)}&open=${c.id}`,
           run: () => go(`/customers?q=${encodeURIComponent(c.name)}&open=${c.id}`),
           alt: can('payments', 'write')
-            ? { label: 'Tahsilat', run: () => go(`/payments?customer=${c.id}`) }
+            ? { label: 'Tahsilat', to: `/payments?customer=${c.id}`, run: () => go(`/payments?customer=${c.id}`) }
             : undefined,
+        });
+      }
+      for (const qt of quotes?.items ?? []) {
+        out.push({
+          id: `quote:${qt.id}`,
+          group: 'Teklifler',
+          icon: '📝',
+          label: `${qt.quoteNo}${qt.buyerCustomer?.name ? ` · ${qt.buyerCustomer.name}` : ''}`,
+          hint: formatQuoteTotal(qt.total, qt.currency),
+          to: `/quotes?q=${encodeURIComponent(qt.quoteNo)}`,
+          run: () => go(`/quotes?q=${encodeURIComponent(qt.quoteNo)}`),
         });
       }
       for (const p of plates?.items ?? []) {
@@ -210,15 +266,16 @@ export function CommandPalette({
           icon: '📦',
           label: p.name,
           hint: `${Number(p.quantityInStock)} adet${p.owners?.length ? ` · ${p.owners.join(', ')}` : ''}`,
+          to: `/plates?q=${encodeURIComponent(p.sku || p.name)}`,
           run: () => go(`/plates?q=${encodeURIComponent(p.sku || p.name)}`),
         });
       }
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commands, q, searching, customers, plates]);
+  }, [commands, q, searching, customers, plates, quotes]);
 
-  useEffect(() => setActive(0), [q, customers, plates]);
+  useEffect(() => setActive(0), [q, customers, plates, quotes]);
   useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: 'nearest' });
@@ -227,7 +284,12 @@ export function CommandPalette({
   const runAt = (i: number, alt = false) => {
     const cmd = results[i];
     if (!cmd) return;
-    if (!cmd.id.startsWith('customer:') && !cmd.id.startsWith('plate:')) pushRecent(cmd.id);
+    pushRecent(
+      shop?.id,
+      cmd.to
+        ? { id: cmd.id, icon: cmd.icon, label: cmd.label, to: cmd.to, altTo: cmd.alt?.to, altLabel: cmd.alt?.label }
+        : { id: cmd.id },
+    );
     if (alt && cmd.alt) cmd.alt.run();
     else cmd.run();
   };
@@ -248,7 +310,7 @@ export function CommandPalette({
     }
   };
 
-  const loading = searching && (loadingCustomers || loadingPlates);
+  const loading = searching && (loadingCustomers || loadingPlates || loadingQuotes);
   let lastGroup = '';
 
   return (
@@ -269,7 +331,7 @@ export function CommandPalette({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ekran, işlem, müşteri ya da plaka ara…"
+            placeholder="Ekran, işlem, müşteri, teklif no ya da plaka ara…"
             className="h-14 flex-1 bg-transparent text-base outline-none placeholder:text-slate-400"
             aria-label="Ara"
             role="combobox"

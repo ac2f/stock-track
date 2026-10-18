@@ -195,7 +195,28 @@ servislerde tek tek değil, altyapıda sağlanır:
   gerçeğiyle değiştirir, gönderilenleri ve eskiyen kopyaları siler.
   Uygulama kabuğunu `public/sw.js` saklar.
 
-## 8. Genişletme Senaryoları
+## 8. Arayüz yapı taşları
+
+Ekranlar aynı küçük parçaları kullanır; yeni bir ekran yazarken bunlarla
+başlayın:
+
+| Parça | Yer | Ne işe yarar |
+| ----- | --- | ------------ |
+| Menü tanımı | `layouts/nav.ts` | Menü grupları, izin alanı, hızlı arama sözcükleri; yan menü, telefon menüsü ve Ctrl+K aynı listeyi kullanır |
+| Hızlı arama ve kısayollar | `components/CommandPalette.tsx` | Ctrl+K, `/`, `N`, `?`, Alt+1…9 |
+| Bildirim | `lib/toast.ts`, `api/feedback.ts` | Her yazma isteği sonucunu kendiliğinden bildirir; `silent: true` ile kapatılır |
+| Onay penceresi | `components/ConfirmDialog.tsx` | `await confirmDialog({ message, danger })` — `window.confirm` yerine |
+| Sayfa başlığı, boş durum, yükleniyor, filtre kutusu, arama kutusu, tarih aralığı | `components/ui/*` | Telefonda taşmayan ortak yerleşim |
+| Biçimler | `lib/format.ts` | `formatDate` (17.10.2026), `formatMoney`, `relativeDay` |
+| Adres parametresi | `hooks/useUrlParam.ts` | `?new=1`, `?q=…` gibi hızlı arama bağlantılarını bir kez işler |
+
+Düğme ve alan sınıfları `styles/index.css` içindedir: `.btn-primary`,
+`.btn-secondary`, `.btn-ghost`, `.btn-danger`, `.btn-danger-soft`,
+`.btn-success`, `.btn-sm`, `.input`, `.label`, `.card`, `.badge`. Yazı boyutu
+tercihi kök `font-size`'ı değiştirir; ölçüler `rem` olduğundan ekran orantılı
+büyür.
+
+## 9. Genişletme Senaryoları
 
 | İhtiyaç                         | Nasıl eklenir                                              |
 | ------------------------------- | --------------------------------------------------------- |

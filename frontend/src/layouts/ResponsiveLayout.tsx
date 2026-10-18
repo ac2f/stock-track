@@ -406,7 +406,7 @@ function Preferences() {
           onChange={setMini}
           options={[
             { value: false, label: '⊞ Detaylı', title: 'Kayıtlar bütün bilgileriyle' },
-            { value: true, label: '≡ Sıkı', title: 'Bir ekranda daha çok kayıt' },
+            { value: true, label: '≡ Mini', title: 'Bir ekranda daha çok kayıt' },
           ]}
         />
       </PrefRow>

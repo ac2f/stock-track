@@ -106,9 +106,10 @@ export function GroupToggle({
 }) {
   return (
     <button
-      className="btn bg-slate-100 px-2 py-1 text-xs"
+      className="btn-secondary btn-sm"
       onClick={onToggle}
       title={grouped ? 'Gruplamayı kapat' : 'Grupla'}
+      aria-pressed={grouped}
     >
       {grouped ? '▤ Grupsuz' : '▦ Grupla'}
     </button>
@@ -125,9 +126,10 @@ export function DensityToggle({
 }) {
   return (
     <button
-      className="btn bg-slate-100 px-2 py-1 text-xs"
+      className="btn-secondary btn-sm"
       onClick={onToggle}
       title={mini ? 'Detaylı görünüme geç' : 'Mini görünüme geç'}
+      aria-pressed={mini}
     >
       {mini ? '⊞ Detaylı' : '≡ Mini'}
     </button>

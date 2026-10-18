@@ -8,6 +8,8 @@ export interface QuoteFilters {
   categoryId?: string; // malzeme türü (pleksi, alüminyum kompozit…)
   from?: string; // ISO tarih (YYYY-MM-DD)
   to?: string;
+  /** Teklif no ya da müşteri adı. */
+  search?: string;
   page?: number;
   limit?: number;
 }

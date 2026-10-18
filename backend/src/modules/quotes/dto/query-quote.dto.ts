@@ -1,4 +1,4 @@
-import { IsDateString, IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { QuoteStatus } from '../../../common/enums/quote-status.enum';
 
@@ -29,4 +29,10 @@ export class QueryQuoteDto extends PaginationDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  // Teklif numarası (TKF-2026-0001) ya da müşteri adına göre arama (hızlı arama).
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 }

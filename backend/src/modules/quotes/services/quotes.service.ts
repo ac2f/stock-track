@@ -139,8 +139,19 @@ export class QuotesService {
     }
     if (query.from) qb.andWhere('quote.created_at >= :from', { from: query.from });
     if (query.to) qb.andWhere('quote.created_at <= :to', { to: query.to });
+    const search = query.search?.trim();
+    if (search) {
+      // Müşteri teklifle aynı dükkândadır (yabancı anahtar denetimi), alt sorgu
+      // başka dükkâna taşmaz.
+      qb.andWhere(
+        `(quote.quote_no ILIKE :search OR EXISTS (SELECT 1 FROM customers c
+           WHERE c.id = quote.buyer_customer_id AND c.name ILIKE :search))`,
+        { search: `%${search}%` },
+      );
+    }
 
     const hasFilter = !!(
+      search ||
       query.buyerCustomerId ||
       query.status ||
       query.plateId ||
