@@ -1,5 +1,14 @@
 import { useAuth } from '../../context/AuthContext';
-import { useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchBusinessSettings,
@@ -47,6 +56,14 @@ import {
 } from '../../api/materials.api';
 import { useLock } from '../../context/LockContext';
 import { API_URL } from '../../api/client';
+import { confirmDialog } from '../../components/ConfirmDialog';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { SearchInput } from '../../components/ui/SearchInput';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadingBlock, Spinner } from '../../components/ui/Loading';
+import { useUrlParam } from '../../hooks/useUrlParam';
+import { toast } from '../../lib/toast';
+import { formatDate, formatDateTime, formatMoney, formatNumber } from '../../lib/format';
 
 /** Etiketli form alanı. */
 function Field({
@@ -56,6 +73,7 @@ function Field({
   placeholder,
   hint,
   disabled,
+  inputMode,
 }: {
   label: string;
   value: string;
@@ -63,15 +81,17 @@ function Field({
   placeholder?: string;
   hint?: string;
   disabled?: boolean;
+  inputMode?: 'text' | 'tel' | 'url' | 'numeric' | 'decimal';
 }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-600">{label}</span>
+    <label className="block min-w-0">
+      <span className="label">{label}</span>
       <input
         className="input"
         value={value}
         placeholder={placeholder}
         disabled={disabled}
+        inputMode={inputMode}
         onChange={(e) => onChange(e.target.value)}
       />
       {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
@@ -79,9 +99,318 @@ function Field({
   );
 }
 
+// ── Bölümler: hızlı geçiş şeridi, arama ve kart başlıkları ──────────────
+
+type SectionId =
+  | 'isletme'
+  | 'gorunum'
+  | 'satis-fiyat'
+  | 'kesim-fiyat'
+  | 'corel'
+  | 'katalog'
+  | 'kilit'
+  | 'telegram'
+  | 'sabah-ozeti'
+  | 'yedek'
+  | 'bakim'
+  | 'bildirimler';
+
+interface SectionMeta {
+  id: SectionId;
+  icon: string;
+  title: string;
+  /** Şeritteki kısa ad. */
+  short: string;
+  /** Başlığın altındaki tek satırlık açıklama. */
+  description: string;
+  /** Aramada eşleşen ek sözcükler. */
+  keywords: string;
+  /** Yalnız sistem sahibine görünür (sayfadaki koşulla aynı). */
+  ownerOnly?: boolean;
+}
+
+/** Sayfadaki sırayla bütün bölümler (hızlı arama da bu listeyi kullanır). */
+export const SECTIONS: SectionMeta[] = [
+  {
+    id: 'isletme',
+    icon: '🏪',
+    title: 'İşletme bilgileri',
+    short: 'İşletme',
+    description: 'Belgelerde ve uygulama başlığında görünen ad, adres ve iletişim bilgileri.',
+    keywords: 'ad isim adres telefon vergi vkn logo portal pdf belge fatura başlık',
+  },
+  {
+    id: 'gorunum',
+    icon: '👁️',
+    title: 'Görünüm',
+    short: 'Görünüm',
+    description: 'Ekranda hangi hassas düğmelerin görüneceği.',
+    keywords: 'geri al ekstre cari düğme gizle göster',
+  },
+  {
+    id: 'satis-fiyat',
+    icon: '💰',
+    title: 'Satış fiyatlandırması',
+    short: 'Satış fiyatı',
+    description: 'Malzeme satışında kâr yüzdesi ve konsinye komisyon oranı.',
+    keywords: 'kâr kar yüzde marj markup konsinye komisyon perakende fiyat',
+  },
+  {
+    id: 'kesim-fiyat',
+    icon: '⏱️',
+    title: 'Kesim fiyatlandırması',
+    short: 'Kesim fiyatı',
+    description: 'Süreyle ve m² ile fiyatlama, asgari tutarlar ve makine hızları.',
+    keywords: 'saatlik ücret dakika m2 metrekare makine hız paso dalma corel süre cnc lazer',
+  },
+  {
+    id: 'corel',
+    icon: '🖌️',
+    title: 'Corel entegrasyonu',
+    short: 'Corel',
+    description: 'CorelDRAW eklentisinin bağlanacağı sunucu adresi ve anahtar.',
+    keywords: 'coreldraw eklenti ac2f anahtar api key dxf',
+  },
+  {
+    id: 'katalog',
+    icon: '🗂️',
+    title: 'Katalog sağlığı',
+    short: 'Katalog',
+    description: 'Farklı yazılmış tür/marka/renk kopyalarını bulur ve birleştirir.',
+    keywords: 'kopya birleştir tekrar mükerrer marka renk ebat kalınlık şablon',
+  },
+  {
+    id: 'kilit',
+    icon: '🔒',
+    title: 'Ekran kilidi',
+    short: 'Ekran kilidi',
+    description: 'İşlem yapılmayınca bu cihazda arayüzü PIN ile kilitler.',
+    keywords: 'pin şifre parola kilitle süre dakika güvenlik',
+  },
+  {
+    id: 'telegram',
+    icon: '📨',
+    title: 'Telegram',
+    short: 'Telegram',
+    description: 'Bildirim, hatırlatma ve yedeklerin gittiği bot ve sohbetler.',
+    keywords: 'bot jeton token sohbet chat id bildirim yetkili kullanıcı test mesaj',
+  },
+  {
+    id: 'sabah-ozeti',
+    icon: '☀️',
+    title: 'Sabah özeti',
+    short: 'Sabah özeti',
+    description: 'Her sabah Telegram’a bekleyen işler, stok ve teklif durumu.',
+    keywords: 'günlük rapor telegram bekleyen iş plaka stok teklif',
+  },
+  {
+    id: 'yedek',
+    icon: '🗄️',
+    title: 'Veritabanı yedekleme',
+    short: 'Yedek',
+    description: 'Yedek indirme, Telegram’a şifreli yedek ve geri yükleme.',
+    keywords: 'backup sql enc şifreli geri yükle indir anahtar',
+    ownerOnly: true,
+  },
+  {
+    id: 'bakim',
+    icon: '🧹',
+    title: 'Bakım — kayıt ve log temizliği',
+    short: 'Bakım',
+    description: 'Biriken bildirim kayıtlarını, eski yedek dosyalarını ve logları temizler.',
+    keywords: 'log temizlik temizle sil docker yedek dosya disk',
+    ownerOnly: true,
+  },
+  {
+    id: 'bildirimler',
+    icon: '🔔',
+    title: 'Bildirim geçmişi',
+    short: 'Bildirimler',
+    description: 'Gönderilen son bildirimler ve sonuçları.',
+    keywords: 'gönderim defteri log telegram hata yedek borç stok',
+  },
+];
+
+const SECTION_BY_ID = Object.fromEntries(SECTIONS.map((s) => [s.id, s])) as Record<SectionId, SectionMeta>;
+const SECTION_PREFIX = 'ayar-';
+const sectionDomId = (id: SectionId) => `${SECTION_PREFIX}${id}`;
+
+/** Aramada Türkçe harf farkı gözetilmez: "ozet" = "özet", "sifre" = "şifre". */
+const FOLD: Record<string, string> = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u', â: 'a', î: 'i', û: 'u' };
+const fold = (s: string) => s.toLocaleLowerCase('tr').replace(/[çğıöşüâîû]/g, (c) => FOLD[c] ?? c);
+
+function sectionMatches(s: SectionMeta, query: string): boolean {
+  const words = fold(query).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = fold(`${s.title} ${s.short} ${s.description} ${s.keywords}`);
+  return words.every((w) => hay.includes(w));
+}
+
+/** Aramayla görünür kalan bölümler; gizlenen kart DOM'da kalır (yazılan form kaybolmaz). */
+const VisibleSections = createContext<Set<SectionId> | null>(null);
+
+/** Bütün ayar kartlarının ortak çerçevesi: simge + başlık + tek satır açıklama. */
+function SettingsSection({
+  id,
+  badge,
+  children,
+}: {
+  id: SectionId;
+  /** Başlığın yanında küçük durum rozeti (Açık/Kapalı …). */
+  badge?: ReactNode;
+  children: ReactNode;
+}) {
+  const meta = SECTION_BY_ID[id];
+  const visible = useContext(VisibleSections);
+  const domId = sectionDomId(id);
+  return (
+    <section
+      id={domId}
+      tabIndex={-1}
+      aria-labelledby={`${domId}-baslik`}
+      hidden={visible ? !visible.has(id) : false}
+      className="card scroll-mt-20 space-y-3 focus:outline-none lg:scroll-mt-28"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xl leading-none"
+          aria-hidden
+        >
+          {meta.icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h2 id={`${domId}-baslik`} className="text-base font-semibold sm:text-lg">
+              {meta.title}
+            </h2>
+            {badge}
+          </div>
+          <p className="text-sm text-slate-500">{meta.description}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Başlık yanındaki Açık/Kapalı rozeti. */
+function OnOffBadge({ on, onText = 'Açık', offText = 'Kapalı' }: { on: boolean; onText?: string; offText?: string }) {
+  return (
+    <span className={`badge ${on ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+      {on ? onText : offText}
+    </span>
+  );
+}
+
+/**
+ * Yapışkan bölüm şeridi: sayfa kaydırılırken üstte kalır, dokunulan bölüme
+ * kayar; ekranda olan bölümün çipi vurgulanır. Telefonda şerit yana kayar.
+ */
+function SectionNav({ sections, readOnly }: { sections: SectionMeta[]; readOnly: boolean }) {
+  const [active, setActive] = useState<SectionId | null>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  // Çipe tıklanınca yumuşak kaydırma bitene kadar gözlemci vurguyu değiştirmesin.
+  const lockRef = useRef(0);
+  const key = sections.map((s) => s.id).join(',');
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const els = key
+      .split(',')
+      .filter(Boolean)
+      .map((id) => document.getElementById(sectionDomId(id as SectionId)))
+      .filter((el): el is HTMLElement => !!el);
+    if (!els.length) return;
+    const seen = new Map<Element, boolean>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const en of entries) seen.set(en.target, en.isIntersecting);
+        if (Date.now() < lockRef.current) return;
+        const first = els.find((el) => seen.get(el));
+        if (first) setActive(first.id.slice(SECTION_PREFIX.length) as SectionId);
+      },
+      // Şeridin hemen altından ekranın üst yarısına kadarki bant "şu an okunan" bölümdür.
+      { root: navRef.current?.closest('main') ?? null, rootMargin: '-100px 0px -55% 0px' },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [key]);
+
+  // Vurgulanan çip telefonda şeridin görünen kısmına kaysın.
+  useEffect(() => {
+    const row = rowRef.current;
+    const chip = active ? row?.querySelector<HTMLElement>(`[data-section="${active}"]`) : null;
+    if (!row || !chip || row.scrollWidth <= row.clientWidth) return;
+    row.scrollTo?.({ left: chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
+  }, [active]);
+
+  const go = (e: ReactMouseEvent<HTMLAnchorElement>, id: SectionId) => {
+    // Ctrl/⌘ ile yeni sekmede açmak serbest.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    const el = document.getElementById(sectionDomId(id));
+    if (!el) return;
+    lockRef.current = Date.now() + 1000;
+    setActive(id);
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    el.focus({ preventScroll: true });
+    try {
+      window.history.replaceState(window.history.state, '', `#${sectionDomId(id)}`);
+    } catch {
+      /* adres güncellenemezse kaydırma yine de çalışır */
+    }
+  };
+
+  if (!sections.length && !readOnly) return null;
+
+  return (
+    <nav
+      ref={navRef}
+      aria-label="Ayar bölümleri"
+      className="no-print sticky top-0 z-20 -mx-3 border-b border-slate-200 bg-slate-50/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4 md:-mx-6 md:px-6 dark:bg-slate-900/95"
+    >
+      <div ref={rowRef} className="relative flex gap-1.5 overflow-x-auto lg:flex-wrap lg:overflow-visible">
+        {readOnly && (
+          <span
+            className="badge min-h-[36px] shrink-0 bg-amber-100 px-3 text-amber-800"
+            title="Bu dükkânın ayarlarında yazma izniniz yok."
+          >
+            🔒 Salt okunur
+          </span>
+        )}
+        {sections.map((s) => {
+          const on = active === s.id;
+          return (
+            <a
+              key={s.id}
+              href={`#${sectionDomId(s.id)}`}
+              data-section={s.id}
+              aria-current={on ? 'location' : undefined}
+              onClick={(e) => go(e, s.id)}
+              className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-medium transition ${
+                on
+                  ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
+              }`}
+            >
+              <span aria-hidden>{s.icon}</span>
+              {s.short}
+            </a>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 /**
  * Ayarlar (İşletme Sahibi). İşletme/proje kimliği tek ekrandan düzenlenir;
  * PDF/yazdırma belgelerinde ve arayüz başlığında bu ad/bilgiler kullanılır.
+ *
+ * Bağlantılar: /settings#ayar-telegram doğrudan bölüme gider,
+ * /settings?q=yedek arama kutusunu doldurur.
  */
 export function SettingsPage() {
   const qc = useQueryClient();
@@ -117,91 +446,164 @@ export function SettingsPage() {
   const set = (patch: Partial<UpdateBusinessInput>) =>
     setForm((f) => ({ ...f, ...patch }));
 
-  if (isLoading) return <p className="text-slate-400">Yükleniyor…</p>;
+  // Bölüm araması; ?q=… ile gelindiyse kutu dolu açılır.
+  const [query, setQuery] = useState('');
+  useUrlParam('q', setQuery);
+  // Yedek ve bakım yalnız sistem sahibine (aşağıdaki koşulla aynı).
+  const shown = useMemo(
+    () => SECTIONS.filter((s) => (!s.ownerOnly || isOwner) && sectionMatches(s, query)),
+    [isOwner, query],
+  );
+  const shownIds = useMemo(() => new Set(shown.map((s) => s.id)), [shown]);
+
+  // Adresteki #ayar-… bölümüne git (sayfa yüklendikten sonra).
+  useEffect(() => {
+    if (isLoading) return;
+    const target = decodeURIComponent(window.location.hash.slice(1));
+    if (!target.startsWith(SECTION_PREFIX)) return;
+    const t = window.setTimeout(() => document.getElementById(target)?.scrollIntoView({ block: 'start' }), 150);
+    return () => window.clearTimeout(t);
+  }, [isLoading]);
+
+  if (isLoading) return <LoadingBlock rows={4} />;
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Dükkân ayarları{shop ? ` — ${shop.name}` : ''}</h1>
-      <p className="text-sm text-slate-500">
-        Buradaki ad ve bilgiler bu dükkânın PDF/yazdırma belgelerinde (teklif,
-        fatura, fiş, ekstre, raporlar) ve uygulama başlığında kullanılır. Her
-        dükkânın ayarları ayrıdır.
-      </p>
+      <PageHeader
+        icon="⚙️"
+        title={`Dükkân ayarları${shop ? ` — ${shop.name}` : ''}`}
+        subtitle="Buradaki ad ve bilgiler bu dükkânın PDF/yazdırma belgelerinde (teklif, fatura, fiş, ekstre, raporlar) ve uygulama başlığında kullanılır. Her dükkânın ayarları ayrıdır."
+        actions={
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Ayar ara… (telegram, yedek, PIN)"
+            aria-label="Ayar ara"
+            className="w-full sm:w-72"
+          />
+        }
+      />
       {!canWrite && (
-        <p className="card text-sm text-amber-700">
-          Bu dükkânın ayarlarını görebilirsiniz ama değiştiremezsiniz (yazma izni yok).
-        </p>
+        <div
+          role="note"
+          className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <span className="text-xl leading-none" aria-hidden>
+            🔒
+          </span>
+          <div className="min-w-0">
+            <div className="font-semibold">Salt okunur</div>
+            <p>Bu dükkânın ayarlarını görebilirsiniz ama değiştiremezsiniz (yazma izni yok).</p>
+          </div>
+        </div>
       )}
 
-      <div className="card space-y-3">
-        <Field
-          label="İşletme / Proje adı"
-          value={form.businessName ?? ''}
-          placeholder="Örn. Acme Reklam & İmalat"
-          onChange={(v) => set({ businessName: v })}
-          hint="Belgelerin başlığında ve site başlığında görünür."
+      <SectionNav sections={shown} readOnly={!canWrite} />
+
+      {shown.length === 0 && (
+        <EmptyState
+          icon="🔎"
+          title="Eşleşen ayar yok"
+          hint={`“${query}” için bir bölüm bulunamadı. Başka bir sözcük deneyin: telegram, yedek, PIN, fiyat, Corel…`}
+          action={
+            <button className="btn-secondary btn-sm" onClick={() => setQuery('')}>
+              Aramayı temizle
+            </button>
+          }
         />
-        <Field
-          label="Adres"
-          value={form.businessAddress ?? ''}
-          onChange={(v) => set({ businessAddress: v })}
-        />
-        <div className="grid gap-3 sm:grid-cols-2">
+      )}
+
+      <VisibleSections.Provider value={shownIds}>
+        <SettingsSection id="isletme">
           <Field
-            label="Telefon"
-            value={form.businessPhone ?? ''}
-            onChange={(v) => set({ businessPhone: v })}
+            label="İşletme / Proje adı"
+            value={form.businessName ?? ''}
+            placeholder="Örn. Acme Reklam & İmalat"
+            onChange={(v) => set({ businessName: v })}
+            hint="Belgelerin başlığında ve site başlığında görünür."
           />
           <Field
-            label="Vergi No (VKN)"
-            value={form.businessTaxNo ?? ''}
-            onChange={(v) => set({ businessTaxNo: v })}
+            label="Adres"
+            value={form.businessAddress ?? ''}
+            onChange={(v) => set({ businessAddress: v })}
           />
-        </div>
-        <Field
-          label="Logo dosya yolu (opsiyonel)"
-          value={form.businessLogoPath ?? ''}
-          onChange={(v) => set({ businessLogoPath: v })}
-          hint="Sunucuda erişilebilir bir dosya yolu (ileride belge başlığına basmak için)."
-        />
-        <Field
-          label="Müşteri portalı temel adresi"
-          value={form.portalBaseUrl ?? ''}
-          onChange={(v) => set({ portalBaseUrl: v })}
-          hint="Örn. http://192.168.1.50:5173/portal"
-        />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="Telefon"
+              value={form.businessPhone ?? ''}
+              inputMode="tel"
+              onChange={(v) => set({ businessPhone: v })}
+            />
+            <Field
+              label="Vergi No (VKN)"
+              value={form.businessTaxNo ?? ''}
+              inputMode="numeric"
+              onChange={(v) => set({ businessTaxNo: v })}
+            />
+          </div>
+          <Field
+            label="Logo dosya yolu (opsiyonel)"
+            value={form.businessLogoPath ?? ''}
+            onChange={(v) => set({ businessLogoPath: v })}
+            hint="Sunucuda erişilebilir bir dosya yolu (ileride belge başlığına basmak için)."
+          />
+          <Field
+            label="Müşteri portalı temel adresi"
+            value={form.portalBaseUrl ?? ''}
+            inputMode="url"
+            onChange={(v) => set({ portalBaseUrl: v })}
+            hint="Örn. http://192.168.1.50:5173/portal"
+          />
 
-        {mut.isError && (
-          <p className="text-sm text-red-600">
-            {(mut.error as { response?: { data?: { message?: string } } })
-              ?.response?.data?.message ?? 'Kaydedilemedi.'}
-          </p>
-        )}
-        {mut.isSuccess && (
-          <p className="text-sm text-emerald-600">Kaydedildi.</p>
-        )}
+          {mut.isError && (
+            <p className="text-sm text-red-600">
+              {(mut.error as { response?: { data?: { message?: string } } })
+                ?.response?.data?.message ?? 'Kaydedilemedi.'}
+            </p>
+          )}
 
-        <button
-          className="btn-primary"
-          disabled={mut.isPending || !canWrite}
-          onClick={() => mut.mutate()}
-        >
-          Kaydet
-        </button>
-      </div>
+          <button
+            className="btn-primary"
+            disabled={mut.isPending || !canWrite}
+            title={canWrite ? undefined : 'Yazma izniniz yok'}
+            onClick={() => mut.mutate()}
+          >
+            {mut.isPending && <Spinner />}
+            Kaydet
+          </button>
+        </SettingsSection>
 
-      <DisplaySettingsCard />
-      <PricingSettingsCard />
-      <CutPricingCard />
-      <CorelIntegrationCard />
-      <CatalogHealthCard />
-      <ScreenLockSettings />
-      <TelegramSettings />
-      <MorningSummaryCard />
-      {/* Yedek bütün veritabanını kapsar: yalnız sistem sahibi. */}
-      {isOwner && <BackupSection />}
-      {isOwner && <MaintenanceSection />}
-      <NotificationsHistory />
+        <DisplaySettingsCard />
+        <PricingSettingsCard />
+        <CutPricingCard />
+        <CorelIntegrationCard />
+        <CatalogHealthCard />
+        <ScreenLockSettings />
+        <TelegramSettings />
+        <MorningSummaryCard />
+        {/* Yedek bütün veritabanını kapsar: yalnız sistem sahibi. */}
+        {isOwner && <BackupSection />}
+        {isOwner && <MaintenanceSection />}
+        <NotificationsHistory />
+      </VisibleSections.Provider>
+    </div>
+  );
+}
+
+/** Kart içindeki alt kutu (başlıklı, ince çerçeveli). */
+function SubBox({
+  title,
+  children,
+  className = 'border-slate-200',
+}: {
+  title?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`space-y-2 rounded-xl border p-3 ${className}`}>
+      {title && <div className="text-sm font-semibold">{title}</div>}
+      {children}
     </div>
   );
 }
@@ -228,19 +630,17 @@ function DisplaySettingsCard() {
   const on = data?.showLedgerUndo === true;
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">👁️ Görünüm</h2>
-
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <label className="flex items-start gap-3">
+    <SettingsSection id="gorunum">
+      <SubBox>
+        <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
-            className="mt-1"
+            className="mt-1 shrink-0"
             checked={on}
             disabled={!data || mut.isPending}
             onChange={(e) => mut.mutate(e.target.checked)}
           />
-          <span>
+          <span className="min-w-0">
             <span className="block text-sm font-medium">
               Cari ekstresinde "Geri al" düğmelerini göster
             </span>
@@ -259,8 +659,10 @@ function DisplaySettingsCard() {
         </label>
 
         <p
-          className={`text-xs font-medium ${
-            on ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700'
+          className={`rounded-lg px-2 py-1 text-xs font-medium ${
+            on
+              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
           }`}
         >
           {on
@@ -270,8 +672,8 @@ function DisplaySettingsCard() {
         {mut.isError && (
           <p className="text-xs text-red-600">Ayar kaydedilemedi.</p>
         )}
-      </div>
-    </div>
+      </SubBox>
+    </SettingsSection>
   );
 }
 
@@ -309,36 +711,33 @@ function PricingSettingsCard() {
   const example = 100 * (1 + (Number(markup) || 0) / 100);
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">💰 Satış fiyatlandırması</h2>
+    <SettingsSection id="satis-fiyat">
       <p className="text-sm text-slate-500">
         Malzeme satışında birim fiyat, malzemenin <b>perakende fiyatı</b>{' '}
         üzerine buradaki kâr yüzdesi eklenerek otomatik önerilir. Bir malzemeye
         özel oran girilmişse o önceliklidir (Stok › malzeme düzenleme).
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
-            Genel kâr yüzdesi (%)
-          </span>
+        <label className="block min-w-0">
+          <span className="label">Genel kâr yüzdesi (%)</span>
           <input
             className="input"
             type="number"
+            inputMode="decimal"
             min={0}
             value={markup}
             onChange={(e) => setMarkup(e.target.value)}
           />
           <span className="mt-1 block text-xs text-slate-400">
-            Örnek: perakende 100 ₺ → satış {example.toFixed(2)} ₺
+            Örnek: perakende {formatMoney(100)} → satış <b className="text-slate-600">{formatMoney(example)}</b>
           </span>
         </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
-            Konsinye komisyon oranı (%)
-          </span>
+        <label className="block min-w-0">
+          <span className="label">Konsinye komisyon oranı (%)</span>
           <input
             className="input"
             type="number"
+            inputMode="decimal"
             min={0}
             max={100}
             value={commission}
@@ -350,16 +749,16 @@ function PricingSettingsCard() {
           </span>
         </label>
       </div>
-      {mut.isSuccess && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
       {mut.isError && <p className="text-sm text-red-600">Kaydedilemedi.</p>}
       <button
         className="btn-primary"
         disabled={mut.isPending}
         onClick={() => mut.mutate()}
       >
+        {mut.isPending && <Spinner />}
         Kaydet
       </button>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -378,11 +777,12 @@ function NumField({
   step?: string;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-600">{label}</span>
+    <label className="block min-w-0">
+      <span className="label">{label}</span>
       <input
         className="input"
         type="number"
+        inputMode="decimal"
         min={0}
         step={step ?? 'any'}
         value={value}
@@ -429,7 +829,17 @@ function CutPricingCard() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'cut-pricing'] }),
   });
 
-  if (!f) return null;
+  // Veri gelene kadar bölüm yerini korur (hızlı geçiş şeridi onu bulabilsin).
+  if (!f) {
+    return (
+      <SettingsSection id="kesim-fiyat">
+        <div className="space-y-2" role="status" aria-label="Yükleniyor">
+          <div className="skeleton h-4 w-2/3" />
+          <div className="skeleton h-20" />
+        </div>
+      </SettingsSection>
+    );
+  }
   const set = (k: keyof CutForm) => (v: string) => setF({ ...f, [k]: v });
   const cur = data?.currency ?? 'TRY';
   const rate = Number(f.hourlyRate) || 0;
@@ -437,8 +847,7 @@ function CutPricingCard() {
   const example = (Math.max(12, minMin) / 60) * rate;
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">⏱️ Kesim fiyatlandırması</h2>
+    <SettingsSection id="kesim-fiyat">
       <p className="text-sm text-slate-500">
         Teklifte işleme kalemi <b>süreyle</b> ya da <b>m² ile</b> fiyatlanabilir.
         Süre seçilince birim fiyat olarak saatlik ücret, m² seçilince m² ücreti
@@ -446,8 +855,7 @@ function CutPricingCard() {
         kullanır.
       </p>
 
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <p className="text-sm font-medium">Süreyle</p>
+      <SubBox title="Süreyle">
         <div className="grid gap-3 sm:grid-cols-2">
           <NumField label={`Saatlik ücret (${cur})`} value={f.hourlyRate} onChange={set('hourlyRate')} />
           <NumField
@@ -458,13 +866,12 @@ function CutPricingCard() {
           />
         </div>
         <p className="text-xs text-slate-400">
-          Örnek: 12 dk'lık iş → {Math.max(12, minMin)} dk × {rate} {cur}/saat ={' '}
-          {example.toFixed(2)} {cur}
+          Örnek: 12 dk'lık iş → {formatNumber(Math.max(12, minMin))} dk × {formatMoney(rate, cur)}/saat ={' '}
+          <b className="text-slate-600">{formatMoney(example, cur)}</b>
         </p>
-      </div>
+      </SubBox>
 
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <p className="text-sm font-medium">m² ile</p>
+      <SubBox title="m² ile">
         <div className="grid gap-3 sm:grid-cols-2">
           <NumField label={`m² ücreti (${cur})`} value={f.areaRate} onChange={set('areaRate')} />
           <NumField
@@ -474,10 +881,9 @@ function CutPricingCard() {
             hint="Corel'in m² fiyat modülü bu alandan aşağı hesaplamaz."
           />
         </div>
-      </div>
+      </SubBox>
 
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-        <p className="text-sm font-medium">Makine (Corel süre hesabı)</p>
+      <SubBox title="Makine (Corel süre hesabı)">
         <div className="grid gap-3 sm:grid-cols-2">
           <NumField label="Kesim hızı (mm/sn)" value={f.feedMmS} onChange={set('feedMmS')} />
           <NumField label="Boşta gezme hızı (mm/sn)" value={f.rapidMmS} onChange={set('rapidMmS')} />
@@ -497,14 +903,14 @@ function CutPricingCard() {
           Süre = kesim boyu × paso ÷ kesim hızı + konturlar arası gezme ÷ boşta
           hızı + kontur × paso × dalma süresi. Corel'de iş başına değiştirilebilir.
         </p>
-      </div>
+      </SubBox>
 
-      {mut.isSuccess && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
       {mut.isError && <p className="text-sm text-red-600">Kaydedilemedi.</p>}
       <button className="btn-primary" disabled={mut.isPending} onClick={() => mut.mutate()}>
+        {mut.isPending && <Spinner />}
         Kaydet
       </button>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -533,14 +939,17 @@ function MorningSummaryCard() {
   const when = m ? `${m[2].padStart(2, '0')}:${m[1].padStart(2, '0')}` : data?.cron;
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">☀️ Sabah özeti</h2>
+    <SettingsSection id="sabah-ozeti" badge={data && <OnOffBadge on={on} />}>
       <p className="text-sm text-slate-500">
         Her sabah {when ?? '08:00'}'de Telegram'a: bekleyen işler (makineye göre),
         gereken plakalar ve stokta olup olmadığı, sipariş seviyesinin altına
         düşen malzemeler, onaylanıp işe dönüşmemiş teklifler.
       </p>
-      <label className="flex items-center gap-3">
+      <label
+        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${
+          on ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' : 'border-slate-200'
+        }`}
+      >
         <input
           type="checkbox"
           checked={on}
@@ -548,13 +957,16 @@ function MorningSummaryCard() {
           onChange={(e) => toggle.mutate(e.target.checked)}
         />
         <span className="text-sm font-medium">Her sabah gönder</span>
+        {toggle.isPending && <Spinner className="ml-auto text-slate-400" />}
       </label>
       <div className="flex flex-wrap gap-2">
-        <button className="btn bg-slate-100" disabled={show.isPending} onClick={() => show.mutate()}>
-          Bugünkü özeti göster
+        <button className="btn-secondary btn-sm" disabled={show.isPending} onClick={() => show.mutate()}>
+          {show.isPending && <Spinner className="h-3.5 w-3.5" />}
+          👁 Bugünkü özeti göster
         </button>
-        <button className="btn bg-slate-100" disabled={send.isPending} onClick={() => send.mutate()}>
-          Şimdi Telegram'a gönder
+        <button className="btn-secondary btn-sm" disabled={send.isPending} onClick={() => send.mutate()}>
+          {send.isPending && <Spinner className="h-3.5 w-3.5" />}
+          ✉️ Şimdi Telegram'a gönder
         </button>
       </div>
       {send.isSuccess && (
@@ -566,7 +978,7 @@ function MorningSummaryCard() {
         <p className="text-xs text-red-600">Özet alınamadı.</p>
       )}
       {preview && (
-        <pre className="whitespace-pre-wrap rounded bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+        <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
           {preview}
         </pre>
       )}
@@ -574,7 +986,7 @@ function MorningSummaryCard() {
         Saat sunucuda <code>MORNING_SUMMARY_CRON</code> ile değişir (varsayılan
         her gün 08:00, Türkiye saati).
       </p>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -610,15 +1022,42 @@ function CorelIntegrationCard() {
       setTimeout(() => setCopied(null), 2000);
     } catch {
       setCopied(null);
+      toast.error('Kopyalanamadı', 'Metni seçip elle kopyalayın.');
     }
   };
 
   const enabled = data?.enabled === true;
   const busy = rotate.isPending || disable.isPending;
 
+  const onRotate = async () => {
+    if (
+      enabled &&
+      !(await confirmDialog({
+        title: 'Yeni anahtar üretilsin mi?',
+        message:
+          'Yeni anahtar üretilince eski anahtar çalışmaz; eklentiye yenisini yapıştırmanız gerekir. Devam edilsin mi?',
+        confirmText: 'Yeni anahtar üret',
+        danger: true,
+      }))
+    )
+      return;
+    rotate.mutate();
+  };
+
+  const onDisable = async () => {
+    if (
+      await confirmDialog({
+        message: 'Corel entegrasyonu kapatılsın mı?',
+        confirmText: 'Kapat',
+        danger: true,
+      })
+    ) {
+      disable.mutate();
+    }
+  };
+
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">🖌️ Corel entegrasyonu</h2>
+    <SettingsSection id="corel" badge={data && <OnOffBadge on={enabled} />}>
       <p className="text-sm text-slate-500">
         CorelDRAW eklentisi (ac2f pack) dosyayı bir müşteriye bağlarken müşteri
         listesini, malzeme seçerken stoğu buradan okur. Dışa aktarılan DXF ve
@@ -626,7 +1065,7 @@ function CorelIntegrationCard() {
         hiçbir kayıt yazmaz.
       </p>
 
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <SubBox>
         <p
           className={`text-xs font-medium ${
             enabled ? 'text-emerald-700' : 'text-slate-500'
@@ -637,17 +1076,18 @@ function CorelIntegrationCard() {
             : 'Kapalı — eklentinin bağlanması için anahtar oluşturun.'}
         </p>
 
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
-            Sunucu adresi
-          </span>
+        <div>
+          <span className="label">Sunucu adresi</span>
           <div className="flex gap-2">
-            <input className="input font-mono text-xs" readOnly value={serverUrl} />
-            <button
-              className="btn bg-slate-100 text-xs"
-              onClick={() => copy('url', serverUrl)}
-            >
-              {copied === 'url' ? '✓' : 'Kopyala'}
+            <input
+              className="input min-w-0 font-mono text-xs md:text-xs"
+              readOnly
+              aria-label="Sunucu adresi"
+              value={serverUrl}
+              onFocus={(e) => e.target.select()}
+            />
+            <button className="btn-secondary shrink-0" onClick={() => copy('url', serverUrl)}>
+              {copied === 'url' ? '✓ Kopyalandı' : 'Kopyala'}
             </button>
           </div>
           {onLocalhost && (
@@ -656,63 +1096,44 @@ function CorelIntegrationCard() {
               sunucunun yerel ağ adresini yazın (ör. 192.168.1.50).
             </span>
           )}
-        </label>
+        </div>
 
         {enabled && data && (
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-600">
-              Anahtar
-            </span>
-            <div className="flex gap-2">
+          <div>
+            <span className="label">Anahtar</span>
+            <div className="flex flex-wrap gap-2 sm:flex-nowrap">
               <input
-                className="input font-mono text-xs"
+                className="input min-w-0 flex-1 basis-full font-mono text-xs sm:basis-auto md:text-xs"
                 readOnly
+                aria-label="Anahtar"
                 type={show ? 'text' : 'password'}
                 value={data.apiKey}
                 onFocus={(e) => e.target.select()}
               />
-              <button
-                className="btn bg-slate-100 text-xs"
-                onClick={() => setShow((v) => !v)}
-              >
+              <button className="btn-secondary shrink-0" onClick={() => setShow((v) => !v)}>
                 {show ? 'Gizle' : 'Göster'}
               </button>
-              <button
-                className="btn bg-slate-100 text-xs"
-                onClick={() => copy('key', data.apiKey)}
-              >
-                {copied === 'key' ? '✓' : 'Kopyala'}
+              <button className="btn-secondary shrink-0" onClick={() => copy('key', data.apiKey)}>
+                {copied === 'key' ? '✓ Kopyalandı' : 'Kopyala'}
               </button>
             </div>
-          </label>
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2">
           <button
             className="btn-primary"
             disabled={!data || busy}
-            onClick={() => {
-              if (
-                enabled &&
-                !window.confirm(
-                  'Yeni anahtar üretilince eski anahtar çalışmaz; eklentiye yenisini yapıştırmanız gerekir. Devam edilsin mi?',
-                )
-              )
-                return;
-              rotate.mutate();
-            }}
+            onClick={() => void onRotate()}
           >
+            {rotate.isPending && <Spinner />}
             {enabled ? 'Yeni anahtar üret' : 'Anahtar oluştur'}
           </button>
           {enabled && (
             <button
-              className="btn bg-slate-100"
+              className="btn-danger-soft"
               disabled={busy}
-              onClick={() => {
-                if (window.confirm('Corel entegrasyonu kapatılsın mı?')) {
-                  disable.mutate();
-                }
-              }}
+              onClick={() => void onDisable()}
             >
               Kapat
             </button>
@@ -722,7 +1143,7 @@ function CorelIntegrationCard() {
           <p className="text-xs text-red-600">İşlem yapılamadı.</p>
         )}
 
-        <div className="rounded bg-slate-50 p-2 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-300">
           <p className="font-medium">Corel tarafında:</p>
           <p>
             ac2fPack menüsü › <b>Job setup</b> › sunucu adresini ve anahtarı
@@ -730,8 +1151,8 @@ function CorelIntegrationCard() {
             bağlayın.
           </p>
         </div>
-      </div>
-    </div>
+      </SubBox>
+    </SettingsSection>
   );
 }
 
@@ -768,9 +1189,33 @@ function CatalogHealthCard() {
     : [];
   const total = groups.reduce((n, [, list]) => n + list.length, 0);
 
+  const onMerge = async () => {
+    if (
+      await confirmDialog({
+        title: 'Kopyalar birleştirilsin mi?',
+        message:
+          `${total} kopya kümesi birleştirilecek. Bağlı kayıtlar korunan ` +
+          'katalog satırına taşınır, hiçbir stok/teklif/satış silinmez. Devam edilsin mi?',
+        confirmText: 'Birleştir',
+        danger: false,
+      })
+    ) {
+      mut.mutate();
+    }
+  };
+
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">🗂️ Katalog sağlığı</h2>
+    <SettingsSection
+      id="katalog"
+      badge={
+        data &&
+        (total === 0 ? (
+          <span className="badge bg-emerald-100 text-emerald-800">Temiz</span>
+        ) : (
+          <span className="badge bg-amber-100 text-amber-800">{total} kopya kümesi</span>
+        ))
+      }
+    >
       <p className="text-sm text-slate-500">
         Aynı tür/marka/renk farklı yazımlarla birden çok kez açılmış olabilir
         ("Dekota", "dekota", " DEKOTA "). Birleştirme <b>veri kaybettirmez</b>:
@@ -779,12 +1224,14 @@ function CatalogHealthCard() {
       </p>
 
       {isFetching && !data ? (
-        <p className="text-sm text-slate-400">Taranıyor…</p>
+        <p className="flex items-center gap-2 text-sm text-slate-400">
+          <Spinner /> Taranıyor…
+        </p>
       ) : total === 0 ? (
         <p className="text-sm text-emerald-700">✅ Kopya bulunamadı.</p>
       ) : (
-        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
-          <p className="font-semibold text-amber-800">
+        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="font-semibold text-amber-800 dark:text-amber-300">
             {total} kopya kümesi bulundu
           </p>
           {groups.map(([label, list]) => (
@@ -794,7 +1241,7 @@ function CatalogHealthCard() {
               </span>
               <ul className="ml-4 list-disc text-xs text-slate-600">
                 {list.slice(0, 8).map((g) => (
-                  <li key={g.keepId}>
+                  <li key={g.keepId} className="break-words">
                     {g.label}{' '}
                     <span className="text-slate-400">
                       — {g.mergeIds.length} kopya birleşecek
@@ -818,22 +1265,14 @@ function CatalogHealthCard() {
       {mut.isError && <p className="text-sm text-red-600">Birleştirilemedi.</p>}
 
       <button
-        className="btn bg-amber-600 text-white"
+        className="btn bg-amber-600 text-white hover:bg-amber-700"
         disabled={total === 0 || mut.isPending}
-        onClick={() => {
-          if (
-            confirm(
-              `${total} kopya kümesi birleştirilecek. Bağlı kayıtlar korunan ` +
-                'katalog satırına taşınır, hiçbir stok/teklif/satış silinmez. Devam edilsin mi?',
-            )
-          ) {
-            mut.mutate();
-          }
-        }}
+        onClick={() => void onMerge()}
       >
+        {mut.isPending && <Spinner />}
         {mut.isPending ? 'Birleştiriliyor…' : 'Kopyaları birleştir'}
       </button>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -878,19 +1317,14 @@ function MaintenanceSection() {
     'docker compose -f docker-compose.prod.yml down && docker compose -f docker-compose.prod.yml up -d';
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">🧹 Bakım — kayıt ve log temizliği</h2>
-
+    <SettingsSection id="bakim">
       {/* Bildirim defteri */}
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3">
-        <span className="block text-sm font-semibold">
-          Bildirim geçmişi (uygulama logu)
-        </span>
+      <SubBox title="Bildirim geçmişi (uygulama logu)">
         <p className="text-xs text-slate-500">
           {notifStats
             ? `${notifStats.total} kayıt${
                 notifStats.oldestAt
-                  ? ` · en eskisi ${notifStats.oldestAt.slice(0, 10)}`
+                  ? ` · en eskisi ${formatDate(notifStats.oldestAt)}`
                   : ''
               }`
             : 'Yükleniyor…'}
@@ -899,17 +1333,23 @@ function MaintenanceSection() {
         </p>
         <div className="flex flex-wrap gap-2">
           <button
-            className="btn bg-slate-100 text-xs"
+            className="btn-secondary btn-sm"
             disabled={clearNotifMut.isPending}
             onClick={() => clearNotifMut.mutate(30)}
           >
             30 günden eskileri sil
           </button>
           <button
-            className="btn bg-red-50 text-xs text-red-600"
+            className="btn-danger-soft btn-sm"
             disabled={clearNotifMut.isPending}
-            onClick={() => {
-              if (confirm('Tüm bildirim geçmişi silinsin mi? İş verisi etkilenmez.')) {
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  message: 'Tüm bildirim geçmişi silinsin mi? İş verisi etkilenmez.',
+                  confirmText: 'Tümünü sil',
+                  danger: true,
+                })
+              ) {
                 clearNotifMut.mutate(undefined);
               }
             }}
@@ -925,11 +1365,10 @@ function MaintenanceSection() {
         {clearNotifMut.isError && (
           <p className="text-xs text-red-600">Silinemedi.</p>
         )}
-      </div>
+      </SubBox>
 
       {/* Disk yedekleri */}
-      <div className="space-y-2 rounded-lg border border-slate-200 p-3">
-        <span className="block text-sm font-semibold">Sunucudaki yedek dosyaları</span>
+      <SubBox title="Sunucudaki yedek dosyaları">
         <p className="text-xs text-slate-500">
           {usage
             ? `${usage.files} dosya · ${humanSize(usage.totalBytes)}`
@@ -937,25 +1376,28 @@ function MaintenanceSection() {
           . En yeni dosyalar korunur; Telegram'a gönderilmiş yedekler etkilenmez.
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs text-slate-500">
-            Korunacak dosya:{' '}
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            Korunacak dosya:
             <input
-              className="input w-20"
+              className="input w-24"
               type="number"
+              inputMode="numeric"
               min={0}
               value={keep}
               onChange={(e) => setKeep(Math.max(0, Number(e.target.value)))}
             />
           </label>
           <button
-            className="btn bg-red-50 text-xs text-red-600"
+            className="btn-danger-soft btn-sm"
             disabled={cleanupBackupsMut.isPending}
-            onClick={() => {
+            onClick={async () => {
               const msg =
                 keep > 0
                   ? `En yeni ${keep} yedek dışındaki dosyalar silinsin mi?`
                   : 'TÜM yedek dosyaları silinsin mi? (Veritabanı etkilenmez.)';
-              if (confirm(msg)) cleanupBackupsMut.mutate(keep);
+              if (await confirmDialog({ message: msg, confirmText: 'Sil', danger: true })) {
+                cleanupBackupsMut.mutate(keep);
+              }
             }}
           >
             Eski yedekleri sil
@@ -970,11 +1412,10 @@ function MaintenanceSection() {
         {cleanupBackupsMut.isError && (
           <p className="text-xs text-red-600">Silinemedi.</p>
         )}
-      </div>
+      </SubBox>
 
       {/* Docker logları — konteyner içinden silinemez, komut/betik gerekir */}
-      <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <span className="block text-sm font-semibold">Docker logları</span>
+      <SubBox title="Docker logları" className="border-slate-200 bg-slate-50">
         <p className="text-xs text-slate-500">
           Docker'ın log dosyaları container'a aittir ve uygulamanın içinden
           silinemez. Loglar artık kendiliğinden sınırlı (servis başına 3 × 10 MB),
@@ -983,25 +1424,26 @@ function MaintenanceSection() {
           çift tıklayın ya da şu komutu çalıştırın. Veritabanı silinmez.
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <code className="min-w-0 flex-1 overflow-x-auto rounded bg-white px-2 py-1 text-[11px]">
+          <code className="min-w-0 flex-1 break-all rounded-lg bg-white px-2 py-1.5 text-[11px]">
             {DOCKER_CMD}
           </code>
           <button
-            className="btn bg-slate-100 text-xs"
+            className="btn-secondary btn-sm"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(DOCKER_CMD);
                 setCopied(true);
               } catch {
                 setCopied(false);
+                toast.error('Kopyalanamadı', 'Komutu seçip elle kopyalayın.');
               }
             }}
           >
             {copied ? '✓ Kopyalandı' : 'Kopyala'}
           </button>
         </div>
-      </div>
-    </div>
+      </SubBox>
+    </SettingsSection>
   );
 }
 
@@ -1085,15 +1527,25 @@ function TelegramSettings() {
 
   if (isLoading || !data) {
     return (
-      <div className="card">
-        <p className="text-slate-400">Telegram ayarları yükleniyor…</p>
-      </div>
+      <SettingsSection id="telegram">
+        <p className="flex items-center gap-2 text-sm text-slate-400">
+          <Spinner /> Telegram ayarları yükleniyor…
+        </p>
+      </SettingsSection>
     );
   }
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">📨 Telegram</h2>
+    <SettingsSection
+      id="telegram"
+      badge={
+        data.configured ? (
+          <span className="badge bg-emerald-100 text-emerald-800">Yapılandırıldı</span>
+        ) : (
+          <span className="badge bg-amber-100 text-amber-800">Eksik</span>
+        )
+      }
+    >
       <p className="text-sm text-slate-500">
         Bildirimler, borç hatırlatmaları ve şifreli yedekler bu bot üzerinden
         gönderilir. Buradaki değişiklikler <b>anında</b> geçerli olur — sunucuyu
@@ -1102,16 +1554,16 @@ function TelegramSettings() {
 
       {/* Durum + mesajın gideceği sohbet */}
       <div
-        className={`space-y-1 rounded-lg border p-3 text-sm ${
+        className={`space-y-1 rounded-xl border p-3 text-sm ${
           data.configured
-            ? 'border-emerald-200 bg-emerald-50'
-            : 'border-amber-200 bg-amber-50'
+            ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+            : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
         }`}
       >
         <p className="font-medium">
           {data.configured ? '✅ Yapılandırıldı' : '⚠️ Eksik yapılandırma'}
         </p>
-        <p className="text-xs text-slate-600">
+        <p className="break-words text-xs text-slate-600">
           Bot jetonu:{' '}
           {data.tokenSet ? (
             <>
@@ -1122,7 +1574,7 @@ function TelegramSettings() {
             <span className="text-amber-700">tanımlı değil</span>
           )}
         </p>
-        <p className="text-xs text-slate-600">
+        <p className="break-words text-xs text-slate-600">
           Bildirimler şu sohbete gider:{' '}
           {data.chatId ? (
             <>
@@ -1133,7 +1585,7 @@ function TelegramSettings() {
             <span className="text-amber-700">tanımlı değil</span>
           )}
         </p>
-        <p className="text-xs text-slate-600">
+        <p className="break-words text-xs text-slate-600">
           Şifreli yedek şu sohbete gider:{' '}
           {data.effectiveBackupChatId ? (
             <code className="rounded bg-white px-1">
@@ -1148,7 +1600,7 @@ function TelegramSettings() {
             </span>
           )}
         </p>
-        <p className="text-xs text-slate-400">
+        <p className="break-words text-xs text-slate-400">
           Otomatik yedek gönderim sıklığı (cron): <code>{data.backupCron}</code>{' '}
           — bu değer .env'den okunur ve değişikliği yeniden başlatma ister.
         </p>
@@ -1197,10 +1649,10 @@ function TelegramSettings() {
       </div>
 
       {/* Bot üzerinden İŞLEM yapabilecek kullanıcılar — güvenlik kapısı. */}
-      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <span className="block text-sm font-semibold text-amber-800">
-          🔐 Yetkili kullanıcılar (bot üzerinden işlem yapabilecekler)
-        </span>
+      <SubBox
+        title={<span className="text-amber-800 dark:text-amber-300">🔐 Yetkili kullanıcılar (bot üzerinden işlem yapabilecekler)</span>}
+        className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+      >
         <p className="text-xs text-slate-600">
           Telegram'dan tahsilat girme, borç kapatma gibi işlemleri <b>yalnızca</b>{' '}
           buradaki kullanıcı kimlikleri yapabilir. Liste boşken hiç kimse yetkili
@@ -1212,6 +1664,7 @@ function TelegramSettings() {
           className="input font-mono text-sm"
           value={allowedIds}
           disabled={!isOwner}
+          aria-label="Yetkili kullanıcı kimlikleri"
           placeholder="Örn. 123456789, 987654321"
           onChange={(e) => setAllowedIds(e.target.value)}
         />
@@ -1223,7 +1676,7 @@ function TelegramSettings() {
             ⚠️ Şu an hiç yetkili kullanıcı yok — bot işlem yapmıyor.
           </p>
         )}
-      </div>
+      </SubBox>
 
       {saveMut.isError && (
         <p className="text-sm text-red-600">
@@ -1231,7 +1684,6 @@ function TelegramSettings() {
             ?.response?.data?.message ?? 'Kaydedilemedi.'}
         </p>
       )}
-      {saveMut.isSuccess && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -1239,20 +1691,21 @@ function TelegramSettings() {
           disabled={saveMut.isPending}
           onClick={() => saveMut.mutate()}
         >
+          {saveMut.isPending && <Spinner />}
           Kaydet
         </button>
         {isOwner && (
-        <button
-          className="btn bg-indigo-600 text-white"
-          disabled={reloadMut.isPending}
-          title="Ayarları yeniden okur ve jetonu Telegram'a doğrulatır"
-          onClick={() => reloadMut.mutate()}
-        >
-          {reloadMut.isPending ? 'Yeniden başlatılıyor…' : '🔄 Yeniden başlat'}
-        </button>
+          <button
+            className="btn-secondary"
+            disabled={reloadMut.isPending}
+            title="Ayarları yeniden okur ve jetonu Telegram'a doğrulatır"
+            onClick={() => reloadMut.mutate()}
+          >
+            {reloadMut.isPending ? 'Yeniden başlatılıyor…' : '🔄 Yeniden başlat'}
+          </button>
         )}
         <button
-          className="btn bg-slate-100"
+          className="btn-secondary"
           disabled={testMut.isPending || !data.configured}
           title={
             data.configured
@@ -1265,11 +1718,17 @@ function TelegramSettings() {
         </button>
         {isOwner && data.tokenSource === 'db' && (
           <button
-            className="btn bg-red-50 text-xs text-red-600"
+            className="btn-danger-soft btn-sm sm:ml-auto"
             disabled={clearTokenMut.isPending}
             title="Arayüzden girilen jetonu siler; varsa .env değerine geri dönülür"
-            onClick={() => {
-              if (confirm('Arayüzden girilen bot jetonu silinsin mi? Varsa .env değeri devreye girer.')) {
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  message: 'Arayüzden girilen bot jetonu silinsin mi? Varsa .env değeri devreye girer.',
+                  confirmText: 'Jetonu temizle',
+                  danger: true,
+                })
+              ) {
                 clearTokenMut.mutate();
               }
             }}
@@ -1282,7 +1741,7 @@ function TelegramSettings() {
       {/* Yeniden başlatma sonucu */}
       {reloadMut.isSuccess && (
         <p
-          className={`text-sm ${
+          className={`break-words text-sm ${
             reloadMut.data.ok ? 'text-emerald-700' : 'text-red-600'
           }`}
         >
@@ -1305,7 +1764,7 @@ function TelegramSettings() {
       {/* Test sonucu */}
       {testMut.isSuccess && (
         <p
-          className={`text-sm ${
+          className={`break-words text-sm ${
             testMut.data.success ? 'text-emerald-700' : 'text-red-600'
           }`}
         >
@@ -1317,7 +1776,7 @@ function TelegramSettings() {
       {testMut.isError && (
         <p className="text-sm text-red-600">Test mesajı gönderilemedi.</p>
       )}
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1330,11 +1789,9 @@ function ScreenLockSettings() {
   const [enabled, setEnabled] = useState(config.enabled);
   const [minutes, setMinutes] = useState(String(config.minutes));
   const [pin, setPin] = useState('');
-  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const save = () => {
-    setSaved(false);
     setErr(null);
     const mins = Math.max(1, Number(minutes) || 0);
     // PIN yalnızca değiştirilmek istenirse gönderilir. Etkinleştiriliyor ama hiç
@@ -1354,12 +1811,12 @@ function ScreenLockSettings() {
       ...(digits ? { pin: digits } : {}),
     });
     setPin('');
-    setSaved(true);
+    // Sunucuya gitmeyen (cihazdaki) bir ayar: otomatik bildirim yok, burada söylenir.
+    toast.success('Ekran kilidi ayarları kaydedildi', 'Bu cihazda geçerli.');
   };
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">🔒 Ekran kilidi</h2>
+    <SettingsSection id="kilit" badge={<OnOffBadge on={config.enabled} />}>
       <p className="text-sm text-slate-500">
         Belirlenen süre boyunca işlem yapılmazsa arayüz otomatik kilitlenir ve
         yalnızca PIN ile açılır. PIN {config.pinLen ? `(${config.pinLen} haneli) ` : ''}
@@ -1367,7 +1824,11 @@ function ScreenLockSettings() {
         PIN uzunluğu kadar rakam girildiğinde Enter'a gerek kalmadan doğrulanır.
       </p>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label
+        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm font-medium transition ${
+          enabled ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30' : 'border-slate-200'
+        }`}
+      >
         <input
           type="checkbox"
           checked={enabled}
@@ -1377,20 +1838,19 @@ function ScreenLockSettings() {
       </label>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
-            Kilitlenme süresi (dakika)
-          </span>
+        <label className="block min-w-0">
+          <span className="label">Kilitlenme süresi (dakika)</span>
           <input
             className="input"
             type="number"
+            inputMode="numeric"
             min={1}
             value={minutes}
             onChange={(e) => setMinutes(e.target.value)}
           />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
+        <label className="block min-w-0">
+          <span className="label">
             {config.pinHash ? 'Yeni PIN (değiştirmek için)' : 'PIN (sayısal)'}
           </span>
           <input
@@ -1406,19 +1866,18 @@ function ScreenLockSettings() {
       </div>
 
       {err && <p className="text-sm text-red-600">{err}</p>}
-      {saved && <p className="text-sm text-emerald-600">Kaydedildi.</p>}
 
       <div className="flex flex-wrap gap-2">
         <button className="btn-primary" onClick={save}>
           Kaydet
         </button>
         {ready && (
-          <button className="btn bg-slate-100" onClick={lock}>
+          <button className="btn-secondary" onClick={lock}>
             🔒 Şimdi kilitle
           </button>
         )}
       </div>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1476,27 +1935,33 @@ function BackupSection() {
     },
   });
 
-  function handleRestore(key?: string) {
+  async function handleRestore(key?: string) {
     if (!restoreFile) return;
     if (
-      !window.confirm(
-        'DİKKAT: Geri yükleme MEVCUT verinin üzerine yazabilir ve geri alınamaz. ' +
+      !(await confirmDialog({
+        title: 'Geri yükleme',
+        message:
+          'DİKKAT: Geri yükleme MEVCUT verinin üzerine yazabilir ve geri alınamaz. ' +
           'Devam etmeden önce güncel bir yedek indirmeniz önerilir. Devam edilsin mi?',
-      )
+        confirmText: 'Devam et',
+        danger: true,
+      }))
     )
       return;
     if (
-      !window.confirm(
-        `Son onay: "${restoreFile.name}" yedeği veritabanına uygulanacak. Emin misiniz?`,
-      )
+      !(await confirmDialog({
+        title: 'Son onay',
+        message: `Son onay: "${restoreFile.name}" yedeği veritabanına uygulanacak. Emin misiniz?`,
+        confirmText: 'Geri yükle',
+        danger: true,
+      }))
     )
       return;
     restoreMut.mutate({ file: restoreFile, key });
   }
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">🗄️ Veritabanı yedekleme</h2>
+    <SettingsSection id="yedek">
       <p className="text-sm text-slate-500">
         Anlık yedek indirin ya da bir yedek dosyasından geri yükleyin. Sunucu ayrıca
         düzenli aralıklarla otomatik yedek alır (sonuç bildirim geçmişine düşer).
@@ -1508,6 +1973,7 @@ function BackupSection() {
           disabled={downloadMut.isPending}
           onClick={() => downloadMut.mutate()}
         >
+          {downloadMut.isPending && <Spinner />}
           {downloadMut.isPending ? 'Hazırlanıyor…' : '⬇️ Yedek indir (.sql)'}
         </button>
       </div>
@@ -1519,20 +1985,21 @@ function BackupSection() {
       )}
 
       {/* 🔐 Şifreli yedeğin Telegram'a gönderimi (saatlik otomatik + elle). */}
-      <div className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
-        <span className="block text-sm font-semibold text-indigo-800">
-          🔐 Şifreli yedek · Telegram
-        </span>
+      <SubBox
+        title={<span className="text-indigo-800 dark:text-indigo-300">🔐 Şifreli yedek · Telegram</span>}
+        className="border-indigo-200 bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/30"
+      >
         <p className="text-xs text-slate-600">
           Sunucu, arka planda saatlik olarak yedeği şifreleyip Telegram'a gönderir
           ve gün içindeki tüm yedekleri <b>tek bir mesajda</b> toplayıp günceller
           (mesaj sohbette sabitlenir). Aşağıdaki düğmeyle elle de gönderebilirsiniz.
         </p>
         <button
-          className="btn bg-indigo-600 text-white"
+          className="btn bg-indigo-600 text-white hover:bg-indigo-700"
           disabled={sendTelegramMut.isPending}
           onClick={() => sendTelegramMut.mutate()}
         >
+          {sendTelegramMut.isPending && <Spinner />}
           {sendTelegramMut.isPending
             ? 'Gönderiliyor…'
             : '📤 Şifreli yedeği Telegram’a gönder'}
@@ -1556,13 +2023,13 @@ function BackupSection() {
         {tgState?.entries?.length ? (
           <div className="mt-1">
             <span className="mb-1 block text-xs font-medium text-slate-600">
-              Bugünkü Telegram yedekleri ({tgState.dayKey})
+              Bugünkü Telegram yedekleri ({formatDate(tgState.dayKey, tgState.dayKey)})
             </span>
-            <ul className="divide-y rounded-lg border bg-white text-xs">
+            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white text-xs">
               {tgState.entries.map((e, i) => (
                 <li
                   key={`${e.at}-${i}`}
-                  className="flex items-center justify-between px-3 py-1.5"
+                  className="flex items-center justify-between gap-2 px-3 py-1.5"
                 >
                   <span>
                     {i + 1}){' '}
@@ -1572,7 +2039,7 @@ function BackupSection() {
                     })}{' '}
                     · {e.kind === 'manual' ? 'manuel' : 'otomatik'}
                   </span>
-                  <span className="text-slate-400">{humanSize(e.size)}</span>
+                  <span className="shrink-0 text-slate-400">{humanSize(e.size)}</span>
                 </li>
               ))}
             </ul>
@@ -1580,12 +2047,12 @@ function BackupSection() {
         ) : null}
 
         <DecryptionKeyPanel />
-      </div>
+      </SubBox>
 
-      <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3">
-        <span className="block text-sm font-semibold text-red-700">
-          Geri yükle (tehlikeli)
-        </span>
+      <SubBox
+        title={<span className="text-red-700 dark:text-red-300">⚠️ Geri yükle (tehlikeli)</span>}
+        className="border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
+      >
         <p className="text-xs text-slate-600">
           Düz <code>.sql</code> yedeği veya Telegram'dan indirdiğiniz şifreli{' '}
           <code>.enc</code> dosyasını seçin. Şifreli dosyada önce sunucudaki
@@ -1594,9 +2061,10 @@ function BackupSection() {
         </p>
         <input
           ref={fileRef}
-          className="block text-sm"
+          className="block w-full min-w-0 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 file:shadow-sm"
           type="file"
           accept=".sql,.enc"
+          aria-label="Geri yüklenecek yedek dosyası"
           onChange={(e) => {
             setRestoreFile(e.target.files?.[0] ?? null);
             setKeyPrompt(false);
@@ -1605,10 +2073,11 @@ function BackupSection() {
           }}
         />
         <button
-          className="btn bg-red-600 text-white"
+          className="btn-danger"
           disabled={!restoreFile || restoreMut.isPending}
-          onClick={() => handleRestore()}
+          onClick={() => void handleRestore()}
         >
+          {restoreMut.isPending && <Spinner />}
           {restoreMut.isPending ? 'Geri yükleniyor…' : 'Seçili yedeği geri yükle'}
         </button>
 
@@ -1622,15 +2091,16 @@ function BackupSection() {
               "Şifre çözme anahtarı" panelinde bulunur.
             </p>
             <textarea
-              className="input h-28 w-full font-mono text-[11px]"
+              className="input h-28 w-full py-2 font-mono text-[11px] md:text-[11px]"
               placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"
+              aria-label="Şifre çözme anahtarı"
               value={manualKey}
               onChange={(e) => setManualKey(e.target.value)}
             />
             <button
-              className="btn bg-red-600 text-white"
+              className="btn-danger"
               disabled={!manualKey.trim() || restoreMut.isPending}
-              onClick={() => handleRestore(manualKey)}
+              onClick={() => void handleRestore(manualKey)}
             >
               {restoreMut.isPending
                 ? 'Çözülüyor…'
@@ -1651,30 +2121,29 @@ function BackupSection() {
             {restoreMut.data?.decrypted ? ' (şifreli yedek çözüldü).' : '.'}
           </p>
         )}
-      </div>
+      </SubBox>
 
       {!!backups?.length && (
         <div>
-          <span className="mb-1 block text-sm font-medium text-slate-600">
+          <span className="mb-1 block text-sm font-semibold text-slate-600">
             Sunucudaki otomatik yedekler
           </span>
-          <ul className="divide-y rounded-lg border text-sm">
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
             {backups.map((b) => (
               <li
                 key={b.name}
-                className="flex items-center justify-between px-3 py-2"
+                className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
               >
-                <span className="truncate">{b.name}</span>
-                <span className="shrink-0 text-slate-400">
-                  {new Date(b.createdAt).toLocaleString('tr-TR')} ·{' '}
-                  {humanSize(b.size)}
+                <span className="min-w-0 truncate font-medium">{b.name}</span>
+                <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
+                  {formatDateTime(b.createdAt)} · {humanSize(b.size)}
                 </span>
               </li>
             ))}
           </ul>
         </div>
       )}
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1700,6 +2169,7 @@ function DecryptionKeyPanel() {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+      toast.error('Kopyalanamadı', 'Anahtarı seçip elle kopyalayın.');
     }
   };
 
@@ -1707,6 +2177,7 @@ function DecryptionKeyPanel() {
     <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2 text-sm">
       <button
         className="text-xs font-medium text-indigo-700 underline"
+        aria-expanded={open}
         onClick={() => {
           setOpen((o) => !o);
           if (!open) refetch();
@@ -1721,23 +2192,28 @@ function DecryptionKeyPanel() {
             Güvenli bir yerde saklayın; kaybederseniz Telegram'daki yedekler
             açılamaz. Şifreleme (public) anahtarı sunucuda ayrı bir dosyada tutulur.
           </p>
-          {isLoading && <p className="text-xs text-slate-400">Yükleniyor…</p>}
+          {isLoading && (
+            <p className="flex items-center gap-2 text-xs text-slate-400">
+              <Spinner className="h-3.5 w-3.5" /> Yükleniyor…
+            </p>
+          )}
           {isError && (
             <p className="text-xs text-red-600">Anahtar alınamadı.</p>
           )}
           {data && (
             <>
               <textarea
-                className="input h-40 w-full font-mono text-[11px]"
+                className="input h-40 w-full py-2 font-mono text-[11px] md:text-[11px]"
                 readOnly
+                aria-label="Şifre çözme anahtarı"
                 value={data.privateKeyPem}
                 onFocus={(e) => e.target.select()}
               />
               <div className="flex flex-wrap items-center gap-2">
-                <button className="btn bg-slate-100 text-xs" onClick={copy}>
+                <button className="btn-secondary btn-sm" onClick={copy}>
                   {copied ? '✓ Kopyalandı' : 'Anahtarı kopyala'}
                 </button>
-                <span className="text-[11px] text-slate-400">
+                <span className="break-all text-[11px] text-slate-400">
                   Public parmak izi: {data.publicKeyFingerprint.slice(0, 23)}…
                 </span>
               </div>
@@ -1747,7 +2223,7 @@ function DecryptionKeyPanel() {
                 <p>
                   2) Depodaki betiği çalıştırın:
                   <br />
-                  <code>
+                  <code className="break-all">
                     node scripts/decrypt-backup.mjs yedek.sql.enc backup-key.priv.pem
                     yedek.sql
                   </code>
@@ -1761,6 +2237,13 @@ function DecryptionKeyPanel() {
   );
 }
 
+/** Gönderim durumunun okunur adı ve rengi. */
+const NOTIF_STATUS: Record<string, { label: string; cls: string }> = {
+  sent: { label: 'gönderildi', cls: 'bg-emerald-100 text-emerald-700' },
+  failed: { label: 'başarısız', cls: 'bg-red-100 text-red-700' },
+  pending: { label: 'bekliyor', cls: 'bg-amber-100 text-amber-800' },
+};
+
 /** #6 Bildirim geçmişi (gönderim defteri) — yedek/borç/stok bildirimleri burada. */
 function NotificationsHistory() {
   const { data, isLoading } = useQuery({
@@ -1769,44 +2252,47 @@ function NotificationsHistory() {
   });
 
   return (
-    <div className="card space-y-3">
-      <h2 className="text-lg font-semibold">🔔 Bildirim geçmişi</h2>
-      {isLoading && <p className="text-slate-400">Yükleniyor…</p>}
+    <SettingsSection
+      id="bildirimler"
+      badge={!!data?.length && <span className="badge bg-slate-100 text-slate-600">son {data.length}</span>}
+    >
+      {isLoading && (
+        <div className="space-y-2" role="status" aria-label="Yükleniyor">
+          <div className="skeleton h-12" />
+          <div className="skeleton h-12" />
+        </div>
+      )}
       {!isLoading && !data?.length && (
-        <p className="text-sm text-slate-400">Henüz bildirim yok.</p>
+        <EmptyState
+          compact
+          icon="🔕"
+          title="Henüz bildirim yok."
+          hint="Yedek, borç hatırlatması ve sabah özeti gönderildikçe burada listelenir."
+        />
       )}
       {!!data?.length && (
-        <ul className="divide-y rounded-lg border text-sm">
-          {data.map((n) => (
-            <li key={n.id} className="space-y-0.5 px-3 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{n.subject ?? n.type}</span>
-                <span className="shrink-0 text-xs text-slate-400">
-                  {new Date(n.createdAt).toLocaleString('tr-TR')}
-                </span>
-              </div>
-              <p className="text-slate-600">{n.body}</p>
-              <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5">
-                  {n.channel}
-                </span>
-                <span
-                  className={`rounded px-1.5 py-0.5 ${
-                    n.status === 'sent'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : n.status === 'failed'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-slate-100'
-                  }`}
-                >
-                  {n.status}
-                </span>
-                {n.error && <span className="text-red-500">{n.error}</span>}
-              </div>
-            </li>
-          ))}
+        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
+          {data.map((n) => {
+            const st = NOTIF_STATUS[n.status] ?? { label: n.status, cls: 'bg-slate-100 text-slate-600' };
+            return (
+              <li key={n.id} className="space-y-1 px-3 py-2">
+                <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-0.5">
+                  <span className="min-w-0 break-words font-medium">{n.subject ?? n.type}</span>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {formatDateTime(n.createdAt)}
+                  </span>
+                </div>
+                <p className="whitespace-pre-line break-words text-slate-600">{n.body}</p>
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="badge bg-slate-100 text-slate-600">{n.channel}</span>
+                  <span className={`badge ${st.cls}`}>{st.label}</span>
+                  {n.error && <span className="break-words text-red-500">{n.error}</span>}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
-    </div>
+    </SettingsSection>
   );
 }

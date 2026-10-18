@@ -1,6 +1,6 @@
 import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   createPurchase,
   fetchPurchases,
@@ -22,22 +22,37 @@ import {
 } from '../../api/materials.api';
 import { SearchSelect } from '../../components/SearchSelect';
 import { GroupSection } from '../../components/GroupSection';
+import { confirmDialog } from '../../components/ConfirmDialog';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadingBlock } from '../../components/ui/Loading';
+import { useAuth } from '../../context/AuthContext';
+import { useUrlParam } from '../../hooks/useUrlParam';
+import { formatDate, formatMoney, formatNumber } from '../../lib/format';
 import type { Plate } from '../../types';
-
-const money = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' });
 
 function Field({
   label,
   children,
   className = '',
+  required = false,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  required?: boolean;
 }) {
   return (
-    <label className={`block ${className}`}>
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+    <label className={`block min-w-0 ${className}`}>
+      <span className="label">
+        {label}
+        {required && (
+          <span className="text-red-600" aria-hidden>
+            {' '}
+            *
+          </span>
+        )}
+      </span>
       {children}
     </label>
   );
@@ -47,6 +62,18 @@ function errMessage(error: unknown, fallback: string): string {
   return (
     (error as { response?: { data?: { message?: string } } })?.response?.data
       ?.message ?? fallback
+  );
+}
+
+/** Formların üstündeki kırmızı hata kutusu. */
+function ErrorBox({ children }: { children: ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+    >
+      {children}
+    </p>
   );
 }
 
@@ -63,7 +90,16 @@ function priceUnitFor(plate?: Plate): SupplierPriceUnit {
 }
 
 /** ➕ Yeni alım formu — kalemler kaydedilince stok AYNI anda girer. */
-function NewPurchaseForm({ onDone }: { onDone: () => void }) {
+function NewPurchaseForm({
+  onDone,
+  onCancel,
+  onNewSupplier,
+}: {
+  onDone: () => void;
+  onCancel: () => void;
+  /** Tedarikçi yoksa: tedarikçi formunu açar. */
+  onNewSupplier: () => void;
+}) {
   const qc = useQueryClient();
   const [supplierId, setSupplierId] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(
@@ -126,18 +162,33 @@ function NewPurchaseForm({ onDone }: { onDone: () => void }) {
     },
   });
 
+  const noSuppliers = suppliers !== undefined && suppliers.length === 0;
+
   return (
-    <div className="card space-y-3">
-      {mut.isError && (
-        <p className="text-sm text-red-600">
-          {errMessage(mut.error, 'Alım kaydedilemedi.')}
+    <div className="card space-y-4">
+      <div>
+        <h2 className="font-semibold">Yeni alım</h2>
+        <p className="text-xs text-slate-500">
+          Kaydettiğinizde kalemler stoğa aynı anda girer.
         </p>
+      </div>
+
+      {mut.isError && <ErrorBox>{errMessage(mut.error, 'Alım kaydedilemedi.')}</ErrorBox>}
+
+      {noSuppliers && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          <span>Alım girmek için önce bir tedarikçi ekleyin.</span>
+          <button type="button" className="btn-secondary btn-sm" onClick={onNewSupplier}>
+            Tedarikçi ekle
+          </button>
+        </div>
       )}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <Field label="Tedarikçi">
+        <Field label="Tedarikçi" required>
           <select
             className="input"
+            autoFocus
             value={supplierId}
             onChange={(e) => setSupplierId(e.target.value)}
           >
@@ -167,63 +218,75 @@ function NewPurchaseForm({ onDone }: { onDone: () => void }) {
         </Field>
       </div>
 
-      {items.map((it, i) => {
-        const plate = plateOf(it.plateId);
-        const isLength = plate?.measurementType === 'length';
-        return (
-          <div
-            key={i}
-            className="space-y-2 rounded-xl border border-slate-200 p-2 dark:border-slate-700"
-          >
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Kalem {i + 1}</span>
-              <button
-                className="text-red-600"
-                onClick={() => setItems((arr) => arr.filter((_, idx) => idx !== i))}
-              >
-                Sil
-              </button>
+      <div className="space-y-2">
+        {items.map((it, i) => {
+          const plate = plateOf(it.plateId);
+          const isLength = plate?.measurementType === 'length';
+          const lineTotal = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+          return (
+            <div
+              key={i}
+              className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/40"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-500">Kalem {i + 1}</span>
+                <button
+                  type="button"
+                  className="btn-danger-soft btn-sm"
+                  aria-label={`Kalem ${i + 1} sil`}
+                  onClick={() => setItems((arr) => arr.filter((_, idx) => idx !== i))}
+                >
+                  Sil
+                </button>
+              </div>
+              <SearchSelect
+                placeholder="Malzeme/plaka ara/seç…"
+                value={it.plateId}
+                options={plates.map((p) => ({
+                  id: p.id,
+                  label: p.name,
+                  group: p.template?.category?.name ?? 'Diğer',
+                }))}
+                onChange={(id) => patch(i, { plateId: id })}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Field label={isLength ? 'Uzunluk (metre)' : 'Adet'} required>
+                  <input
+                    className="input text-right tabular-nums"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step={isLength ? '0.01' : '1'}
+                    value={it.quantity}
+                    onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
+                  />
+                </Field>
+                <Field label={isLength ? 'Birim alış fiyatı (TL/m)' : 'Birim alış fiyatı'}>
+                  <input
+                    className="input text-right tabular-nums"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="any"
+                    value={it.unitPrice}
+                    onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
+                  />
+                </Field>
+              </div>
+              {lineTotal > 0 && (
+                <p className="text-right text-xs text-slate-500">
+                  Kalem tutarı:{' '}
+                  <span className="font-semibold tabular-nums text-slate-700">{formatMoney(lineTotal)}</span>
+                </p>
+              )}
             </div>
-            <SearchSelect
-              placeholder="Malzeme/plaka ara/seç…"
-              value={it.plateId}
-              options={plates.map((p) => ({
-                id: p.id,
-                label: p.name,
-                group: p.template?.category?.name ?? 'Diğer',
-              }))}
-              onChange={(id) => patch(i, { plateId: id })}
-            />
-            <div className="flex gap-2">
-              <Field label={isLength ? 'Uzunluk (metre)' : 'Adet'} className="flex-1">
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step={isLength ? '0.01' : '1'}
-                  value={it.quantity}
-                  onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
-                />
-              </Field>
-              <Field
-                label={isLength ? 'Birim alış fiyatı (TL/m)' : 'Birim alış fiyatı'}
-                className="flex-1"
-              >
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  value={it.unitPrice}
-                  onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
-                />
-              </Field>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       <button
-        className="btn bg-slate-100"
+        type="button"
+        className="btn-secondary"
         onClick={() =>
           setItems((arr) => [...arr, { plateId: '', quantity: 1, unitPrice: 0 }])
         }
@@ -231,47 +294,52 @@ function NewPurchaseForm({ onDone }: { onDone: () => void }) {
         + Kalem ekle
       </button>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
+          className="mt-0.5"
           checked={recordPrices}
           onChange={(e) => setRecordPrices(e.target.checked)}
         />
         Alış fiyatlarını tedarikçi fiyat listesine işle (teklif karşılaştırmasını besler)
       </label>
 
-      <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800">
-        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
-          Toplam
-        </span>
-        <span className="text-lg font-bold">{money.format(total)}</span>
+      <div className="flex items-center justify-between rounded-xl bg-slate-100 px-3 py-2">
+        <span className="text-sm font-medium text-slate-600">Toplam</span>
+        <span className="text-lg font-bold tabular-nums">{formatMoney(total)}</span>
       </div>
 
-      <button
-        className="btn-primary w-full"
-        disabled={!canSubmit || mut.isPending}
-        onClick={() =>
-          mut.mutate({
-            supplierId,
-            purchaseDate,
-            note: note.trim() || undefined,
-            items,
-          })
-        }
-      >
-        Alımı kaydet (stok girer)
-      </button>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" className="btn-secondary" onClick={onCancel}>
+          Vazgeç
+        </button>
+        <button
+          className="btn-primary sm:min-w-[14rem]"
+          disabled={!canSubmit || mut.isPending}
+          onClick={() =>
+            mut.mutate({
+              supplierId,
+              purchaseDate,
+              note: note.trim() || undefined,
+              items,
+            })
+          }
+        >
+          {mut.isPending ? 'Kaydediliyor…' : 'Alımı kaydet (stok girer)'}
+        </button>
+      </div>
     </div>
   );
 }
 
 /** Tedarikçi yönetimi (ekle/düzenle/sil). */
-function SuppliersSection() {
+function SuppliersSection({ newRequest }: { newRequest: number }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<SupplierInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
 
-  const { data: suppliers } = useQuery({
+  const { data: suppliers, isLoading } = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => fetchSuppliers(),
   });
@@ -297,35 +365,47 @@ function SuppliersSection() {
 
   const err = createMut.error ?? updateMut.error ?? deleteMut.error;
 
+  const openNew = () => {
+    setEditingId(null);
+    setForm({ name: '' });
+  };
+  // Başka yerden (alım formu, boş liste) "tedarikçi ekle" istenirse formu aç.
+  useEffect(() => {
+    if (!newRequest) return;
+    openNew();
+    sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newRequest]);
+
+  const empty = suppliers !== undefined && suppliers.length === 0;
+  const busy = createMut.isPending || updateMut.isPending;
+
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-500">Tedarikçiler</h2>
-        {!form && (
-          <button
-            className="btn bg-slate-100 text-xs"
-            onClick={() => {
-              setEditingId(null);
-              setForm({ name: '' });
-            }}
-          >
+    <div ref={sectionRef} className="scroll-mt-4 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-600">
+          Tedarikçiler
+          {!!suppliers?.length && (
+            <span className="ml-1.5 font-normal text-slate-500">({suppliers.length})</span>
+          )}
+        </h2>
+        {!form && !empty && (
+          <button className="btn-secondary btn-sm" onClick={openNew}>
             + Yeni Tedarikçi
           </button>
         )}
       </div>
 
-      {err && (
-        <p className="card text-sm text-red-600">
-          {errMessage(err, 'İşlem başarısız.')}
-        </p>
-      )}
+      {err && <ErrorBox>{errMessage(err, 'İşlem başarısız.')}</ErrorBox>}
 
       {form && (
-        <div className="card space-y-2">
+        <div className="card space-y-3">
+          <h3 className="font-semibold">{editingId ? 'Tedarikçiyi düzenle' : 'Yeni tedarikçi'}</h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Field label="Ad / Ünvan">
+            <Field label="Ad / Ünvan" required>
               <input
                 className="input"
+                autoFocus
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
@@ -342,6 +422,8 @@ function SuppliersSection() {
             <Field label="Telefon (ops.)">
               <input
                 className="input"
+                type="tel"
+                inputMode="tel"
                 value={form.phone ?? ''}
                 onChange={(e) =>
                   setForm({ ...form, phone: e.target.value || undefined })
@@ -358,10 +440,10 @@ function SuppliersSection() {
               />
             </Field>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               className="btn-primary"
-              disabled={!form.name.trim()}
+              disabled={!form.name.trim() || busy}
               onClick={() =>
                 editingId
                   ? updateMut.mutate({ id: editingId, input: form })
@@ -371,7 +453,7 @@ function SuppliersSection() {
               {editingId ? 'Güncelle' : 'Kaydet'}
             </button>
             <button
-              className="btn"
+              className="btn-secondary"
               onClick={() => {
                 setForm(null);
                 setEditingId(null);
@@ -383,44 +465,65 @@ function SuppliersSection() {
         </div>
       )}
 
-      {suppliers?.map((s: Supplier) => (
-        <div key={s.id} className="card flex items-center justify-between !p-2">
-          <div className="min-w-0">
-            <span className="font-medium">{s.name}</span>
-            <span className="ml-2 text-xs text-slate-400">
-              {[s.contactName, s.phone].filter(Boolean).join(' · ')}
-            </span>
+      {isLoading && <LoadingBlock rows={1} />}
+
+      {suppliers?.map((s: Supplier) => {
+        const contact = [s.contactName, s.phone].filter(Boolean).join(' · ');
+        return (
+          <div key={s.id} className="card flex flex-wrap items-center justify-between gap-2 !p-3">
+            <div className="min-w-0">
+              <p className="truncate font-semibold">{s.name}</p>
+              {contact && <p className="truncate text-xs text-slate-500">{contact}</p>}
+            </div>
+            <div className="flex gap-2">
+              <button
+                className="btn-secondary btn-sm"
+                onClick={() => {
+                  setEditingId(s.id);
+                  setForm({
+                    name: s.name,
+                    contactName: s.contactName,
+                    phone: s.phone,
+                    notes: s.notes,
+                  });
+                  sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+              >
+                Düzenle
+              </button>
+              <button
+                className="btn-danger-soft btn-sm"
+                aria-label={`"${s.name}" tedarikçisini sil`}
+                disabled={deleteMut.isPending}
+                onClick={async () => {
+                  if (
+                    await confirmDialog({
+                      message: `"${s.name}" silinsin mi?`,
+                      confirmText: 'Sil',
+                      danger: true,
+                    })
+                  )
+                    deleteMut.mutate(s.id);
+                }}
+              >
+                Sil
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              className="btn bg-slate-100 text-xs"
-              onClick={() => {
-                setEditingId(s.id);
-                setForm({
-                  name: s.name,
-                  contactName: s.contactName,
-                  phone: s.phone,
-                  notes: s.notes,
-                });
-              }}
-            >
-              Düzenle
+        );
+      })}
+      {empty && !form && (
+        <EmptyState
+          compact
+          icon="🏭"
+          title="Henüz tedarikçi yok"
+          hint="Alım girmek için önce malzemeyi aldığınız firmayı tedarikçi olarak ekleyin. Alış fiyatları da bu tedarikçiye işlenir."
+          action={
+            <button className="btn-secondary" onClick={openNew}>
+              + Yeni Tedarikçi
             </button>
-            <button
-              className="btn bg-red-50 text-xs text-red-600"
-              onClick={() => {
-                if (confirm(`"${s.name}" silinsin mi?`)) deleteMut.mutate(s.id);
-              }}
-            >
-              Sil
-            </button>
-          </div>
-        </div>
-      ))}
-      {!suppliers?.length && !form && (
-        <p className="text-sm text-slate-400">
-          Henüz tedarikçi yok — alım girmek için önce tedarikçi ekleyin.
-        </p>
+          }
+        />
       )}
     </div>
   );
@@ -431,10 +534,22 @@ function SuppliersSection() {
  * ve tedarikçi yönetimi. Alış fiyatları tedarikçi fiyat listesine işlenebilir.
  */
 export function PurchasesPage() {
+  const { can } = useAuth();
   const [showForm, setShowForm] = useState(false);
-  const { data } = useQuery({
+  const [supplierReq, setSupplierReq] = useState(0);
+  const { data, isLoading } = useQuery({
     queryKey: ['purchases'],
     queryFn: () => fetchPurchases({ page: 1, limit: 50 }),
+  });
+  // Boş durum mesajı için: tedarikçi var mı? (Aynı sorgu, önbellekten gelir.)
+  const { data: suppliers } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: () => fetchSuppliers(),
+  });
+
+  // Hızlı aramadan /purchases?new=1 ile gelinirse yeni alım formunu aç.
+  useUrlParam('new', () => {
+    if (can('purchases', 'write')) setShowForm(true);
   });
 
   // Tedarikçiye göre grupla (renkli grup başlıklarıyla).
@@ -444,23 +559,55 @@ export function PurchasesPage() {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(o);
   }
+  const noSuppliers = suppliers !== undefined && suppliers.length === 0;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Satın Alma</h1>
-        <Can module="purchases" level="write">
-          <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'Kapat' : '+ Yeni Alım'}
-          </button>
-        </Can>
+      <PageHeader
+        title="Satın Alma"
+        icon="🛒"
+        subtitle="Tedarikçiden alımı girin; kalemler kaydedilince stok aynı anda girer."
+        actions={
+          <Can module="purchases" level="write">
+            {showForm ? (
+              <button className="btn-secondary" onClick={() => setShowForm(false)}>
+                Kapat
+              </button>
+            ) : (
+              <button
+                className="btn-primary"
+                data-hotkey="n"
+                title="Yeni alım (N)"
+                onClick={() => setShowForm(true)}
+              >
+                + Yeni Alım
+              </button>
+            )}
+          </Can>
+        }
+      />
+
+      {showForm && (
+        <NewPurchaseForm
+          onDone={() => setShowForm(false)}
+          onCancel={() => setShowForm(false)}
+          onNewSupplier={() => setSupplierReq((n) => n + 1)}
+        />
+      )}
+
+      <SuppliersSection newRequest={supplierReq} />
+
+      <div className="flex items-baseline justify-between gap-2 pt-2">
+        <h2 className="text-sm font-semibold text-slate-600">Alım geçmişi</h2>
+        {!!data?.items.length && (
+          <span className="text-xs text-slate-500">
+            {(data.meta?.total ?? 0) > data.items.length
+              ? `son ${data.items.length} / ${data.meta.total} alım`
+              : `${data.items.length} alım`}
+          </span>
+        )}
       </div>
-
-      {showForm && <NewPurchaseForm onDone={() => setShowForm(false)} />}
-
-      <SuppliersSection />
-
-      <h2 className="text-sm font-semibold text-slate-500">Alım geçmişi</h2>
+      {isLoading && <LoadingBlock rows={2} />}
       {[...groups.entries()].map(([supplierName, orders]) => (
         <GroupSection
           key={supplierName}
@@ -469,28 +616,30 @@ export function PurchasesPage() {
           countLabel="alım"
         >
           {orders.map((o) => (
-            <div key={o.id} className="card space-y-1">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">
-                    {o.purchaseDate?.slice(0, 10)}
-                    {o.note ? ` · ${o.note}` : ''}
-                  </p>
+            <div key={o.id} className="card space-y-2 !p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold tabular-nums">{formatDate(o.purchaseDate?.slice(0, 10))}</p>
+                  {o.note && <p className="break-words text-xs text-slate-500">{o.note}</p>}
                 </div>
-                <span className="font-semibold">
-                  {money.format(Number(o.totalAmount))}
+                <span className="shrink-0 text-right text-base font-bold tabular-nums">
+                  {formatMoney(o.totalAmount)}
                 </span>
               </div>
-              <ul className="text-xs text-slate-600 dark:text-slate-300">
+              <ul className="divide-y divide-slate-100 border-t border-slate-100 text-xs text-slate-600">
                 {o.items.map((it, idx) => (
-                  <li key={idx} className="flex justify-between">
-                    <span>
-                      {it.plate?.name ?? '—'} ·{' '}
-                      {Number(it.quantity).toLocaleString('tr-TR')}
-                      {it.plate?.measurementType === 'length' ? ' m' : ' adet'} ×{' '}
-                      {money.format(Number(it.unitPrice))}
+                  <li key={idx} className="flex items-start justify-between gap-3 py-1.5">
+                    <span className="min-w-0">
+                      <span className="font-medium text-slate-700">{it.plate?.name ?? '—'}</span>
+                      <span className="block text-slate-500 tabular-nums">
+                        {formatNumber(it.quantity)}
+                        {it.plate?.measurementType === 'length' ? ' m' : ' adet'} ×{' '}
+                        {formatMoney(it.unitPrice)}
+                      </span>
                     </span>
-                    <span>{money.format(Number(it.lineTotal))}</span>
+                    <span className="shrink-0 text-right font-medium tabular-nums">
+                      {formatMoney(it.lineTotal)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -498,8 +647,25 @@ export function PurchasesPage() {
           ))}
         </GroupSection>
       ))}
-      {!data?.items.length && (
-        <p className="text-slate-400">Henüz alım kaydı yok.</p>
+      {!isLoading && !data?.items.length && (
+        <EmptyState
+          icon="📦"
+          title="Henüz alım kaydı yok."
+          hint={
+            noSuppliers
+              ? 'Önce yukarıdan bir tedarikçi ekleyin; sonra sağ üstteki düğmeyle ilk alımı girin. Kalemler kaydedilince stoğa kendiliğinden girer.'
+              : 'Tedarikçiden aldığınız malzemeyi girdiğinizde stok aynı anda güncellenir ve alış fiyatı tedarikçi listesine işlenir.'
+          }
+          action={
+            !noSuppliers && !showForm ? (
+              <Can module="purchases" level="write">
+                <button className="btn-secondary" onClick={() => setShowForm(true)}>
+                  İlk alımı gir
+                </button>
+              </Can>
+            ) : undefined
+          }
+        />
       )}
     </div>
   );

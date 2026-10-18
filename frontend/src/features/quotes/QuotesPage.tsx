@@ -1,6 +1,8 @@
 import { Can } from '../../components/Can';
+import { useAuth } from '../../context/AuthContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   convertQuote,
   createQuote,
@@ -35,6 +37,15 @@ import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { updateQuote } from '../../api/quotes.api';
 import { fetchCutPricing } from '../../api/settings.api';
+import { confirmDialog } from '../../components/ConfirmDialog';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadingBlock, Spinner } from '../../components/ui/Loading';
+import { Filters } from '../../components/ui/Filters';
+import { SearchInput } from '../../components/ui/SearchInput';
+import { DATE_PRESETS, DateRangeFilter } from '../../components/ui/DateRangeFilter';
+import { useUrlParam } from '../../hooks/useUrlParam';
+import { formatDate, relativeDay } from '../../lib/format';
 import type {
   MeasurementType,
   Plate,
@@ -286,7 +297,8 @@ function SalePlatePicker({
           </span>
         </span>
         <button
-          className="btn shrink-0 bg-white px-2 py-1 text-xs"
+          type="button"
+          className="btn-secondary btn-sm shrink-0"
           onClick={() => setOpen(true)}
         >
           Değiştir
@@ -297,17 +309,18 @@ function SalePlatePicker({
 
   return (
     <div className="space-y-2 rounded-xl border border-slate-300 p-2 dark:border-slate-700">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="input min-w-0 flex-1"
+      <div className="flex items-center gap-2">
+        <SearchInput
+          className="min-w-0 flex-1"
           placeholder="Malzeme, marka veya renk ara…"
           value={term}
-          onChange={(e) => setTerm(e.target.value)}
+          onChange={setTerm}
           autoFocus
         />
         {selectedPlate && (
           <button
-            className="btn bg-slate-100 px-2 py-1 text-xs"
+            type="button"
+            className="btn-secondary btn-sm shrink-0"
             onClick={() => setOpen(false)}
           >
             Vazgeç
@@ -344,7 +357,9 @@ function SalePlatePicker({
 
       <div className="max-h-72 space-y-2 overflow-y-auto">
         {isFetching && !all.length && (
-          <p className="py-2 text-center text-xs text-slate-400">Yükleniyor…</p>
+          <p className="flex items-center justify-center gap-2 py-2 text-xs text-slate-500">
+            <Spinner /> Malzemeler yükleniyor…
+          </p>
         )}
         {groups.map((g) => (
           <div key={g.category}>
@@ -449,13 +464,41 @@ const money = new Intl.NumberFormat('tr-TR', {
   currency: 'TRY',
 });
 
-const STATUS: Record<QuoteStatus, { label: string; cls: string }> = {
-  draft: { label: 'Taslak', cls: 'bg-slate-100 text-slate-600' },
-  sent: { label: 'Gönderildi', cls: 'bg-blue-100 text-blue-700' },
-  accepted: { label: 'Kabul', cls: 'bg-emerald-100 text-emerald-700' },
-  rejected: { label: 'Red', cls: 'bg-red-100 text-red-700' },
-  expired: { label: 'Süresi doldu', cls: 'bg-amber-100 text-amber-700' },
-  converted: { label: 'Dönüştürüldü', cls: 'bg-slate-900 text-white' },
+/**
+ * Teklif durumları: her durumun kendi rengi var, liste göz ucuyla taranır.
+ * cls: durum rozeti · bar: kartın sol şeridi (aynı renk ailesi).
+ */
+const STATUS: Record<QuoteStatus, { label: string; cls: string; bar: string }> = {
+  draft: {
+    label: 'Taslak',
+    cls: 'bg-slate-200 text-slate-700',
+    bar: '!border-l-slate-400',
+  },
+  sent: {
+    label: 'Gönderildi',
+    cls: 'bg-blue-100 text-blue-800',
+    bar: '!border-l-blue-500',
+  },
+  accepted: {
+    label: 'Kabul edildi',
+    cls: 'bg-emerald-100 text-emerald-800',
+    bar: '!border-l-emerald-500',
+  },
+  rejected: {
+    label: 'Reddedildi',
+    cls: 'bg-red-100 text-red-800',
+    bar: '!border-l-red-500',
+  },
+  expired: {
+    label: 'Süresi doldu',
+    cls: 'bg-amber-100 text-amber-800',
+    bar: '!border-l-amber-500',
+  },
+  converted: {
+    label: 'Dönüştürüldü',
+    cls: 'bg-indigo-100 text-indigo-800',
+    bar: '!border-l-indigo-500',
+  },
 };
 
 export function QuotesPage() {
@@ -469,6 +512,28 @@ export function QuotesPage() {
     setFilters((f) => ({ ...f, limit: n, page: 1 }));
   };
   const { mini, toggle: toggleMini } = useListDensity();
+
+  // Serbest arama (teklif no / müşteri adı): her harfte istek gitmesin diye
+  // yazma bitince (~300 ms) filtreye yazılır.
+  const [searchText, setSearchText] = useState('');
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const next = searchText.trim() || undefined;
+      setFilters((f) => (f.search === next ? f : { ...f, search: next, page: 1 }));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [searchText]);
+
+  // Hızlı arama (Ctrl+K) bağlantıları: ?new=1 yeni teklif formunu açar (yazma
+  // izni varsa), ?q=… aramayı doldurur (beklemeden uygulanır).
+  const { can } = useAuth();
+  useUrlParam('new', () => {
+    if (can('quotes', 'write')) setShowForm(true);
+  });
+  useUrlParam('q', (value) => {
+    setSearchText(value);
+    setFilters((f) => ({ ...f, search: value.trim() || undefined, page: 1 }));
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ['quotes', filters],
@@ -486,13 +551,31 @@ export function QuotesPage() {
 
   const setFilter = (patch: Partial<QuoteFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
+  // Sunucu da aynı kuralı uygular: hiçbir filtre (arama dahil) yoksa son 1 hafta.
   const hasFilter = !!(
     filters.buyerCustomerId ||
     filters.status ||
     filters.categoryId ||
     filters.from ||
-    filters.to
+    filters.to ||
+    filters.search
   );
+  // Etkin filtre sayısı (tarih aralığı tek filtre sayılır).
+  const activeCount =
+    (filters.from || filters.to ? 1 : 0) +
+    (filters.buyerCustomerId ? 1 : 0) +
+    (filters.categoryId ? 1 : 0) +
+    (filters.status ? 1 : 0) +
+    (filters.search ? 1 : 0);
+  const clearFilters = () => {
+    setSearchText('');
+    setFilters({ page: 1, limit: pageSize });
+  };
+  // Boş listede tek dokunuşla daha geniş aralık: son 30 gün.
+  const showLast30Days = () => {
+    const preset = DATE_PRESETS.find((p) => p.key === '30d');
+    if (preset) setFilter(preset.range());
+  };
 
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: QuoteStatus }) =>
@@ -512,17 +595,23 @@ export function QuotesPage() {
     },
   });
 
-  function handleDeleteQuote(id: string, quoteNo: string) {
-    if (
-      window.confirm(
-        `${quoteNo} teklifini silmek istiyor musunuz? Teklife ait tüm kuyruk işleri ve (varsa) satış geri alınır; ilgili borçlar cari ekstreden düşülür.`,
-      )
-    ) {
-      deleteMut.mutate(id);
-    }
+  async function handleDeleteQuote(id: string, quoteNo: string) {
+    const ok = await confirmDialog({
+      title: `${quoteNo} silinsin mi?`,
+      message:
+        'Teklife ait tüm kuyruk işleri ve (varsa) satış geri alınır; ilgili borçlar cari ekstreden düşülür.',
+      confirmText: 'Sil',
+      danger: true,
+    });
+    if (!ok) return;
+    deleteMut.mutate(id, {
+      // Silinen teklif düzenleniyorsa form da kapansın.
+      onSuccess: () => setEditingQuote((e) => (e?.id === id ? null : e)),
+    });
   }
 
-  const [convertMsg, setConvertMsg] = useState<string | null>(null);
+  // Dönüşüm sonucu: kısa özet + işleme eklendiyse kuyruğa geçiş bağlantısı.
+  const [convertMsg, setConvertMsg] = useState<{ text: string; queued: number } | null>(null);
   // #1 Kalem başına değil, dönüşüm başına: işaretliyse işleme işleri hemen
   // "tamamlanmış" olarak eklenir (stok düşer + faturalanır). Teklif id → seçim.
   const [completeOnConvert, setCompleteOnConvert] = useState<
@@ -545,66 +634,163 @@ export function QuotesPage() {
       if (res.saleId) parts.push('satış oluşturuldu');
       if (res.processingJobIds.length)
         parts.push(`${res.processingJobIds.length} işleme kuyruğa eklendi`);
-      setConvertMsg(
-        parts.length
+      setConvertMsg({
+        text: parts.length
           ? `Dönüştürüldü: ${parts.join(' · ')}.`
           : 'Teklif dönüştürüldü.',
-      );
+        queued: res.processingJobIds.length,
+      });
     },
   });
 
+  // Form açılınca (özellikle listedeki "Düzenle"den) ekranı forma kaydır.
+  const newFormRef = useRef<HTMLDivElement>(null);
+  const editFormRef = useRef<HTMLDivElement>(null);
+  const editingId = editingQuote?.id;
+  useEffect(() => {
+    if (showForm) newFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [showForm]);
+  useEffect(() => {
+    if (editingId) editFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [editingId]);
+
+  const pagination = data?.meta ? (
+    <Pagination
+      page={data.meta.page}
+      pageCount={data.meta.pageCount}
+      total={data.meta.total}
+      pageSize={pageSize}
+      onPage={(p) => setFilters((f) => ({ ...f, page: p }))}
+      onPageSize={changePageSize}
+    />
+  ) : null;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Teklifler</h1>
-        <div className="flex items-center gap-2">
-          <DensityToggle mini={mini} onToggle={toggleMini} />
-          <Can module="quotes" level="write">
-            <button className="btn-primary" onClick={() => setShowForm((s) => !s)}>
-              {showForm ? 'Kapat' : '+ Yeni Teklif'}
-            </button>
-          </Can>
-        </div>
-      </div>
+      <PageHeader
+        title="Teklifler"
+        icon="📝"
+        subtitle="Satış ve işleme kalemlerini tek teklifte toplayın; kabul edilen teklifi satışa ve üretim kuyruğuna dönüştürün."
+        actions={
+          <>
+            <DensityToggle mini={mini} onToggle={toggleMini} />
+            <Can module="quotes" level="write">
+              {showForm ? (
+                <button className="btn-secondary" onClick={() => setShowForm(false)}>
+                  Kapat
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  data-hotkey="n"
+                  title="Yeni teklif (N)"
+                  onClick={() => setShowForm(true)}
+                >
+                  + Yeni Teklif
+                </button>
+              )}
+            </Can>
+          </>
+        }
+      />
 
       {convertMsg && (
-        <div className="card flex items-center justify-between bg-emerald-50 text-sm text-emerald-800">
-          <span>{convertMsg}</span>
-          <button className="text-emerald-700 underline" onClick={() => setConvertMsg(null)}>
-            Kapat
-          </button>
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+        >
+          <span className="font-medium">✓ {convertMsg.text}</span>
+          <span className="flex items-center gap-3">
+            {convertMsg.queued > 0 && (
+              <Can module="processing">
+                <Link to="/queue" className="font-semibold underline">
+                  Kuyruğa git →
+                </Link>
+              </Can>
+            )}
+            <button className="underline" onClick={() => setConvertMsg(null)}>
+              Kapat
+            </button>
+          </span>
         </div>
       )}
       {convertMut.isError && (
-        <div className="card text-sm text-red-600">
+        <div
+          role="alert"
+          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+        >
           {(convertMut.error as { response?: { data?: { message?: string } } })
             ?.response?.data?.message ?? 'Dönüştürme başarısız.'}
         </div>
       )}
 
-      {/* Geçmiş teklif filtresi — tarih aralığı, müşteri, malzeme. */}
-      <div className="card space-y-2">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Başlangıç tarihi</span>
-            <input
+      {showForm && (
+        <div ref={newFormRef} className="scroll-mt-4">
+          <NewQuoteForm
+            onDone={() => {
+              setShowForm(false);
+              qc.invalidateQueries({ queryKey: ['quotes'] });
+            }}
+            onCancel={() => setShowForm(false)}
+          />
+        </div>
+      )}
+
+      {/* #8 Onaylanmamış teklifin tam düzenlenmesi. */}
+      {editingQuote && (
+        <div ref={editFormRef} className="scroll-mt-4">
+          <NewQuoteForm
+            key={editingQuote.id}
+            editQuote={editingQuote}
+            onDone={() => {
+              setEditingQuote(null);
+              qc.invalidateQueries({ queryKey: ['quotes'] });
+            }}
+            onCancel={() => setEditingQuote(null)}
+          />
+        </div>
+      )}
+
+      {/* Geçmiş teklif filtresi — arama, tarih aralığı, durum, müşteri, malzeme. */}
+      <Filters
+        search={
+          <SearchInput
+            value={searchText}
+            onChange={setSearchText}
+            placeholder="Ara (teklif no, müşteri)…"
+            aria-label="Teklif ara"
+          />
+        }
+        activeCount={activeCount}
+        onClear={clearFilters}
+      >
+        <DateRangeFilter
+          value={{ from: filters.from, to: filters.to }}
+          onChange={(r) => setFilter({ from: r.from, to: r.to })}
+          fromLabel="Başlangıç tarihi"
+          toLabel="Bitiş tarihi"
+          hint={hasFilter ? 'Tüm tarihler' : 'Filtre yok · son 1 hafta gösteriliyor'}
+        />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <label className="block min-w-0">
+            <span className="label">Durum</span>
+            <select
               className="input"
-              type="date"
-              value={filters.from ?? ''}
-              onChange={(e) => setFilter({ from: e.target.value || undefined })}
-            />
+              value={filters.status ?? ''}
+              onChange={(e) =>
+                setFilter({ status: (e.target.value || undefined) as QuoteStatus | undefined })
+              }
+            >
+              <option value="">Tümü</option>
+              {(Object.keys(STATUS) as QuoteStatus[]).map((s) => (
+                <option key={s} value={s}>
+                  {STATUS[s].label}
+                </option>
+              ))}
+            </select>
           </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Bitiş tarihi</span>
-            <input
-              className="input"
-              type="date"
-              value={filters.to ?? ''}
-              onChange={(e) => setFilter({ to: e.target.value || undefined })}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Müşteri</span>
+          <label className="block min-w-0">
+            <span className="label">Müşteri</span>
             <select
               className="input"
               value={filters.buyerCustomerId ?? ''}
@@ -618,8 +804,8 @@ export function QuotesPage() {
               ))}
             </select>
           </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Malzeme türü</span>
+          <label className="block min-w-0">
+            <span className="label">Malzeme türü</span>
             <select
               className="input"
               value={filters.categoryId ?? ''}
@@ -634,177 +820,202 @@ export function QuotesPage() {
             </select>
           </label>
         </div>
-        <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>
-            {hasFilter
-              ? 'Filtre uygulanıyor · karara bağlanmamış teklifler en üstte'
-              : 'Filtre yok · son 1 hafta gösteriliyor'}
-          </span>
-          {hasFilter && (
-            <button
-              className="text-slate-500 underline"
-              onClick={() => setFilters({ page: 1, limit: 50 })}
-            >
-              Filtreyi temizle
-            </button>
-          )}
-        </div>
-      </div>
-
-      {showForm && (
-        <NewQuoteForm
-          onDone={() => {
-            setShowForm(false);
-            qc.invalidateQueries({ queryKey: ['quotes'] });
-          }}
-        />
-      )}
-
-      {/* #8 Onaylanmamış teklifin tam düzenlenmesi. */}
-      {editingQuote && (
-        <NewQuoteForm
-          key={editingQuote.id}
-          editQuote={editingQuote}
-          onDone={() => {
-            setEditingQuote(null);
-            qc.invalidateQueries({ queryKey: ['quotes'] });
-          }}
-        />
-      )}
+      </Filters>
 
       {isLoading ? (
-        <p className="text-slate-400">Yükleniyor…</p>
-      ) : (
-        <div className="space-y-2">
-          {data?.items.map((q) => (
-            <div key={q.id} className={mini ? 'card !p-2 space-y-1' : 'card space-y-2'}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-medium">
-                    {q.quoteNo}
-                    {mini && (
-                      <span className="ml-2 text-xs font-normal text-slate-400">
-                        {q.buyerCustomer?.name ?? '—'} · {q.items.length} kalem
-                      </span>
-                    )}
-                  </p>
-                  {!mini && (
-                    <p className="text-sm text-slate-500">
-                      {q.buyerCustomer?.name ?? '—'} · {q.items.length} kalem
-                    </p>
-                  )}
-                </div>
-                <div className={mini ? 'flex items-center gap-2' : 'text-right'}>
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-xs ${STATUS[q.status].cls}`}
-                  >
-                    {STATUS[q.status].label}
-                  </span>
-                  <p className={mini ? 'font-semibold' : 'mt-1 font-semibold'}>
-                    {money.format(q.total)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {(q.status === 'draft' || q.status === 'sent') && (
-                  <>
-                    <button
-                      className="btn bg-emerald-600 text-white"
-                      onClick={() =>
-                        statusMut.mutate({ id: q.id, status: 'accepted' })
-                      }
-                    >
-                      Kabul
-                    </button>
-                    <button
-                      className="btn bg-slate-100"
-                      onClick={() =>
-                        statusMut.mutate({ id: q.id, status: 'rejected' })
-                      }
-                    >
-                      Reddet
-                    </button>
-                  </>
-                )}
-                {/* #8 Onaylanmamış (taslak/gönderildi/red) teklif tümüyle düzenlenebilir. */}
-                {(q.status === 'draft' ||
-                  q.status === 'sent' ||
-                  q.status === 'rejected') && (
-                  <button
-                    className="btn bg-amber-500 text-white"
-                    onClick={() =>
-                      setEditingQuote(editingQuote?.id === q.id ? null : q)
-                    }
-                  >
-                    {editingQuote?.id === q.id ? 'Düzenlemeyi kapat' : 'Düzenle'}
+        <LoadingBlock rows={4} label="Teklifler yükleniyor…" />
+      ) : !data?.items.length ? (
+        <>
+          {hasFilter ? (
+            <EmptyState
+              icon="🔍"
+              title="Bu filtrelere uyan teklif yok"
+              hint="Aramayı değiştirin, tarih aralığını genişletin ya da filtreleri temizleyin."
+              action={
+                <button className="btn-secondary" onClick={clearFilters}>
+                  Filtreleri temizle
+                </button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon="📝"
+              title="Son 1 haftada teklif yok"
+              hint="Filtre seçilmediğinde yalnızca son 1 haftanın teklifleri listelenir. Daha eskiler için tarih aralığı seçin ya da yeni bir teklif hazırlayın."
+              action={
+                <>
+                  <button className="btn-secondary" onClick={showLast30Days}>
+                    Son 30 günü göster
                   </button>
-                )}
-                {q.status === 'accepted' && (
-                  <>
-                    <label className="flex items-center gap-1 text-xs text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={!!completeOnConvert[q.id]}
-                        onChange={(e) =>
-                          setCompleteOnConvert((s) => ({
-                            ...s,
-                            [q.id]: e.target.checked,
-                          }))
-                        }
-                      />
-                      İşlemeleri tamamlanmış olarak ekle
-                    </label>
-                    <button
-                      className="btn-primary"
-                      disabled={convertMut.isPending}
-                      onClick={() =>
-                        convertMut.mutate({
-                          id: q.id,
-                          completeProcessing: !!completeOnConvert[q.id],
-                        })
-                      }
-                    >
-                      Satış/İşlemeye Dönüştür
+                  <Can module="quotes" level="write">
+                    <button className="btn-primary" onClick={() => setShowForm(true)}>
+                      + Yeni Teklif
                     </button>
-                  </>
-                )}
-                <button
-                  className="btn bg-slate-100"
-                  onClick={() => openPdf(`/quotes/${q.id}/print`)}
-                >
-                  Yazdır / PDF
-                </button>
-                <button
-                  className="btn bg-slate-100"
-                  onClick={() =>
-                    downloadFile(`/quotes/${q.id}/csv`, `teklif-${q.quoteNo}.csv`)
-                  }
-                >
-                  CSV
-                </button>
-                <button
-                  className="btn bg-red-50 text-red-600"
-                  disabled={deleteMut.isPending}
-                  onClick={() => handleDeleteQuote(q.id, q.quoteNo)}
-                >
-                  Sil
-                </button>
-              </div>
-            </div>
-          ))}
-          {!data?.items.length && (
-            <p className="text-slate-400">Henüz teklif yok.</p>
-          )}
-          {data?.meta && (
-            <Pagination
-              page={data.meta.page}
-              pageCount={data.meta.pageCount}
-              total={data.meta.total}
-              pageSize={pageSize}
-              onPage={(p) => setFilters((f) => ({ ...f, page: p }))}
-              onPageSize={changePageSize}
+                  </Can>
+                </>
+              }
             />
           )}
+          {/* Son sayfadaki son kayıt silindiyse geri dönebilmek için. */}
+          {(data?.meta.page ?? 1) > 1 && pagination}
+        </>
+      ) : (
+        <div className="space-y-2">
+          <p className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-1 text-xs text-slate-500">
+            <span>
+              <span className="font-semibold text-slate-700">{data.meta?.total ?? data.items.length} teklif</span>
+              {' · '}
+              {hasFilter ? 'filtreli' : 'son 1 hafta'}
+            </span>
+            <span>Karara bağlanmamış teklifler en üstte</span>
+          </p>
+          {data.items.map((q) => {
+            const st = STATUS[q.status];
+            const saleCount = q.items.filter((it) => it.lineKind === 'sale').length;
+            const procCount = q.items.length - saleCount;
+            const kinds =
+              saleCount && procCount
+                ? `${saleCount} satış + ${procCount} işleme`
+                : saleCount
+                  ? 'satış'
+                  : procCount
+                    ? 'işleme'
+                    : '';
+            const undecided = q.status === 'draft' || q.status === 'sent';
+            const editable = undecided || q.status === 'rejected';
+            const editing = editingQuote?.id === q.id;
+            return (
+              <div
+                key={q.id}
+                className={`card border-l-4 ${st.bar} ${mini ? '!p-2 space-y-1.5' : 'space-y-3'} ${
+                  editing ? 'ring-2 ring-blue-400' : ''
+                }`}
+              >
+                {/* Üst satır: teklif no + durum · müşteri · kalem/tarih — sağda toplam */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-semibold text-slate-900">{q.quoteNo}</span>
+                      <span className={`badge ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <p className={`truncate font-medium text-slate-700 ${mini ? 'text-xs' : 'mt-0.5 text-sm'}`}>
+                      {q.buyerCustomer?.name ?? '—'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {q.items.length} kalem{kinds && ` (${kinds})`} · {formatDate(q.createdAt)}
+                      {!mini && q.validUntil && ` · geçerlilik ${formatDate(q.validUntil)}`}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className={`font-bold text-slate-900 ${mini ? 'text-base' : 'text-lg'}`}>
+                      {money.format(q.total)}
+                    </p>
+                    {!mini && (
+                      <p className="text-xs text-slate-500">{relativeDay(q.createdAt)}</p>
+                    )}
+                  </div>
+                </div>
+                {!mini && q.note && (
+                  <p className="line-clamp-2 text-xs italic text-slate-500">“{q.note}”</p>
+                )}
+
+                {/* Eylemler: sıradaki adım dolgulu, diğerleri ikincil, Sil en sonda. */}
+                <div
+                  className={`flex flex-wrap items-center gap-2 ${
+                    mini ? '' : 'border-t border-slate-100 pt-3'
+                  }`}
+                >
+                  {undecided && (
+                    <>
+                      <button
+                        className="btn-success btn-sm"
+                        disabled={statusMut.isPending}
+                        onClick={() => statusMut.mutate({ id: q.id, status: 'accepted' })}
+                      >
+                        Kabul
+                      </button>
+                      <button
+                        className="btn-secondary btn-sm"
+                        disabled={statusMut.isPending}
+                        onClick={() => statusMut.mutate({ id: q.id, status: 'rejected' })}
+                      >
+                        Reddet
+                      </button>
+                    </>
+                  )}
+                  {q.status === 'accepted' && (
+                    <>
+                      {/* İşleme kalemi yoksa "tamamlanmış ekle" seçeneğinin anlamı yok. */}
+                      {procCount > 0 && (
+                        <label className="flex min-h-[36px] items-center gap-2 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={!!completeOnConvert[q.id]}
+                            onChange={(e) =>
+                              setCompleteOnConvert((s) => ({
+                                ...s,
+                                [q.id]: e.target.checked,
+                              }))
+                            }
+                          />
+                          İşlemeleri tamamlanmış olarak ekle
+                        </label>
+                      )}
+                      <button
+                        className="btn-primary btn-sm"
+                        disabled={convertMut.isPending}
+                        onClick={() =>
+                          convertMut.mutate({
+                            id: q.id,
+                            completeProcessing: !!completeOnConvert[q.id],
+                          })
+                        }
+                      >
+                        {convertMut.isPending && convertMut.variables?.id === q.id && (
+                          <Spinner />
+                        )}
+                        Satış/İşlemeye Dönüştür
+                      </button>
+                    </>
+                  )}
+                  {/* #8 Onaylanmamış (taslak/gönderildi/red) teklif tümüyle düzenlenebilir. */}
+                  {editable && (
+                    <button
+                      className={editing ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
+                      aria-pressed={editing}
+                      onClick={() => setEditingQuote(editing ? null : q)}
+                    >
+                      {editing ? 'Düzenlemeyi kapat' : 'Düzenle'}
+                    </button>
+                  )}
+                  <button
+                    className="btn-secondary btn-sm"
+                    title="Yazdırılabilir teklif (Ctrl+P ile PDF)"
+                    onClick={() => openPdf(`/quotes/${q.id}/print`)}
+                  >
+                    Yazdır / PDF
+                  </button>
+                  <button
+                    className="btn-secondary btn-sm"
+                    title="Teklif kalemlerini CSV (tablo) olarak indir"
+                    onClick={() =>
+                      downloadFile(`/quotes/${q.id}/csv`, `teklif-${q.quoteNo}.csv`)
+                    }
+                  >
+                    CSV
+                  </button>
+                  <button
+                    className="btn-danger-soft btn-sm ml-auto"
+                    disabled={deleteMut.isPending}
+                    onClick={() => handleDeleteQuote(q.id, q.quoteNo)}
+                  >
+                    Sil
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {pagination}
         </div>
       )}
     </div>
@@ -866,14 +1077,18 @@ function RetailPriceEditor({
         <input
           className="input w-32"
           type="number"
+          inputMode="decimal"
           min={0}
           step="0.01"
           placeholder="Tutar"
+          aria-label="Perakende fiyat"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
+          autoFocus
         />
         <select
           className="input w-auto"
+          aria-label="Para birimi"
           value={currency}
           onChange={(e) => setCurrency(e.target.value as RetailCurrency)}
         >
@@ -884,13 +1099,14 @@ function RetailPriceEditor({
           ))}
         </select>
         <button
-          className="btn bg-indigo-600 text-xs text-white"
+          type="button"
+          className="btn-primary btn-sm"
           disabled={!valid || saveMut.isPending}
           onClick={() => saveMut.mutate({ retailPrice: amount, currency })}
         >
           {saveMut.isPending ? 'Kaydediliyor…' : 'Kaydet ve uygula'}
         </button>
-        <button className="btn bg-white text-xs" onClick={onClose}>
+        <button type="button" className="btn-secondary btn-sm" onClick={onClose}>
           Vazgeç
         </button>
       </div>
@@ -1001,7 +1217,8 @@ function SalePricingNote({
           Bu malzemenin perakende fiyatı yok — satış fiyatı otomatik önerilemiyor.
         </span>
         <button
-          className="btn bg-indigo-600 px-2 py-0.5 text-[11px] text-white"
+          type="button"
+          className="btn btn-sm bg-indigo-600 text-white hover:bg-indigo-700"
           onClick={() => setEditing(true)}
         >
           💰 Fiyat ekle
@@ -1040,7 +1257,8 @@ function SalePricingNote({
           <span className="text-slate-400">(fiyat elle değiştirildi)</span>
         )}
       <button
-        className="rounded px-1 text-indigo-600 underline"
+        type="button"
+        className="rounded px-1 font-medium text-indigo-600 underline dark:text-indigo-400"
         onClick={() => setEditing(true)}
       >
         fiyatı düzenle
@@ -1068,14 +1286,24 @@ function Field({
   label,
   children,
   className = '',
+  required = false,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  /** Zorunlu alan: etiketin yanında kırmızı yıldız. */
+  required?: boolean;
 }) {
   return (
-    <label className={`block ${className}`}>
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+    <label className={`block min-w-0 ${className}`}>
+      <span className="label">
+        {label}
+        {required && (
+          <span className="ml-0.5 text-red-500" aria-hidden>
+            *
+          </span>
+        )}
+      </span>
       {children}
     </label>
   );
@@ -1113,11 +1341,21 @@ function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
 
 function NewQuoteForm({
   onDone,
+  onCancel,
   editQuote,
 }: {
   onDone: () => void;
+  /** Kaydetmeden kapat (başlıktaki ✕ / Vazgeç). */
+  onCancel: () => void;
   editQuote?: Quote;
 }) {
+  // Yeni teklifte ilk alana (alıcı arama) odaklan; düzenlemede odak değişmez.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editQuote)
+      rootRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [buyerCustomerId, setBuyer] = useState(editQuote?.buyerCustomerId ?? '');
   // Alıcının adı — seçicide alıcının malzemelerini en üstte gruplamak için.
   const [buyerName, setBuyerName] = useState(
@@ -1383,9 +1621,108 @@ function NewQuoteForm({
   }, 0);
   const hasSale = items.some((it) => it.lineKind === 'sale');
 
+  // Gönder düğmesi neden pasif? Kullanıcıya eksik olanı söyle.
+  const submitHint = !buyerCustomerId
+    ? 'Önce alıcı müşteriyi seçin.'
+    : items.length === 0
+      ? 'En az bir satış veya işleme kalemi ekleyin.'
+      : !items.every((i) => i.plateId || (i.adhoc && i.itemName?.trim()))
+        ? 'Her kalemde malzeme seçin (serbest kalemde malzeme adını yazın).'
+        : ownerConflict
+          ? 'Farklı sahiplerin malzemeleri aynı teklifte olamaz.'
+          : null;
+
+  const submit = async () => {
+    // Birim fiyatı 0 olan kalem(ler) varsa (ücretsiz) kullanıcıdan onay al.
+    const zeroCount = items.filter((it) => !Number(it.unitPrice)).length;
+    if (
+      zeroCount > 0 &&
+      !(await confirmDialog({
+        title: 'Ücretsiz kalem var',
+        message: `${zeroCount} kalemin birim fiyatı 0 (ücretsiz). Devam etmek istediğinize emin misiniz?`,
+        confirmText: 'Yine de kaydet',
+        cancelText: 'Fiyatları düzelt',
+        danger: false,
+      }))
+    ) {
+      return;
+    }
+    // #1 Sahibi olan SATIŞ kalemleri konsinye kabul edilir: satış tutarı
+    // (komisyon hariç) sahibe yansır, borcundan düşülür. Komisyon işletme
+    // geliridir, sahibe görünmez. Tek teklif = tek sahip.
+    const ownerCustomerId = distinctOwners[0];
+    const mapped: QuoteItemInput[] = items.map((it) => {
+      // ownerMode/ownerFilterId/adhoc yalnızca arayüz durumu — gönderilmez.
+      const {
+        ownerCustomerId: oid,
+        ownerMode: _mode,
+        ownerFilterId: _filter,
+        adhoc,
+        ...rest
+      } = it;
+      const base: QuoteItemInput = {
+        ...rest,
+        plateId: it.plateId || undefined,
+      };
+      // #5 Serbest (stoksuz) kalem: plaka yok; ad + billingUnit gönderilir,
+      // stok kaynağı/sahip uygulanmaz.
+      if (adhoc) {
+        return {
+          ...base,
+          itemName: it.itemName?.trim() || 'Malzeme',
+          stockSource: undefined,
+        };
+      }
+      if (it.lineKind === 'sale' && oid) {
+        return {
+          ...base,
+          stockSource: 'consignment_tracked',
+          ownerSettlement: 'commission_percent',
+          commissionPercent: Math.min(
+            100,
+            Math.max(0, Number(it.commissionPercent) || 0),
+          ),
+        };
+      }
+      return base;
+    });
+    createMut.mutate({
+      buyerCustomerId,
+      ownerCustomerId: ownerCustomerId || undefined,
+      currency: 'TRY',
+      note: quoteNote.trim() || undefined,
+      items: mapped,
+    });
+  };
+
+  // Sayı alanı yardımcısı: boş → undefined, değilse sayı.
+  const num = (v: string) => (v ? Number(v) : undefined);
+
   return (
-    <div className="card space-y-3">
-      <Field label="Alıcı müşteri (ara)">
+    <div ref={rootRef} className="card space-y-4">
+      {/* Form başlığı: ne yapıldığı + canlı özet (kalem sayısı, tahmini toplam) */}
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-slate-900">
+            {editQuote ? `${editQuote.quoteNo} düzenleniyor` : 'Yeni teklif'}
+          </h2>
+          <p className="text-sm text-slate-500">
+            {items.length} kalem · tahmini toplam{' '}
+            <span className="font-semibold text-slate-800">{money.format(grandTotal)}</span>
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-ghost btn-sm shrink-0"
+          onClick={onCancel}
+          aria-label="Formu kapat"
+          title="Kaydetmeden kapat"
+        >
+          ✕
+        </button>
+      </div>
+
+      <Field label="Alıcı müşteri (ara)" required>
         <CustomerPicker
           onChange={(id, name) => {
             setBuyer(id);
@@ -1398,14 +1735,14 @@ function NewQuoteForm({
       {/* Stoktan toplu işleme ekleme: müşterinin (konsinye) VEYA işletme stoğundan,
           MALZEME TÜRÜNE (kategori) göre gruplu, checkbox ile toplu seçim (parça+tam). */}
       {buyerCustomerId && (
-        <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
+        <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
               📦 Stoktan işleme ekle — parça + tam ({ownerStockAll.length})
             </p>
             <button
               type="button"
-              className="btn bg-emerald-600 px-2 py-1 text-xs text-white"
+              className="btn-success btn-sm"
               disabled={selectableStock.length === 0}
               onClick={addAllFilteredStock}
               title="Görünen tüm malzemeleri tek tıkla ekle"
@@ -1415,16 +1752,17 @@ function NewQuoteForm({
           </div>
 
           {/* Kaynak: müşterinin konsinye stoğu / işletme stoğu */}
-          <div className="flex gap-1 text-xs">
+          <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Stok kaynağı">
             {(['owner', 'business'] as const).map((src) => (
               <button
                 key={src}
                 type="button"
+                aria-pressed={stockSource === src}
                 onClick={() => {
                   setStockSource(src);
                   setSelStock(new Set());
                 }}
-                className={`rounded-lg px-2 py-1 ${
+                className={`min-h-[36px] rounded-lg px-3 font-medium ${
                   stockSource === src
                     ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
                     : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
@@ -1435,11 +1773,10 @@ function NewQuoteForm({
             ))}
           </div>
 
-          <input
-            className="input"
+          <SearchInput
             placeholder="Malzeme adına göre ara…"
             value={stockSearch}
-            onChange={(e) => setStockSearch(e.target.value)}
+            onChange={setStockSearch}
           />
           {selectableStock.length > 0 && (
             <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -1479,6 +1816,7 @@ function NewQuoteForm({
                           <input
                             type="checkbox"
                             title="Bu malzemenin tüm parçalarını seç"
+                            aria-label={`${m.label}: tüm parçaları seç`}
                             disabled={free.length === 0}
                             checked={allPicked}
                             onChange={() =>
@@ -1492,8 +1830,9 @@ function NewQuoteForm({
                           />
                           <button
                             type="button"
-                            className="flex min-w-0 flex-1 items-center gap-1 text-left text-sm"
+                            className="flex min-h-[32px] min-w-0 flex-1 items-center gap-1 text-left text-sm"
                             onClick={() => toggleMaterial(m.key)}
+                            aria-expanded={m.plates.length > 1 ? open : undefined}
                           >
                             <span className="truncate font-medium">{m.label}</span>
                             <span className="shrink-0 text-xs text-slate-400">
@@ -1516,7 +1855,7 @@ function NewQuoteForm({
                               return (
                                 <label
                                   key={p.id}
-                                  className={`flex items-center gap-2 pl-4 text-sm ${already ? 'opacity-50' : ''}`}
+                                  className={`flex min-w-0 items-center gap-2 py-0.5 pl-4 text-sm ${already ? 'opacity-50' : ''}`}
                                 >
                                   <input
                                     type="checkbox"
@@ -1531,7 +1870,7 @@ function NewQuoteForm({
                                       })
                                     }
                                   />
-                                  <span className="flex-1 truncate text-slate-600 dark:text-slate-300">
+                                  <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
                                     {p.name}
                                   </span>
                                   {(p.measurementType ?? 'area') === 'area' && (
@@ -1573,7 +1912,7 @@ function NewQuoteForm({
               </div>
             ))}
             {!ownerStock.length && (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500">
                 {stockSource === 'owner'
                   ? 'Bu müşteriye ait (konsinye) stokta malzeme yok. Malzeme, Stok ekleme ekranında “Sahiplik: Müşteriye ait” seçilerek girildiğinde burada görünür. Dilerseniz “İşletme stoğu” sekmesinden seçin.'
                   : 'İşletme stoğunda uygun malzeme bulunamadı.'}
@@ -1582,7 +1921,8 @@ function NewQuoteForm({
           </div>
 
           <button
-            className="btn bg-slate-700 text-white"
+            type="button"
+            className="btn-primary btn-sm w-full sm:w-auto"
             disabled={selStock.size === 0}
             onClick={addSelectedStock}
           >
@@ -1592,9 +1932,33 @@ function NewQuoteForm({
       )}
 
       {ownerConflict && (
-        <p className="text-sm text-red-600">
+        <p
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+        >
           Tek teklifte yalnızca tek malzeme sahibi olabilir. Farklı sahiplerin
           malzemelerini ayrı tekliflerde satın.
+        </p>
+      )}
+
+      {/* Kalemler */}
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-700">
+          Kalemler{items.length > 0 && ` (${items.length})`}
+        </h3>
+        {items.length > 0 && (
+          <span className="text-xs text-slate-500">
+            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+            satış
+            <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-indigo-500" aria-hidden />
+            işleme
+          </span>
+        )}
+      </div>
+      {items.length === 0 && (
+        <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+          Henüz kalem yok. Aşağıdan satış ya da işleme kalemi ekleyin
+          {buyerCustomerId ? ' veya yukarıdaki stok listesinden toplu seçin.' : '.'}
         </p>
       )}
 
@@ -1608,41 +1972,55 @@ function NewQuoteForm({
           : plate?.measurementType;
         const isLengthSale = item.lineKind === 'sale' && saleUnit === 'length';
         const isAreaSale = item.lineKind === 'sale' && saleUnit === 'area';
+        // #7 Bu teklifte başka bir kaleme zaten eklenmiş plakalar (seçicide ayrı
+        // renkte gösterilir; aynı özellikli tabakaları ayırt etmek için).
+        const otherPlateIds = new Set(
+          items
+            .filter((_, idx) => idx !== i)
+            .map((x) => x.plateId)
+            .filter((v): v is string => !!v),
+        );
         return (
         <div
           key={i}
-          className={`space-y-2 rounded-xl border border-l-4 border-slate-200 p-2 dark:border-slate-700 ${
+          className={`space-y-3 rounded-xl border border-l-4 border-slate-200 bg-white p-3 dark:border-slate-700 ${
             item.lineKind === 'sale'
-              ? 'border-l-emerald-500'
-              : 'border-l-indigo-500'
+              ? '!border-l-emerald-500'
+              : '!border-l-indigo-500'
           }`}
         >
-          {/* Kalem başlığı: sıra no · tür · satır tutarı · sil */}
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="flex min-w-0 items-center gap-2">
+          {/* Kalem başlığı: sıra no · tür · malzeme · satır tutarı · sil */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-2 text-xs">
               <span className="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                 {i + 1}
               </span>
               <span
-                className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${
+                className={`badge shrink-0 ${
                   item.lineKind === 'sale'
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                    : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                    : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300'
                 }`}
               >
                 {item.lineKind === 'sale' ? 'Satış' : 'İşleme'}
               </span>
-              <span className="truncate text-slate-500">
-                {plate?.name ?? item.itemName ?? 'Malzeme seçilmedi'}
+              <span
+                className={`truncate text-sm ${
+                  plate?.name || item.itemName ? 'font-medium text-slate-800' : 'italic text-slate-400'
+                }`}
+              >
+                {plate?.name ?? (item.itemName || 'Malzeme seçilmedi')}
               </span>
             </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
+            <span className="flex shrink-0 items-center gap-1">
+              <span className="text-base font-bold text-slate-900">
                 {money.format(preview.lineTotal)}
               </span>
               <button
-                className="rounded px-1 text-red-600 hover:bg-red-50"
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                 title="Kalemi sil"
+                aria-label={`${i + 1}. kalemi sil`}
                 onClick={() => remove(i)}
               >
                 ✕
@@ -1722,6 +2100,7 @@ function NewQuoteForm({
             label={
               item.ownerCustomerId ? 'Sahibin malzemesi / plaka' : 'Malzeme / plaka'
             }
+            required
           >
             {item.lineKind === 'sale' ? (
               <SalePlatePicker
@@ -1732,14 +2111,7 @@ function NewQuoteForm({
                 excludeOwnerCustomerId={buyerCustomerId || undefined}
                 value={item.plateId ?? ''}
                 selectedPlate={getPlate(item.plateId)}
-                highlightIds={
-                  new Set(
-                    items
-                      .filter((_, idx) => idx !== i)
-                      .map((x) => x.plateId)
-                      .filter((v): v is string => !!v),
-                  )
-                }
+                highlightIds={otherPlateIds}
                 onPick={(plateId, p) =>
                   onPlatePick(i, item.lineKind, plateId, p)
                 }
@@ -1761,16 +2133,7 @@ function NewQuoteForm({
               }
               value={item.plateId ?? ''}
               selectedPlate={getPlate(item.plateId)}
-              // #7 Bu teklifte başka bir kaleme zaten eklenmiş plakalar ayrı
-              // renkte gösterilir (aynı özellikli tabakaları ayırt etmek için).
-              highlightIds={
-                new Set(
-                  items
-                    .filter((_, idx) => idx !== i)
-                    .map((x) => x.plateId)
-                    .filter((v): v is string => !!v),
-                )
-              }
+              highlightIds={otherPlateIds}
               onPick={(plateId, p) => onPlatePick(i, item.lineKind, plateId, p)}
             />
             )}
@@ -1780,8 +2143,8 @@ function NewQuoteForm({
 
           {/* #5 Serbest (stoksuz) kalem alanları: ad + fiyatlama birimi (+ ebat). */}
           {item.adhoc && (
-            <div className="space-y-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50">
-              <Field label="Malzeme adı (serbest)">
+            <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50 sm:grid-cols-6">
+              <Field label="Malzeme adı (serbest)" required className="col-span-2 sm:col-span-3">
                 <input
                   className="input"
                   placeholder="Örn. 3mm Pleksi levha"
@@ -1789,9 +2152,14 @@ function NewQuoteForm({
                   onChange={(e) => patch(i, { itemName: e.target.value })}
                 />
               </Field>
-              <Field label="Fiyatlama birimi">
+              <Field
+                label="Fiyatlama birimi"
+                className={
+                  item.billingUnit === 'area' ? 'col-span-2 sm:col-span-1' : 'col-span-2 sm:col-span-3'
+                }
+              >
                 <select
-                  className="input w-auto"
+                  className="input"
                   value={item.billingUnit ?? 'area'}
                   onChange={(e) =>
                     patch(i, {
@@ -1806,34 +2174,28 @@ function NewQuoteForm({
                 </select>
               </Field>
               {item.billingUnit === 'area' && (
-                <div className="flex gap-2">
-                  <Field label="En (mm)" className="flex-1">
+                <>
+                  <Field label="En (mm)">
                     <input
                       className="input"
                       type="number"
+                      inputMode="numeric"
                       placeholder="en (mm)"
                       value={item.widthMm ?? ''}
-                      onChange={(e) =>
-                        patch(i, {
-                          widthMm: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
+                      onChange={(e) => patch(i, { widthMm: num(e.target.value) })}
                     />
                   </Field>
-                  <Field label="Boy (mm)" className="flex-1">
+                  <Field label="Boy (mm)">
                     <input
                       className="input"
                       type="number"
+                      inputMode="numeric"
                       placeholder="boy (mm)"
                       value={item.heightMm ?? ''}
-                      onChange={(e) =>
-                        patch(i, {
-                          heightMm: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
+                      onChange={(e) => patch(i, { heightMm: num(e.target.value) })}
                     />
                   </Field>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -1841,41 +2203,28 @@ function NewQuoteForm({
           {/* Bu plaka halihazırda üretim kuyruğunda mı? Engellenmez, ama sarı ve
               belirgin bir uyarı gösterilir (başlat'a basılmamış olsa bile). */}
           {item.plateId && queuedPlateIds.has(item.plateId) && (
-            <div className="rounded-lg border-2 border-amber-400 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900">
+            <div
+              role="alert"
+              className="rounded-lg border-2 border-amber-400 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900"
+            >
               ⚠️ Bu ürün halihazırda üretim kuyruğunda (başlatılmamış olsa bile).
               Yine de teklife ekleyebilirsiniz — mükerrer işleme olmadığından emin
               olun.
             </div>
           )}
 
-          {/* Konsinye komisyonu (yalnızca sahip seçiliyse) — sahibe yansımaz,
-              işletme geliri olarak kalır. */}
-          {item.lineKind === 'sale' && item.ownerCustomerId && (
-            <Field label="İşletme komisyonu % (sahibe görünmez, gelir)">
-              <input
-                className="input w-40"
-                type="number"
-                min={0}
-                max={100}
-                value={item.commissionPercent ?? 0}
-                onChange={(e) =>
-                  patch(i, { commissionPercent: Number(e.target.value) })
-                }
-              />
-            </Field>
-          )}
-
           {item.lineKind === 'sale' &&
             askFor &&
             askFor.index === i &&
             askFor.plateId === item.plateId && (
-              <div className="flex items-center justify-between gap-2 rounded-lg bg-blue-50 p-2 text-sm">
-                <span className="text-blue-900">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 p-2 text-sm dark:bg-blue-950/40">
+                <span className="min-w-0 flex-1 basis-56 text-blue-900 dark:text-blue-200">
                   Bu malzemeyi işleme (kesim/üretim) kalemi olarak da ekleyelim mi?
                 </span>
                 <div className="flex shrink-0 gap-2">
                   <button
-                    className="btn bg-blue-600 text-white"
+                    type="button"
+                    className="btn-primary btn-sm"
                     onClick={() => {
                       addProcessingForPlate(item.plateId!);
                       setAskFor(null);
@@ -1883,149 +2232,30 @@ function NewQuoteForm({
                   >
                     Evet, ekle
                   </button>
-                  <button className="btn bg-slate-100" onClick={() => setAskFor(null)}>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => setAskFor(null)}
+                  >
                     Hayır
                   </button>
                 </div>
               </div>
             )}
 
-          <div className="flex gap-2">
-            {/* Tabaka (AREA) SATIŞINDA adet yoktur: tutar tamamen ebattan (m²)
-                hesaplanır. Şerit/rulo (LENGTH) SATIŞINDA yalnızca METRE girilir
-                (metre quantity alanında taşınır; satır = metre × TL/m).
-                Diğer satış/işleme kalemlerinde adet girilir. */}
-            {isLengthSale ? (
-              <Field label="Uzunluk (metre)" className="flex-1">
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="Uzunluk (m)"
-                  value={item.quantity}
-                  onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
-                />
-              </Field>
-            ) : (
-              !isAreaSale && (
-                <Field label="Adet" className="flex-1">
-                  <input
-                    className="input"
-                    type="number"
-                    placeholder="Adet"
-                    value={item.quantity}
-                    onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
-                  />
-                </Field>
-              )
-            )}
-            <Field
-              label={
-                item.lineKind === 'sale'
-                  ? saleUnit === 'area'
-                    ? 'Birim satış fiyatı (TL/m²)'
-                    : saleUnit === 'length'
-                      ? 'Birim satış fiyatı (TL/metre)'
-                      : 'Birim satış fiyatı'
-                  : 'Birim işleme ücreti'
-              }
-              className="flex-1"
-            >
-              <input
-                className={`input ${
-                  !Number(item.unitPrice)
-                    ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-900/20'
-                    : ''
-                }`}
-                type="number"
-                value={item.unitPrice}
-                onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
-              />
-              {!Number(item.unitPrice) && (
-                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-                  ⚠ Birim fiyat 0 — bu kalem ücretsiz sayılır.
-                </p>
-              )}
-            </Field>
-          </div>
-          {/* #2 Kalem notu — cari ekstrede satış açıklamasına eklenir. */}
-          <Field label="Kalem notu (ekstrede görünür, opsiyonel)">
-            <input
-              className="input"
-              placeholder="Örn. özel kesim / iskonto sebebi…"
-              value={item.description ?? ''}
-              onChange={(e) => patch(i, { description: e.target.value || undefined })}
-            />
-          </Field>
-          {/* #2 Kaleme özel işlenme/teslim tarihi — dönüşümde işleme işinin
-              (processedAt) / satışın (saleDate) tarihine yansır. */}
-          <Field label="İşlenme/teslim tarihi (opsiyonel)">
-            <input
-              className="input w-48"
-              type="date"
-              value={item.itemDate ?? ''}
-              onChange={(e) => patch(i, { itemDate: e.target.value || undefined })}
-            />
-          </Field>
-          {item.lineKind === 'sale' && item.plateId && (
-            <div className="space-y-1 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
-              <SalePricingNote
-                plateId={item.plateId}
-                unitPrice={Number(item.unitPrice) || 0}
-                onPriceSuggested={(p) => patch(i, { unitPrice: p })}
-              />
-              <AveragePriceNote plateId={item.plateId} />
-            </div>
-          )}
-          {/* #11 Tabaka (m²) satışında satılacak ebat + "Tamamını sat" */}
-          {item.lineKind === 'sale' &&
-            (() => {
-              const plate = getPlate(item.plateId);
-              if (!plate || plate.measurementType !== 'area') return null;
-              return (
-                <div className="space-y-1 rounded-lg bg-slate-50 p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">
-                      Satılacak ebat (en × boy, mm) — m² üzerinden fiyatlanır
-                    </span>
-                    <button
-                      className="btn bg-slate-200 text-xs"
-                      onClick={() =>
-                        patch(i, { widthMm: plate.widthMm, heightMm: plate.heightMm })
-                      }
-                    >
-                      Tamamını sat ({plate.widthMm}×{plate.heightMm})
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      className="input"
-                      type="number"
-                      placeholder="en (mm)"
-                      value={item.widthMm ?? ''}
-                      onChange={(e) =>
-                        patch(i, { widthMm: e.target.value ? Number(e.target.value) : undefined })
-                      }
-                    />
-                    <input
-                      className="input"
-                      type="number"
-                      placeholder="boy (mm)"
-                      value={item.heightMm ?? ''}
-                      onChange={(e) =>
-                        patch(i, { heightMm: e.target.value ? Number(e.target.value) : undefined })
-                      }
-                    />
-                  </div>
-                </div>
-              );
-            })()}
+          {/* İşleme: faturalama birimi + ölçü (süre / metre / en-boy). */}
           {item.lineKind === 'processing' && (
-            <div className="flex gap-2">
-              <Field label="Faturalama birimi">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Field
+                label="Faturalama birimi"
+                className={
+                  item.billingUnit === 'area' || item.billingUnit === 'piece'
+                    ? 'col-span-2 sm:col-span-1'
+                    : ''
+                }
+              >
                 <select
-                  className="input w-auto"
+                  className="input"
                   value={item.billingUnit}
                   onChange={(e) => {
                     const unit = e.target.value as QuoteItemInput['billingUnit'];
@@ -2050,26 +2280,24 @@ function NewQuoteForm({
                 </select>
               </Field>
               {item.billingUnit === 'time' && (
-                <Field label="Süre (dk)" className="w-28">
+                <Field label="Süre (dk)">
                   <input
                     className="input"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     placeholder="dk"
                     value={item.durationMinutes ?? ''}
-                    onChange={(e) =>
-                      patch(i, {
-                        durationMinutes: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
+                    onChange={(e) => patch(i, { durationMinutes: num(e.target.value) })}
                   />
                 </Field>
               )}
               {item.billingUnit === 'length' && (
-                <Field label="Uzunluk (metre)" className="flex-1">
+                <Field label="Uzunluk (metre)">
                   <input
                     className="input"
                     type="number"
+                    inputMode="decimal"
                     placeholder="metre"
                     value={item.lengthMeters ?? ''}
                     onChange={(e) => patch(i, { lengthMeters: Number(e.target.value) })}
@@ -2078,25 +2306,21 @@ function NewQuoteForm({
               )}
               {(item.billingUnit === 'area' || item.billingUnit === 'time') && (
                 <>
-                  <Field
-                    label={item.billingUnit === 'time' ? 'Kullanılan en (mm)' : 'En (mm)'}
-                    className="flex-1"
-                  >
+                  <Field label={item.billingUnit === 'time' ? 'Kullanılan en (mm)' : 'En (mm)'}>
                     <input
                       className="input"
                       type="number"
+                      inputMode="numeric"
                       placeholder="en (mm)"
                       value={item.widthMm ?? ''}
                       onChange={(e) => patch(i, { widthMm: Number(e.target.value) })}
                     />
                   </Field>
-                  <Field
-                    label={item.billingUnit === 'time' ? 'Kullanılan boy (mm)' : 'Boy (mm)'}
-                    className="flex-1"
-                  >
+                  <Field label={item.billingUnit === 'time' ? 'Kullanılan boy (mm)' : 'Boy (mm)'}>
                     <input
                       className="input"
                       type="number"
+                      inputMode="numeric"
                       placeholder="boy (mm)"
                       value={item.heightMm ?? ''}
                       onChange={(e) => patch(i, { heightMm: Number(e.target.value) })}
@@ -2116,9 +2340,169 @@ function NewQuoteForm({
             </p>
           )}
 
+          {/* #11 Tabaka (m²) satışında satılacak ebat + "Tamamını sat" */}
+          {item.lineKind === 'sale' &&
+            (() => {
+              const plate = getPlate(item.plateId);
+              if (!plate || plate.measurementType !== 'area') return null;
+              return (
+                <div className="space-y-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/50">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-600">
+                      Satılacak ebat (en × boy, mm) — m² üzerinden fiyatlanır
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() =>
+                        patch(i, { widthMm: plate.widthMm, heightMm: plate.heightMm })
+                      }
+                    >
+                      Tamamını sat ({plate.widthMm}×{plate.heightMm})
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="En (mm)">
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="numeric"
+                        placeholder="en (mm)"
+                        value={item.widthMm ?? ''}
+                        onChange={(e) => patch(i, { widthMm: num(e.target.value) })}
+                      />
+                    </Field>
+                    <Field label="Boy (mm)">
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="numeric"
+                        placeholder="boy (mm)"
+                        value={item.heightMm ?? ''}
+                        onChange={(e) => patch(i, { heightMm: num(e.target.value) })}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              );
+            })()}
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {/* Tabaka (AREA) SATIŞINDA adet yoktur: tutar tamamen ebattan (m²)
+                hesaplanır. Şerit/rulo (LENGTH) SATIŞINDA yalnızca METRE girilir
+                (metre quantity alanında taşınır; satır = metre × TL/m).
+                Diğer satış/işleme kalemlerinde adet girilir. */}
+            {isLengthSale ? (
+              <Field label="Uzunluk (metre)">
+                <input
+                  className="input"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  placeholder="Uzunluk (m)"
+                  value={item.quantity}
+                  onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
+                />
+              </Field>
+            ) : (
+              !isAreaSale && (
+                <Field label="Adet">
+                  <input
+                    className="input"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="Adet"
+                    value={item.quantity}
+                    onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
+                  />
+                </Field>
+              )
+            )}
+            <Field
+              label={
+                item.lineKind === 'sale'
+                  ? saleUnit === 'area'
+                    ? 'Birim satış fiyatı (TL/m²)'
+                    : saleUnit === 'length'
+                      ? 'Birim satış fiyatı (TL/metre)'
+                      : 'Birim satış fiyatı'
+                  : 'Birim işleme ücreti'
+              }
+            >
+              <input
+                className={`input ${
+                  !Number(item.unitPrice)
+                    ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-900/20'
+                    : ''
+                }`}
+                type="number"
+                inputMode="decimal"
+                value={item.unitPrice}
+                onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
+              />
+              {!Number(item.unitPrice) && (
+                <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  ⚠ Birim fiyat 0 — bu kalem ücretsiz sayılır.
+                </p>
+              )}
+            </Field>
+          </div>
+
+          {item.lineKind === 'sale' && item.plateId && (
+            <div className="space-y-1 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
+              <SalePricingNote
+                plateId={item.plateId}
+                unitPrice={Number(item.unitPrice) || 0}
+                onPriceSuggested={(p) => patch(i, { unitPrice: p })}
+              />
+              <AveragePriceNote plateId={item.plateId} />
+            </div>
+          )}
+
+          {/* Konsinye komisyonu (yalnızca sahip seçiliyse) — sahibe yansımaz,
+              işletme geliri olarak kalır. */}
+          {item.lineKind === 'sale' && item.ownerCustomerId && (
+            <Field label="İşletme komisyonu % (sahibe görünmez, gelir)" className="sm:max-w-xs">
+              <input
+                className="input"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                value={item.commissionPercent ?? 0}
+                onChange={(e) =>
+                  patch(i, { commissionPercent: Number(e.target.value) })
+                }
+              />
+            </Field>
+          )}
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
+            {/* #2 Kalem notu — cari ekstrede satış açıklamasına eklenir. */}
+            <Field label="Kalem notu (ekstrede görünür, opsiyonel)">
+              <input
+                className="input"
+                placeholder="Örn. özel kesim / iskonto sebebi…"
+                value={item.description ?? ''}
+                onChange={(e) => patch(i, { description: e.target.value || undefined })}
+              />
+            </Field>
+            {/* #2 Kaleme özel işlenme/teslim tarihi — dönüşümde işleme işinin
+                (processedAt) / satışın (saleDate) tarihine yansır. */}
+            <Field label="İşlenme/teslim tarihi (ops.)">
+              <input
+                className="input"
+                type="date"
+                value={item.itemDate ?? ''}
+                onChange={(e) => patch(i, { itemDate: e.target.value || undefined })}
+              />
+            </Field>
+          </div>
+
           {/* Satır tutarı önizleme (teklif oluşturulmadan) */}
-          <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
-            <span className="text-slate-500">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+            <span className="min-w-0 text-slate-500">
               {preview.unit === 'time'
                 ? preview.billedMinutes != null
                   ? `${preview.billedMinutes.toLocaleString('tr-TR', {
@@ -2135,12 +2519,17 @@ function NewQuoteForm({
                     })} ${UNIT_LABEL[preview.unit]} × ${money.format(item.unitPrice || 0)}`
                   : 'Tutar için ebat/fiyat girin'}
             </span>
-            <span className="font-semibold">{money.format(preview.lineTotal)}</span>
+            <span className="ml-auto whitespace-nowrap">
+              <span className="mr-1 text-xs text-slate-500">Satır tutarı</span>
+              <span className="text-base font-bold text-slate-900">
+                {money.format(preview.lineTotal)}
+              </span>
+            </span>
           </div>
 
           {/* #D Komisyon geliri önizlemesi (konsinye satış) */}
           {item.lineKind === 'sale' && item.ownerCustomerId && (
-            <div className="flex items-center justify-between text-xs text-emerald-700">
+            <div className="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-400">
               <span>
                 Komisyon geliriniz (%{Number(item.commissionPercent) || 0})
               </span>
@@ -2155,33 +2544,36 @@ function NewQuoteForm({
         );
       })}
 
-      <div className="flex flex-wrap gap-2">
-        <button className="btn bg-slate-100" onClick={() => addItem('sale')}>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <button type="button" className="btn-secondary" onClick={() => addItem('sale')}>
+          <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
           + Satış kalemi
         </button>
-        <button className="btn bg-slate-100" onClick={() => addItem('processing')}>
+        <button type="button" className="btn-secondary" onClick={() => addItem('processing')}>
+          <span className="h-2 w-2 rounded-full bg-indigo-500" aria-hidden />
           + İşleme kalemi
         </button>
       </div>
 
       {/* #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygula. */}
       {items.length > 0 && (
-        <div className="space-y-2 rounded-xl border border-slate-200 p-2 dark:border-slate-700">
-          <p className="text-xs font-semibold text-slate-500">
+        <div className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <p className="text-xs font-semibold text-slate-600">
             Tüm kalemlere toplu uygula
           </p>
-          <div className="flex flex-wrap items-end gap-2">
-            <Field label="Ortak birim fiyat/ücret" className="w-40">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_auto] sm:items-end">
+            <Field label="Ortak birim fiyat/ücret">
               <input
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 placeholder="örn. 1000"
                 value={applyPrice}
                 onChange={(e) => setApplyPrice(e.target.value)}
               />
             </Field>
-            <Field label="Ortak not (ekstrede görünür)" className="flex-1">
+            <Field label="Ortak not (ekstrede görünür)">
               <input
                 className="input"
                 placeholder="Tüm kalemlere yazılacak not…"
@@ -2190,7 +2582,9 @@ function NewQuoteForm({
               />
             </Field>
             <button
-              className="btn bg-slate-800 text-white"
+              type="button"
+              className="btn-secondary"
+              disabled={applyPrice === '' && !applyNote.trim()}
               onClick={() =>
                 setItems((its) =>
                   its.map((it) => ({
@@ -2204,7 +2598,7 @@ function NewQuoteForm({
               Tüm kalemlere uygula ({items.length})
             </button>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Girilen alanlar tüm kalemlere yazılır (boş bırakılan alan değiştirilmez).
             Sonrasında kalem bazında yine düzenleyebilirsiniz.
           </p>
@@ -2223,13 +2617,17 @@ function NewQuoteForm({
 
       {/* Genel toplam + tahmini kâr önizleme */}
       {items.length > 0 && (
-        <div className="space-y-1 rounded-xl bg-slate-50 px-3 py-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-600">Genel Toplam (tahmini)</span>
-            <span className="text-lg font-bold">{money.format(grandTotal)}</span>
+        <div className="space-y-1 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-900 dark:bg-blue-950/40">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              Genel Toplam (tahmini) · {items.length} kalem
+            </span>
+            <span className="text-2xl font-bold text-slate-900 dark:text-white">
+              {money.format(grandTotal)}
+            </span>
           </div>
           {hasSale && (
-            <div className="flex items-center justify-between text-xs text-emerald-700">
+            <div className="flex items-center justify-between gap-2 text-xs text-emerald-700 dark:text-emerald-400">
               <span>Malzeme satışından tahmini kârınız</span>
               <span className="font-semibold">
                 {money.format(estimatedSalesProfit)}
@@ -2239,77 +2637,32 @@ function NewQuoteForm({
         </div>
       )}
 
-      <button
-        className="btn-primary w-full"
-        disabled={!canSubmit || createMut.isPending}
-        onClick={() => {
-          // Birim fiyatı 0 olan kalem(ler) varsa (ücretsiz) kullanıcıdan onay al.
-          const zeroCount = items.filter((it) => !Number(it.unitPrice)).length;
-          if (
-            zeroCount > 0 &&
-            !window.confirm(
-              `${zeroCount} kalemin birim fiyatı 0 (ücretsiz). Devam etmek istediğinize emin misiniz?`,
-            )
-          ) {
-            return;
-          }
-          // #1 Sahibi olan SATIŞ kalemleri konsinye kabul edilir: satış tutarı
-          // (komisyon hariç) sahibe yansır, borcundan düşülür. Komisyon işletme
-          // geliridir, sahibe görünmez. Tek teklif = tek sahip.
-          const ownerCustomerId = distinctOwners[0];
-          const mapped: QuoteItemInput[] = items.map((it) => {
-            // ownerMode/ownerFilterId/adhoc yalnızca arayüz durumu — gönderilmez.
-            const {
-              ownerCustomerId: oid,
-              ownerMode: _mode,
-              ownerFilterId: _filter,
-              adhoc,
-              ...rest
-            } = it;
-            const base: QuoteItemInput = {
-              ...rest,
-              plateId: it.plateId || undefined,
-            };
-            // #5 Serbest (stoksuz) kalem: plaka yok; ad + billingUnit gönderilir,
-            // stok kaynağı/sahip uygulanmaz.
-            if (adhoc) {
-              return {
-                ...base,
-                itemName: it.itemName?.trim() || 'Malzeme',
-                stockSource: undefined,
-              };
-            }
-            if (it.lineKind === 'sale' && oid) {
-              return {
-                ...base,
-                stockSource: 'consignment_tracked',
-                ownerSettlement: 'commission_percent',
-                commissionPercent: Math.min(
-                  100,
-                  Math.max(0, Number(it.commissionPercent) || 0),
-                ),
-              };
-            }
-            return base;
-          });
-          createMut.mutate({
-            buyerCustomerId,
-            ownerCustomerId: ownerCustomerId || undefined,
-            currency: 'TRY',
-            note: quoteNote.trim() || undefined,
-            items: mapped,
-          });
-        }}
-      >
-        {editQuote ? 'Teklifi Güncelle' : 'Teklif Oluştur'}
-      </button>
-      {createMut.isError && (
-        <p className="text-sm text-red-600">
-          {(createMut.error as { response?: { data?: { message?: string } } })
-            ?.response?.data?.message ??
-            (editQuote ? 'Teklif güncellenemedi.' : 'Teklif oluşturulamadı.')}
-        </p>
-      )}
+      <div className="space-y-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="btn-secondary" onClick={onCancel}>
+            Vazgeç
+          </button>
+          <button
+            type="button"
+            className="btn-primary sm:min-w-[200px]"
+            disabled={!canSubmit || createMut.isPending}
+            onClick={submit}
+          >
+            {createMut.isPending && <Spinner />}
+            {editQuote ? 'Teklifi Güncelle' : 'Teklif Oluştur'}
+          </button>
+        </div>
+        {submitHint && !createMut.isPending && (
+          <p className="text-center text-xs text-slate-500 sm:text-right">{submitHint}</p>
+        )}
+        {createMut.isError && (
+          <p role="alert" className="text-sm text-red-600">
+            {(createMut.error as { response?: { data?: { message?: string } } })
+              ?.response?.data?.message ??
+              (editQuote ? 'Teklif güncellenemedi.' : 'Teklif oluşturulamadı.')}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

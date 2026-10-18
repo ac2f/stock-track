@@ -1,6 +1,6 @@
 import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   createPlate,
@@ -36,7 +36,17 @@ import { UnitConverter } from '../../components/UnitConverter';
 import { GroupSection, groupChipClass } from '../../components/GroupSection';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
-import { isPartialSheet } from '../../lib/plateLabel';
+import { displayPlateName, isPartialSheet, stripNamePlaceholders } from '../../lib/plateLabel';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadingBlock } from '../../components/ui/Loading';
+import { Filters } from '../../components/ui/Filters';
+import { SearchInput } from '../../components/ui/SearchInput';
+import { DateRangeFilter } from '../../components/ui/DateRangeFilter';
+import { confirmDialog } from '../../components/ConfirmDialog';
+import { formatDate, formatMoney, formatNumber } from '../../lib/format';
+import { useUrlParam } from '../../hooks/useUrlParam';
+import { useAuth } from '../../context/AuthContext';
 import {
   useListDensity,
   useListGrouping,
@@ -105,20 +115,92 @@ function Field({
   label,
   children,
   hint,
+  required = false,
   className = '',
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  /** Zorunlu alan: etiketin yanında kırmızı * görünür. */
+  required?: boolean;
   className?: string;
 }) {
   return (
-    <label className={`block ${className}`}>
-      <span className="mb-1 block text-sm font-medium text-slate-600">{label}</span>
+    <label className={`block min-w-0 ${className}`}>
+      <span className="label">
+        {label}
+        {required && <span className="ml-0.5 text-red-600">*</span>}
+      </span>
       {children}
       {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
     </label>
   );
+}
+
+/** Stok miktarının birimi: rulo/şerit metre, ağırlık kg, diğerleri adet. */
+function qtyUnit(plate: Pick<Plate, 'measurementType'>): string {
+  return plate.measurementType === 'length'
+    ? 'm'
+    : plate.measurementType === 'weight'
+      ? 'kg'
+      : 'adet';
+}
+
+/**
+ * Miktar rozeti rengi: bitti → kırmızı, yeniden sipariş seviyesinde/altında →
+ * sarı, yeterli → yeşil.
+ */
+function qtyBadgeClass(plate: Pick<Plate, 'quantityInStock' | 'reorderLevel'>): string {
+  const qty = Number(plate.quantityInStock) || 0;
+  const reorder = Number(plate.reorderLevel);
+  if (qty <= 0) return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+  if (plate.reorderLevel != null && Number.isFinite(reorder) && qty <= reorder)
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+}
+
+/** Miktar rozeti başlığı (üzerine gelince açıklama). */
+function qtyBadgeTitle(plate: Pick<Plate, 'quantityInStock' | 'reorderLevel'>): string {
+  const qty = Number(plate.quantityInStock) || 0;
+  if (qty <= 0) return 'Stokta yok';
+  if (plate.reorderLevel != null && qty <= Number(plate.reorderLevel))
+    return `Az kaldı (yeniden sipariş seviyesi: ${formatNumber(plate.reorderLevel)})`;
+  return 'Stokta';
+}
+
+/** Sahip adı(ları); konsinye değilse "İşletme". */
+function ownerLabel(plate: Pick<Plate, 'owners'>): string {
+  return plate.owners?.length ? plate.owners.join(', ') : 'İşletme';
+}
+
+/** Ölçü değeri (mm) → "1350"; boş/sıfır ise null. */
+function mm(value: unknown): string | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? String(n) : null;
+}
+
+/**
+ * Kartta okunur ölçü satırı: "1350×2000 mm · 3 mm kalınlık · 2.70 m²".
+ * Eksik ölçüler atlanır (eskiden "0×0×0 mm" görünüyordu).
+ */
+function plateDimsText(plate: Plate): string {
+  const w = mm(plate.widthMm);
+  const h = mm(plate.heightMm);
+  const t = mm(plate.thicknessMm);
+  const m2 = plate.measurementType === 'area' ? areaM2(Number(w), Number(h)) : null;
+  return [
+    plate.measurementType === 'length'
+      ? h
+        ? `Yükseklik ${h} mm`
+        : ''
+      : w && h
+        ? `${w}×${h} mm`
+        : '',
+    t ? `${t} mm kalınlık` : '',
+    m2 != null ? `${m2.toFixed(2)} m²` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function errMessage(error: unknown, fallback: string): string {
@@ -279,6 +361,15 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const [skuTouched, setSkuTouched] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
   const [owner, setOwner] = useState<'business' | 'customer'>('business');
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Form açılınca ilk alana (ürün türü araması) odaklan — yalnız fareli
+  // ekranlarda; telefonda klavye ve liste kendiliğinden açılıp ekranı kaplamasın.
+  useEffect(() => {
+    if (window.matchMedia?.('(pointer: fine)').matches) {
+      rootRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+    }
+  }, []);
 
   const { data: templates } = useQuery({
     queryKey: ['material-templates'],
@@ -397,14 +488,15 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     !createMut.isPending;
 
   return (
-    <div className="card space-y-3">
+    <div ref={rootRef} className="card space-y-3">
+      <h2 className="font-semibold">Yeni stok kalemi</h2>
       {createMut.error && (
         <p className="text-sm text-red-600">
           {errMessage(createMut.error, 'Stok kalemi oluşturulamadı.')}
         </p>
       )}
 
-      <Field label="Ürün türü (kategoriye göre gruplu · aratılabilir)">
+      <Field label="Ürün türü (kategoriye göre gruplu · aratılabilir)" required>
         {/* #2 Kategoriye göre gruplu, aranabilir, klavyeyle gezilebilir seçici. */}
         <SearchSelect
           placeholder="Ürün türü ara / seç…"
@@ -489,10 +581,11 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
               }
             >
               <div className="space-y-1">
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <input
                     className="input"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     placeholder="En (mm)"
                     value={form.widthMm ?? ''}
@@ -506,6 +599,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
                   <input
                     className="input"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     placeholder="Boy (mm)"
                     value={form.heightMm ?? ''}
@@ -535,10 +629,11 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
               label="Rulo/şerit ölçüsü (yükseklik × uzunluk)"
               hint="Yükseklik mm cinsinden; uzunluk metre cinsinden stok miktarı olarak tutulur."
             >
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   placeholder="Yükseklik (mm)"
                   value={form.heightMm ?? ''}
@@ -552,6 +647,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
                 <input
                   className="input"
                   type="number"
+                  inputMode="decimal"
                   min={0}
                   placeholder="Uzunluk (metre)"
                   value={form.quantityInStock ?? ''}
@@ -571,8 +667,8 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           {/* 📐 cm/mm çevirici — ölçü girerken hızlı çevrim için. */}
           <UnitConverter />
 
-          <div className="flex gap-2">
-            <Field label="Eklenme tarihi" className="flex-1">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Eklenme tarihi">
               <input
                 className="input"
                 type="date"
@@ -580,7 +676,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setForm({ ...form, addedAt: e.target.value || undefined })}
               />
             </Field>
-            <Field label="İşlenme tarihi (varsa)" className="flex-1">
+            <Field label="İşlenme tarihi (varsa)">
               <input
                 className="input"
                 type="date"
@@ -608,7 +704,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           </Field>
 
           {owner === 'customer' && (
-            <Field label="Sahip müşteri (ara)" hint="Sahibini aratıp seçin. Sahipliği sonradan işletmeye aktarabilirsiniz.">
+            <Field label="Sahip müşteri (ara)" required hint="Sahibini aratıp seçin. Sahipliği sonradan işletmeye aktarabilirsiniz.">
               <CustomerPicker
                 placeholder="Sahip müşteriyi arayın…"
                 onChange={(id) => setForm({ ...form, ownerCustomerId: id || undefined })}
@@ -643,6 +739,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           <input
             className="input w-28"
             type="number"
+            inputMode="numeric"
             min={1}
             value={copies}
             onChange={(e) => setCopies(Math.max(1, Number(e.target.value) || 1))}
@@ -660,6 +757,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
               <input
                 className="input min-w-0 flex-1"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.01"
                 value={form.retailPrice ?? ''}
@@ -671,7 +769,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
                 }
               />
               <select
-                className="input w-24"
+                className="input w-24 shrink-0"
                 value={form.retailCurrency ?? 'TRY'}
                 onChange={(e) =>
                   setForm({ ...form, retailCurrency: e.target.value })
@@ -692,6 +790,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             <input
               className="input"
               type="number"
+              inputMode="decimal"
               min={0}
               step="0.1"
               value={form.markupPercent ?? ''}
@@ -721,14 +820,18 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
                   {i + 1}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{d.label}</span>
+                  <span className="block truncate font-medium">
+                    {stripNamePlaceholders(d.label) || d.label}
+                  </span>
                   <span className="block truncate text-xs text-slate-500">
                     {d.detail}
                   </span>
                 </span>
                 <button
-                  className="shrink-0 rounded px-1 text-red-600 hover:bg-red-50"
+                  type="button"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
                   title="Listeden çıkar"
+                  aria-label={`${d.label} — listeden çıkar`}
                   onClick={() => setDrafts((x) => x.filter((_, k) => k !== i))}
                 >
                   ✕
@@ -743,7 +846,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           )}
           <div className="flex flex-wrap gap-2">
             <button
-              className="btn bg-emerald-600 text-white"
+              className="btn-success"
               disabled={batchMut.isPending}
               onClick={() => batchMut.mutate()}
             >
@@ -752,9 +855,21 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
                 : `✅ Hepsini kaydet (${drafts.length})`}
             </button>
             <button
-              className="btn bg-slate-100"
+              className="btn-secondary"
               disabled={batchMut.isPending}
-              onClick={() => setDrafts([])}
+              onClick={async () => {
+                // Birden çok kalem girildiyse yanlışlıkla silinmesin.
+                if (
+                  drafts.length > 1 &&
+                  !(await confirmDialog({
+                    message: `Kaydedilmemiş ${drafts.length} kalem listeden kaldırılsın mı?`,
+                    confirmText: 'Listeyi temizle',
+                    danger: true,
+                  }))
+                )
+                  return;
+                setDrafts([]);
+              }}
             >
               Listeyi temizle
             </button>
@@ -775,9 +890,9 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
         <button
-          className="btn bg-slate-700 text-white"
+          className="btn-secondary"
           disabled={!canSubmit}
           title="Bu kalemi listeye ekle; kayıt, hepsini birden onayladığında yapılır"
           onClick={addToDrafts}
@@ -800,9 +915,13 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
             })
           }
         >
-          {copies > 1 ? `${copies} plaka oluştur` : 'Kaydet'}
+          {createMut.isPending
+            ? 'Kaydediliyor…'
+            : copies > 1
+              ? `${copies} plaka oluştur`
+              : 'Kaydet'}
         </button>
-        <button className="btn" onClick={onClose}>
+        <button className="btn-secondary" onClick={onClose}>
           İptal
         </button>
       </div>
@@ -861,10 +980,11 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="block text-xs">
-          <span className="mb-1 block text-slate-500">Perakende fiyat</span>
+          <span className="label">Perakende fiyat</span>
           <input
             className="input w-28"
             type="number"
+            inputMode="decimal"
             min={0}
             step="0.01"
             value={price}
@@ -872,7 +992,7 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
           />
         </label>
         <label className="block text-xs">
-          <span className="mb-1 block text-slate-500">Para birimi</span>
+          <span className="label">Para birimi</span>
           <select
             className="input w-24"
             value={currency}
@@ -886,10 +1006,11 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
           </select>
         </label>
         <label className="block text-xs">
-          <span className="mb-1 block text-slate-500">Kâr % (boş = genel)</span>
+          <span className="label">Kâr % (boş = genel)</span>
           <input
             className="input w-24"
             type="number"
+            inputMode="decimal"
             min={0}
             step="0.1"
             value={markup}
@@ -897,7 +1018,7 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
           />
         </label>
         <button
-          className="btn bg-indigo-600 text-xs text-white"
+          className="btn bg-indigo-600 text-white hover:bg-indigo-700"
           disabled={!price.trim() || mut.isPending}
           onClick={() => mut.mutate()}
         >
@@ -908,12 +1029,7 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
       {data?.suggestedUnitPrice != null && (
         <p className="text-xs text-slate-600 dark:text-slate-300">
           Önerilen satış fiyatı:{' '}
-          <b>
-            {data.suggestedUnitPrice.toLocaleString('tr-TR', {
-              style: 'currency',
-              currency: data.baseCurrency,
-            })}
-          </b>{' '}
+          <b>{formatMoney(data.suggestedUnitPrice, data.baseCurrency)}</b>{' '}
           / {unitLabel}
           {data.discountPercent != null && (
             <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
@@ -992,22 +1108,30 @@ function PlatePricesSection({ plate }: { plate: Plate }) {
       {prices?.map((row) => (
         <div
           key={row.id}
-          className="flex items-center justify-between border-t border-slate-200 pt-1 first:border-0 first:pt-0 dark:border-slate-700"
+          className="flex items-center justify-between gap-2 border-t border-slate-200 pt-1 first:border-0 first:pt-0 dark:border-slate-700"
         >
-          <span>
+          <span className="min-w-0">
             {row.supplier?.name ?? '—'} ·{' '}
-            <span className="font-semibold">
-              {Number(row.price).toLocaleString('tr-TR')} {row.currency}
-            </span>{' '}
+            <span className="font-semibold">{formatMoney(row.price, row.currency)}</span>{' '}
             / {PRICE_UNIT_LABELS[row.unit] ?? row.unit}
-            <span className="ml-1 text-xs text-slate-400">
-              ({row.priceUpdatedAt?.slice(0, 10)})
-            </span>
+            {row.priceUpdatedAt && (
+              <span className="ml-1 text-xs text-slate-400">
+                ({formatDate(row.priceUpdatedAt)})
+              </span>
+            )}
           </span>
           <button
-            className="text-xs text-red-600"
+            className="btn-danger-soft btn-sm shrink-0"
             disabled={delMut.isPending}
-            onClick={() => delMut.mutate(row.id)}
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  message: `${row.supplier?.name ?? 'Tedarikçi'} fiyatı silinsin mi?`,
+                  confirmText: 'Sil',
+                })
+              )
+                delMut.mutate(row.id);
+            }}
           >
             Sil
           </button>
@@ -1018,7 +1142,7 @@ function PlatePricesSection({ plate }: { plate: Plate }) {
       )}
       <div className="flex flex-wrap items-center gap-2">
         <select
-          className="input w-auto flex-1"
+          className="input min-w-0 basis-full sm:basis-auto sm:flex-1"
           value={supplierId}
           onChange={(e) => setSupplierId(e.target.value)}
         >
@@ -1032,6 +1156,7 @@ function PlatePricesSection({ plate }: { plate: Plate }) {
         <input
           className="input w-28"
           type="number"
+          inputMode="decimal"
           min={0}
           placeholder="Fiyat"
           value={price}
@@ -1049,7 +1174,7 @@ function PlatePricesSection({ plate }: { plate: Plate }) {
           ))}
         </select>
         <button
-          className="btn bg-slate-800 text-white"
+          className="btn bg-slate-800 text-white hover:bg-slate-700"
           disabled={!supplierId || price === '' || upsertMut.isPending}
           onClick={() => upsertMut.mutate()}
         >
@@ -1124,7 +1249,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
   const activeLevels = (levels ?? []).filter((l) => Number(l.quantity) > 0);
 
   return (
-    <div className="mt-2 space-y-3 rounded-xl border border-slate-200 p-2">
+    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
       {updateMut.error && (
         <p className="text-sm text-red-600">
           {errMessage(updateMut.error, 'Güncellenemedi.')}
@@ -1168,10 +1293,11 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
           }
         >
           <div className="space-y-1">
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <input
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 placeholder="En (mm)"
                 value={form.widthMm ?? ''}
@@ -1185,6 +1311,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
               <input
                 className="input"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 placeholder="Boy (mm)"
                 value={form.heightMm ?? ''}
@@ -1215,6 +1342,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
           <input
             className="input"
             type="number"
+            inputMode="decimal"
             min={0}
             placeholder="Yükseklik (mm)"
             value={form.heightMm ?? ''}
@@ -1231,8 +1359,8 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
       {/* 📐 cm/mm çevirici — ölçü girerken hızlı çevrim için. */}
       <UnitConverter />
 
-      <div className="flex gap-2">
-        <Field label="Eklenme tarihi" className="flex-1">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="Eklenme tarihi">
           <input
             className="input"
             type="date"
@@ -1240,7 +1368,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
             onChange={(e) => setForm({ ...form, addedAt: e.target.value || undefined })}
           />
         </Field>
-        <Field label="İşlenme tarihi" className="flex-1">
+        <Field label="İşlenme tarihi">
           <input
             className="input"
             type="date"
@@ -1270,12 +1398,14 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
                 className="space-y-1 border-t border-slate-200 pt-2 first:border-0 first:pt-0"
               >
                 <div className="text-slate-700">
-                  {fromLabel} · {Number(l.quantity)} adet · {l.warehouse?.name ?? 'depo'}
+                  <span className="font-medium">{fromLabel}</span> ·{' '}
+                  {formatNumber(l.quantity)} {qtyUnit(plate)} · {l.warehouse?.name ?? 'depo'}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-slate-400">aktar →</span>
                   <select
-                    className="input w-auto py-1"
+                    className="input min-w-0 flex-1 sm:w-auto sm:flex-none"
+                    aria-label={`${fromLabel} stoğunu aktar: hedef sahip`}
                     value={target}
                     onChange={(e) =>
                       setTargets((t) => ({ ...t, [l.id]: e.target.value }))
@@ -1291,7 +1421,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
                       ))}
                   </select>
                   <button
-                    className="btn bg-blue-600 text-white"
+                    className="btn-primary btn-sm"
                     disabled={
                       transferMut.isPending ||
                       (target === 'business' && !l.ownerCustomerId)
@@ -1319,22 +1449,29 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
         </p>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      {/* Kaydet / Kapat solda; geri alınamaz "stoktan çıkar" ayrık ve en sonda. */}
+      <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
         <button
           className="btn-primary"
           disabled={overSheet || updateMut.isPending}
           onClick={() => updateMut.mutate(form)}
         >
-          Kaydet
+          {updateMut.isPending ? 'Kaydediliyor…' : 'Kaydet'}
+        </button>
+        <button className="btn-secondary" onClick={onClose}>
+          Kapat
         </button>
         <button
-          className="btn bg-red-600 text-white"
+          className="btn-danger-soft sm:ml-auto"
           disabled={depleteMut.isPending}
-          onClick={() => {
+          onClick={async () => {
             if (
-              confirm(
-                'Bu plaka tamamen satıldı/bitti olarak stoktan çıkarılsın mı? (geri alınamaz)',
-              )
+              await confirmDialog({
+                title: 'Stoktan çıkarılsın mı?',
+                message: `"${displayPlateName(plate)}" tamamen satıldı/bitti olarak stoktan çıkarılsın mı? (geri alınamaz)`,
+                confirmText: 'Stoktan çıkar',
+                danger: true,
+              })
             ) {
               depleteMut.mutate();
             }
@@ -1342,71 +1479,109 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
         >
           Tamamını sat / stoktan çıkar
         </button>
-        <button className="btn" onClick={onClose}>
-          Kapat
-        </button>
       </div>
     </div>
   );
 }
 
-/** Tek plaka kartı — başlıkta tarih + dinamik sahip, kalan m² ve düzenleme. */
+/**
+ * Sahip rozeti: işletme stoğu sade gri, müşteriye ait (konsinye) mor — miktar
+ * rozetinin yeşil/sarı/kırmızı anlamıyla karışmasın.
+ */
+function OwnerChip({ plate, className = '' }: { plate: Plate; className?: string }) {
+  const owner = ownerLabel(plate);
+  const consigned = !!plate.owners?.length && owner !== 'İşletme';
+  return (
+    <span
+      className={`badge whitespace-normal break-words ${
+        consigned
+          ? 'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200'
+          : 'bg-slate-100 text-slate-700'
+      } ${className}`}
+      title={consigned ? 'Müşteriye ait (konsinye)' : 'İşletme stoğu'}
+    >
+      👤 {owner}
+    </span>
+  );
+}
+
+/** Miktar rozeti: bitti kırmızı, az kaldı sarı, yeterli yeşil. */
+function QtyBadge({ plate }: { plate: Plate }) {
+  return (
+    <span
+      className={`badge shrink-0 font-semibold ${qtyBadgeClass(plate)}`}
+      title={qtyBadgeTitle(plate)}
+    >
+      {formatNumber(plate.quantityInStock)} {qtyUnit(plate)}
+    </span>
+  );
+}
+
+/** Kesilmiş tabakada öne çıkan "✂ Kalan" rozeti metni. */
+function remainingText(plate: Plate): string {
+  const m2 = areaM2(plate.widthMm, plate.heightMm);
+  return `✂ Kalan: ${Number(plate.widthMm)}×${Number(plate.heightMm)} mm${
+    m2 != null ? ` · ${m2.toFixed(2)} m²` : ''
+  }`;
+}
+
+/** Tek plaka kartı — temiz başlık, renkli miktar, sahip, okunur ölçü/tarih ve düzenleme. */
 function PlateCard({ plate }: { plate: Plate }) {
   const [editing, setEditing] = useState(false);
-  const m2 = areaM2(plate.widthMm, plate.heightMm);
+  const partial = isPartialSheet(plate);
+  const dims = plateDimsText(plate);
+  // Marka · renk (kod) · varyant — eksik olanlar "—" yerine hiç yazılmaz.
+  const specs = [
+    plate.brand,
+    plate.color ? (plate.colorCode ? `${plate.color} (${plate.colorCode})` : plate.color) : plate.colorCode,
+    plate.variant,
+  ].filter(Boolean);
   return (
     <div className="card">
-      <div className="flex items-start justify-between">
-        <h3 className="font-medium">{plate.name}</h3>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs ${
-            plate.quantityInStock > 0
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-red-100 text-red-700'
-          }`}
-        >
-          {plate.quantityInStock} adet
-        </span>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="min-w-0 break-words font-semibold leading-snug">
+          {displayPlateName(plate)}
+        </h3>
+        <QtyBadge plate={plate} />
       </div>
-      <p className="mt-1 text-sm text-slate-500">
-        {plate.brand ?? '—'} · {plate.color ?? '—'}
-        {plate.colorCode ? ` (${plate.colorCode})` : ''}
-        {plate.variant ? ` · ${plate.variant}` : ''}
-      </p>
+      {(specs.length > 0 || plate.sku) && (
+        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-slate-500">
+          {specs.length > 0 && <span>{specs.join(' · ')}</span>}
+          {plate.sku && (
+            <span className="break-all font-mono text-xs text-slate-400" title="Stok kodu">
+              {plate.sku}
+            </span>
+          )}
+        </p>
+      )}
       {/* Kesilmiş tabakada KALAN ebat ön planda ve okunaklı; tam tabakada sade. */}
-      {isPartialSheet(plate) ? (
+      {partial ? (
         <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 text-sm font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-            ✂ Kalan: {Number(plate.widthMm)}×{Number(plate.heightMm)} mm
-            {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
+            {remainingText(plate)}
           </span>
           {plate.template?.defaultSize && (
             <span className="text-xs text-slate-400">
               Standart: {Number(plate.template.defaultSize.widthMm)}×
-              {Number(plate.template.defaultSize.heightMm)}
+              {Number(plate.template.defaultSize.heightMm)} mm
             </span>
           )}
         </p>
       ) : (
-        <p className="mt-1 text-xs text-slate-400">
-          {plate.widthMm}×{plate.heightMm}×{plate.thicknessMm} mm
-          {m2 != null ? ` · kalan ${m2.toFixed(2)} m²` : ''}
-        </p>
+        dims && <p className="mt-1 text-xs text-slate-500">📐 {dims}</p>
       )}
-      {/* Başlık altı: sahip renkli rozet + stok/işlenme tarihi. */}
-      <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
-        <span
-          className={`inline-block rounded-full px-2 py-0.5 font-semibold ${groupChipClass(
-            plate.owners?.length ? plate.owners.join(', ') : 'İşletme',
-          )}`}
+      {/* Sahip rozeti + stok/işlenme tarihi. */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+        <OwnerChip plate={plate} />
+        {plate.addedAt && <span>Stok: {formatDate(plate.addedAt)}</span>}
+        {plate.processedAt && <span>İşlendi: {formatDate(plate.processedAt)}</span>}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          className="btn-secondary btn-sm"
+          aria-expanded={editing}
+          onClick={() => setEditing((v) => !v)}
         >
-          👤 {plate.owners?.length ? plate.owners.join(', ') : 'İşletme'}
-        </span>
-        {plate.addedAt ? <span>Stok: {plate.addedAt}</span> : null}
-        {plate.processedAt ? <span>İşlendi: {plate.processedAt}</span> : null}
-      </p>
-      <div className="mt-2">
-        <button className="btn" onClick={() => setEditing((v) => !v)}>
           {editing ? 'Kapat' : 'Düzenle'}
         </button>
       </div>
@@ -1418,43 +1593,25 @@ function PlateCard({ plate }: { plate: Plate }) {
 /** #4 Mini görünüm: tek satırda ad · kalan ebat · sahip · adet + düzenle. */
 function PlateMiniRow({ plate }: { plate: Plate }) {
   const [editing, setEditing] = useState(false);
-  const m2 = areaM2(plate.widthMm, plate.heightMm);
+  const dims = plateDimsText(plate);
   return (
     <div className="bg-white px-3 py-2 text-sm dark:bg-slate-800">
       <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <span className="font-medium">{plate.name}</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="min-w-0 break-words font-semibold">{displayPlateName(plate)}</span>
           {isPartialSheet(plate) ? (
-            <span className="ml-2 inline-block rounded bg-amber-100 px-1 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-              ✂ Kalan: {Number(plate.widthMm)}×{Number(plate.heightMm)}
-              {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
+            <span className="inline-block rounded bg-amber-100 px-1 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+              {remainingText(plate)}
             </span>
           ) : (
-            <span className="ml-2 text-xs text-slate-400">
-              {plate.widthMm}×{plate.heightMm}
-              {plate.thicknessMm ? `×${plate.thicknessMm}` : ''} mm
-              {m2 != null ? ` · ${m2.toFixed(2)} m²` : ''}
-            </span>
+            dims && <span className="text-xs text-slate-500">{dims}</span>
           )}
-          <span
-            className={`ml-2 inline-block rounded-full px-1.5 py-0.5 text-xs font-semibold ${groupChipClass(
-              plate.owners?.length ? plate.owners.join(', ') : 'İşletme',
-            )}`}
-          >
-            {plate.owners?.length ? plate.owners.join(', ') : 'İşletme'}
-          </span>
+          <OwnerChip plate={plate} />
         </div>
-        <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-            plate.quantityInStock > 0
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-red-100 text-red-700'
-          }`}
-        >
-          {plate.quantityInStock} adet
-        </span>
+        <QtyBadge plate={plate} />
         <button
-          className="btn shrink-0 px-2 py-1 text-xs"
+          className="btn-secondary btn-sm shrink-0"
+          aria-expanded={editing}
           onClick={() => setEditing((v) => !v)}
         >
           {editing ? 'Kapat' : 'Düzenle'}
@@ -1543,7 +1700,8 @@ function BulkOperations({
     <div className="card space-y-2">
       <button
         type="button"
-        className="flex w-full items-center justify-between text-left"
+        className="flex min-h-[36px] w-full items-center justify-between gap-2 text-left"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
         <span className="font-semibold">
@@ -1567,13 +1725,16 @@ function BulkOperations({
           )}
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {plates.map((p) => (
-              <label key={p.id} className="flex items-center gap-2 text-sm">
+              <label
+                key={p.id}
+                className="flex min-h-[36px] cursor-pointer items-center gap-2 rounded-lg px-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40"
+              >
                 <input
                   type="checkbox"
                   checked={sel.has(p.id)}
                   onChange={() => toggle(p.id)}
                 />
-                <span className="flex-1 truncate">{p.name}</span>
+                <span className="min-w-0 flex-1 truncate">{displayPlateName(p)}</span>
                 <span
                   className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${groupChipClass(
                     p.template?.category?.name ?? 'Diğer',
@@ -1581,20 +1742,22 @@ function BulkOperations({
                 >
                   {p.template?.category?.name ?? 'Diğer'}
                 </span>
-                <span className="shrink-0 text-xs text-slate-500">
+                <span className="max-w-[35%] shrink-0 truncate text-xs text-slate-500">
                   👤 {ownerOf(p)}
                 </span>
               </label>
             ))}
             {!plates.length && (
-              <p className="text-xs text-slate-400">Filtreye uyan malzeme yok.</p>
+              <p className="py-2 text-xs text-slate-400">
+                {data ? 'Filtreye uyan malzeme yok.' : 'Yükleniyor…'}
+              </p>
             )}
           </div>
 
           {mode === null && (
             <div className="flex flex-wrap gap-2">
               <button
-                className="btn bg-slate-800 text-white disabled:opacity-50"
+                className="btn-secondary btn-sm"
                 disabled={sel.size === 0}
                 onClick={() => {
                   setMode('transfer');
@@ -1604,7 +1767,7 @@ function BulkOperations({
                 Sahiplik aktar ({sel.size})
               </button>
               <button
-                className="btn bg-red-600 text-white disabled:opacity-50"
+                className="btn-danger-soft btn-sm"
                 disabled={sel.size === 0}
                 onClick={() => {
                   setMode('deplete');
@@ -1623,7 +1786,7 @@ function BulkOperations({
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="block text-sm">
-                  <span className="mb-1 block text-xs text-slate-500">Kimden</span>
+                  <span className="label">Kimden</span>
                   <select
                     className="input"
                     value={fromOwner}
@@ -1638,7 +1801,7 @@ function BulkOperations({
                   </select>
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-xs text-slate-500">Kime</span>
+                  <span className="label">Kime</span>
                   <select
                     className="input"
                     value={toOwner}
@@ -1658,15 +1821,15 @@ function BulkOperations({
                   Kaynak ve hedef sahip aynı olamaz.
                 </p>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
-                  className="btn-primary disabled:opacity-50"
+                  className="btn-primary"
                   disabled={busy || fromOwner === toOwner}
                   onClick={runTransfer}
                 >
                   {busy ? 'Aktarılıyor…' : 'Aktar'}
                 </button>
-                <button className="btn bg-slate-100" onClick={() => setMode(null)}>
+                <button className="btn-secondary" onClick={() => setMode(null)}>
                   İptal
                 </button>
               </div>
@@ -1688,22 +1851,18 @@ function BulkOperations({
                     key={p.id}
                     className="flex items-center justify-between gap-2 px-2 py-1"
                   >
-                    <span className="truncate">{p.name}</span>
+                    <span className="min-w-0 truncate">{displayPlateName(p)}</span>
                     <span className="shrink-0 text-xs text-slate-500">
                       👤 {ownerOf(p)}
                     </span>
                   </li>
                 ))}
               </ul>
-              <div className="flex gap-2">
-                <button
-                  className="btn bg-red-600 text-white disabled:opacity-50"
-                  disabled={busy}
-                  onClick={runDeplete}
-                >
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-danger" disabled={busy} onClick={runDeplete}>
                   {busy ? 'İşleniyor…' : 'Onayla ve stoktan çıkar'}
                 </button>
-                <button className="btn bg-slate-100" onClick={() => setMode(null)}>
+                <button className="btn-secondary" onClick={() => setMode(null)}>
                   İptal
                 </button>
               </div>
@@ -1753,18 +1912,22 @@ function MaterialGroupRow({
       <button
         type="button"
         className="flex w-full items-center gap-2 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
         <span className="shrink-0 text-slate-400">
           {plates.length > 1 ? (open ? '▾' : '▸') : '•'}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{label}</span>
+          {/* Başlıktaki "—" yer tutucuları yalnız gösterimde temizlenir. */}
+          <span className="block truncate text-sm font-semibold">
+            {stripNamePlaceholders(label) || displayPlateName(plates[0])}
+          </span>
           <span className="block truncate text-xs text-slate-500">
-            {owners.join(', ')}
+            👤 {owners.join(', ')}
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-xs">
+        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 text-xs">
           {partials > 0 && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
               ✂ {partials} parça
@@ -1773,8 +1936,14 @@ function MaterialGroupRow({
           <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
             {plates.length} kayıt
           </span>
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-            {totalQty} {unit}
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${
+              totalQty > 0
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+            }`}
+          >
+            {formatNumber(totalQty)} {unit}
           </span>
         </span>
       </button>
@@ -1803,8 +1972,10 @@ function MaterialGroupRow({
 /**
  * Plaka (stok) listesi + gelişmiş filtreleme.
  * Mobil: tek sütun kartlar; masaüstü: çok sütunlu ızgara.
+ * Hızlı arama bağlantıları: /plates?new=1 (yeni kalem formu), /plates?q=metin (arama).
  */
 export function PlatesListPage() {
+  const { can } = useAuth();
   // Sayfa başına kayıt (kalıcı) + sayfalama: tüm ürünler sayfalar hâlinde görünür.
   const [pageSize, setPageSize] = usePageSize('plates', 20);
   const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: pageSize });
@@ -1833,115 +2004,158 @@ export function PlatesListPage() {
   const set = (patch: Partial<PlateFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
+  // Hızlı aramadan gelen bağlantılar: ?new=1 formu açar (yazma izni varsa),
+  // ?q=metin arama kutusunu doldurur ve listeyi süzer.
+  useUrlParam('new', () => {
+    if (can('stock', 'write')) setShowForm(true);
+  });
+  useUrlParam('q', (q) => set({ search: q || undefined }));
+
+  // Arama kutusu dışındaki etkin filtre sayısı (telefonda "Filtreler" rozetinde).
+  const activeCount = [
+    filters.categoryId,
+    filters.brand,
+    filters.color,
+    filters.owner || filters.ownerCustomerId,
+    filters.inStock,
+    filters.from || filters.to,
+  ].filter(Boolean).length;
+  const clearFilters = () =>
+    set({
+      categoryId: undefined,
+      brand: undefined,
+      color: undefined,
+      owner: undefined,
+      ownerCustomerId: undefined,
+      inStock: undefined,
+      from: undefined,
+      to: undefined,
+    });
+
   // Listeyi ÜRÜN TÜRÜNE, tür içinde de AYNI MALZEMEYE göre grupla. Aynı
   // malzemenin onlarca parçası tek satırda toplanır; açılınca parçalar görünür.
   const typeGroups = groupPlates(data?.items ?? []);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Stok / Plakalar</h1>
-        <div className="flex items-center gap-3">
-          <Can module="catalog">
-            <Link to="/material-templates" className="text-sm text-slate-500 underline">
-              Ürün Türlerini Yönet
-            </Link>
-            <Link to="/material-categories" className="text-sm text-slate-500 underline">
-              Türleri Yönet
-            </Link>
-          </Can>
-          {!showForm && (
-            <Can module="stock" level="write">
-              <button className="btn-primary" onClick={() => setShowForm(true)}>
-                + Yeni Stok Kalemi
-              </button>
+      <PageHeader
+        icon="📦"
+        title="Stok / Plakalar"
+        subtitle="Plakalar, kesilmiş parçalar ve müşteriye ait (konsinye) malzemeler."
+        actions={
+          <>
+            <Can module="catalog">
+              <Link to="/material-templates" className="btn-secondary btn-sm">
+                Ürün Türlerini Yönet
+              </Link>
+              <Link to="/material-categories" className="btn-secondary btn-sm">
+                Türleri Yönet
+              </Link>
             </Can>
-          )}
-        </div>
-      </div>
+            {!showForm && (
+              <Can module="stock" level="write">
+                <button
+                  className="btn-primary"
+                  data-hotkey="n"
+                  title="Yeni stok kalemi (N)"
+                  onClick={() => setShowForm(true)}
+                >
+                  + Yeni Stok Kalemi
+                </button>
+              </Can>
+            )}
+          </>
+        }
+      />
 
       {showForm && <NewPlateForm onClose={() => setShowForm(false)} />}
 
-      {/* Filtre çubuğu — mobilde yatay kaydırılır */}
-      <div className="card space-y-3">
-        <input
-          className="input"
-          placeholder="Ara (ad, stok kodu, renk kodu)…"
-          onChange={(e) => set({ search: e.target.value || undefined })}
-        />
-        <div className="-mx-1 flex gap-2 overflow-x-auto pb-1">
-          <select
-            className="input w-auto"
-            onChange={(e) => set({ categoryId: e.target.value || undefined })}
-          >
-            <option value="">Tüm türler</option>
-            {categories?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <input
-            className="input w-32"
-            placeholder="Marka"
-            onChange={(e) => set({ brand: e.target.value || undefined })}
+      {/* Filtreler — arama hep görünür; diğerleri telefonda "Filtreler" ardında. */}
+      <Filters
+        search={
+          <SearchInput
+            value={filters.search ?? ''}
+            onChange={(v) => set({ search: v || undefined })}
+            placeholder="Ara (ad, stok kodu, renk kodu)…"
+            aria-label="Stokta ara"
           />
-          <input
-            className="input w-32"
-            placeholder="Renk"
-            onChange={(e) => set({ color: e.target.value || undefined })}
+        }
+        activeCount={activeCount}
+        onClear={clearFilters}
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block min-w-0">
+            <span className="label">Tür</span>
+            <select
+              className="input"
+              value={filters.categoryId ?? ''}
+              onChange={(e) => set({ categoryId: e.target.value || undefined })}
+            >
+              <option value="">Tüm türler</option>
+              {categories?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block min-w-0">
+            <span className="label">Marka</span>
+            <input
+              className="input"
+              placeholder="Marka"
+              value={filters.brand ?? ''}
+              onChange={(e) => set({ brand: e.target.value || undefined })}
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="label">Renk</span>
+            <input
+              className="input"
+              placeholder="Renk"
+              value={filters.color ?? ''}
+              onChange={(e) => set({ color: e.target.value || undefined })}
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="label">Sahip</span>
+            <select
+              className="input"
+              value={filters.ownerCustomerId ?? filters.owner ?? ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '') set({ owner: undefined, ownerCustomerId: undefined });
+                else if (v === 'business') set({ owner: 'business', ownerCustomerId: undefined });
+                else set({ owner: undefined, ownerCustomerId: v });
+              }}
+            >
+              <option value="">Tüm sahipler</option>
+              <option value="business">İşletme</option>
+              {customers?.items.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,36rem)_auto] lg:items-start">
+          <DateRangeFilter
+            value={{ from: filters.from, to: filters.to }}
+            onChange={(r) => set({ from: r.from, to: r.to })}
+            fromLabel="Stok tarihi (baş.)"
+            toLabel="Stok tarihi (bit.)"
           />
-          <select
-            className="input w-auto"
-            value={filters.ownerCustomerId ?? filters.owner ?? ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === '') set({ owner: undefined, ownerCustomerId: undefined });
-              else if (v === 'business') set({ owner: 'business', ownerCustomerId: undefined });
-              else set({ owner: undefined, ownerCustomerId: v });
-            }}
-          >
-            <option value="">Tüm sahipler</option>
-            <option value="business">İşletme</option>
-            {customers?.items.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <label className="flex min-h-[44px] shrink-0 items-center gap-2 px-2 text-sm">
+          <label className="flex min-h-[44px] items-center gap-2 text-sm lg:mt-5">
             <input
               type="checkbox"
+              checked={!!filters.inStock}
               onChange={(e) => set({ inStock: e.target.checked || undefined })}
             />
-            Stokta
-          </label>
-          <div className="flex min-h-[44px] shrink-0 items-center gap-2 px-2">
-            <GroupToggle grouped={groupByType} onToggle={toggleGroup} />
-            <DensityToggle mini={miniView} onToggle={toggleMini} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Stok tarihi (baş.)</span>
-            <input
-              className="input"
-              type="date"
-              value={filters.from ?? ''}
-              onChange={(e) => set({ from: e.target.value || undefined })}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Stok tarihi (bit.)</span>
-            <input
-              className="input"
-              type="date"
-              value={filters.to ?? ''}
-              onChange={(e) => set({ to: e.target.value || undefined })}
-            />
+            Yalnız stokta olanlar
           </label>
         </div>
-      </div>
+      </Filters>
 
       {/* Toplu sahiplik aktar / stoktan çıkar (stok yazma izni) — filtreye uyan
           malzemeler üzerinde çalışır. */}
@@ -1952,10 +2166,51 @@ export function PlatesListPage() {
         />
       </Can>
 
+      {/* Sonuç sayısı + görünüm ayarları (gruplama / mini). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">
+          {data?.meta ? `${formatNumber(data.meta.total, 0)} kayıt` : ''}
+        </p>
+        <div className="flex items-center gap-2">
+          <GroupToggle grouped={groupByType} onToggle={toggleGroup} />
+          <DensityToggle mini={miniView} onToggle={toggleMini} />
+        </div>
+      </div>
+
       {isLoading ? (
-        <p className="text-slate-400">Yükleniyor…</p>
+        <LoadingBlock rows={4} />
       ) : !data?.items.length ? (
-        <p className="text-slate-400">Kayıt bulunamadı.</p>
+        activeCount > 0 || filters.search ? (
+          <EmptyState
+            icon="🔍"
+            title="Aramaya / filtreye uyan stok kalemi yok"
+            hint="Arama metnini kısaltmayı ya da filtreleri temizlemeyi deneyin."
+            action={
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  clearFilters();
+                  set({ search: undefined });
+                }}
+              >
+                Aramayı ve filtreleri temizle
+              </button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon="📦"
+            title="Henüz stok kalemi yok"
+            hint="Plaka, rulo ya da adetli malzemeleri ekleyerek stok takibine başlayın. Stok kalemi, katalogdaki bir ürün türünden oluşturulur."
+            action={
+              can('stock', 'write') && !showForm ? (
+                <button className="btn-primary" onClick={() => setShowForm(true)}>
+                  + Yeni Stok Kalemi
+                </button>
+              ) : undefined
+            }
+          />
+        )
       ) : groupByType ? (
         <div className="space-y-5">
           {typeGroups.map((g) => (

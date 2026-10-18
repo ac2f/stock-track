@@ -1,6 +1,6 @@
 import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   createMaterialBrand,
   createMaterialColor,
@@ -26,7 +26,20 @@ import {
   type MaterialTemplateInput,
 } from '../../api/materials.api';
 import { GroupSection } from '../../components/GroupSection';
-import type { MaterialMeasurementType, MeasurementType } from '../../types';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadingBlock } from '../../components/ui/Loading';
+import { Filters } from '../../components/ui/Filters';
+import { SearchInput } from '../../components/ui/SearchInput';
+import { confirmDialog } from '../../components/ConfirmDialog';
+import { useUrlParam } from '../../hooks/useUrlParam';
+import { useAuth } from '../../context/AuthContext';
+import { stripNamePlaceholders } from '../../lib/plateLabel';
+import type {
+  MaterialMeasurementType,
+  MaterialTemplate,
+  MeasurementType,
+} from '../../types';
 
 const MEASUREMENT_LABELS: Record<MaterialMeasurementType, string> = {
   area: 'Alan (m²)',
@@ -76,6 +89,40 @@ function buildCatalogName(
 }
 
 /**
+ * Şablon kartındaki varsayılan özellikler: yalnız TANIMLI olanlar rozet olarak
+ * gösterilir (eskiden eksikler "— · —" diye yazılıyordu).
+ */
+function templateSpecs(t: MaterialTemplate): { key: string; label: string; value: string }[] {
+  const specs: { key: string; label: string; value: string }[] = [];
+  if (t.defaultBrand?.name) specs.push({ key: 'brand', label: 'Marka', value: t.defaultBrand.name });
+  if (t.defaultColor?.name)
+    specs.push({
+      key: 'color',
+      label: 'Renk',
+      value: t.defaultColor.code ? `${t.defaultColor.name} (${t.defaultColor.code})` : t.defaultColor.name,
+    });
+  if (t.defaultThickness)
+    specs.push({ key: 'thickness', label: 'Kalınlık', value: `${Number(t.defaultThickness.valueMm)} mm` });
+  if (t.defaultSize)
+    specs.push({
+      key: 'size',
+      label: 'Ebat',
+      value: `${Number(t.defaultSize.widthMm)}×${Number(t.defaultSize.heightMm)} mm`,
+    });
+  return specs;
+}
+
+/** Katalog seçimi bloğu (Marka / Renk / Ebat / Kalınlık): başlık + seçici + ekleme satırı. */
+function CatalogBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+/**
  * Ürün türleri (şablonlar) yönetimi — yalnızca İşletme Sahibi.
  * Marka/renk/ebat/kalınlık katalogları kategoriye özeldir: bir kategoride
  * tanımlı kayıt başka kategoride seçilemez. Stok kalemi eklerken bu
@@ -83,8 +130,12 @@ function buildCatalogName(
  */
 export function MaterialTemplatesPage() {
   const qc = useQueryClient();
+  const { can } = useAuth();
   const [form, setForm] = useState<MaterialTemplateInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const formRef = useRef<HTMLDivElement>(null);
+  const formOpen = !!form;
   const [nameTouched, setNameTouched] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
   const [newColorName, setNewColorName] = useState('');
@@ -273,6 +324,49 @@ export function MaterialTemplatesPage() {
     },
   });
 
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(EMPTY);
+    setNameTouched(false);
+  };
+
+  // Hızlı arama bağlantıları: ?new=1 yeni ürün türü formunu açar (yazma izni
+  // varsa), ?q=metin listeyi süzer.
+  useUrlParam('new', () => {
+    if (can('catalog', 'write')) openCreate();
+  });
+  useUrlParam('q', (q) => setSearch(q));
+
+  // Form açılınca / başka kayıt düzenlenince form görünür alana kaydırılır.
+  useEffect(() => {
+    if (formOpen) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [formOpen, editingId]);
+
+  /** Tek kayıt silme onayı (şablon ya da katalog kaydı). */
+  const confirmDelete = (message: string) =>
+    confirmDialog({ title: 'Silinsin mi?', message, confirmText: 'Sil', danger: true });
+
+  // Ad, kategori, marka, renk ve açıklamada arar (yalnız ekranda süzer).
+  const visible = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase('tr');
+    if (!q) return data ?? [];
+    return (data ?? []).filter((t) =>
+      [
+        t.name,
+        t.category?.name,
+        t.defaultBrand?.name,
+        t.defaultColor?.name,
+        t.defaultColor?.code,
+        t.defaultVariant,
+        t.description,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('tr')
+        .includes(q),
+    );
+  }, [data, search]);
+
   const submit = () => {
     if (!form) return;
     if (editingId) {
@@ -295,25 +389,31 @@ export function MaterialTemplatesPage() {
     updateThicknessMut.error ??
     deleteThicknessMut.error;
 
+  // Satır içi küçük düğmeler (✏️ / 🗑️ / Ekle / Vazgeç).
+  const iconBtn = 'btn-secondary shrink-0 px-3';
+  const iconDangerBtn = 'btn-danger-soft shrink-0 px-3';
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Ürün Türleri</h1>
-        {!form && (
-          <Can module="catalog" level="write">
-            <button
-              className="btn-primary"
-              onClick={() => {
-                setEditingId(null);
-                setForm(EMPTY);
-                setNameTouched(false);
-              }}
-            >
-              + Yeni Ürün Türü
-            </button>
-          </Can>
-        )}
-      </div>
+      <PageHeader
+        icon="🧩"
+        title="Ürün Türleri"
+        subtitle="Stok kalemleri bu şablonlardan oluşturulur; marka, renk, ebat ve kalınlık türden miras alınır."
+        actions={
+          !form && (
+            <Can module="catalog" level="write">
+              <button
+                className="btn-primary"
+                data-hotkey="n"
+                title="Yeni ürün türü (N)"
+                onClick={openCreate}
+              >
+                + Yeni Ürün Türü
+              </button>
+            </Can>
+          )
+        }
+      />
 
       {mutationError && (
         <p className="card text-sm text-red-600">
@@ -323,76 +423,102 @@ export function MaterialTemplatesPage() {
       )}
 
       {form && (
-        <div className="card space-y-3">
-          <input
-            className="input"
-            placeholder="Ad (örn. Alüminyum Kompozit 3mm)"
-            value={form.name}
-            onChange={(e) => {
-              setNameTouched(true);
-              setForm({ ...form, name: e.target.value });
-            }}
-          />
-          <select
-            className="input"
-            value={form.categoryId}
-            onChange={(e) => {
-              const cat = categories?.find((c) => c.id === e.target.value);
-              setNameTouched(false);
-              setForm({
-                ...form,
-                categoryId: e.target.value,
-                measurementType: cat?.defaultMeasurementType ?? form.measurementType,
-                // Kategori değişti — önceki kategorinin kataloğu geçersiz.
-                defaultBrandId: undefined,
-                defaultColorId: undefined,
-                defaultSizeId: undefined,
-                defaultThicknessId: undefined,
-                // #1 Ad kategori (tür) adıyla başlasın; kullanıcı elle değiştirebilir.
-                name: cat?.name ? `${cat.name} ` : '',
-              });
-            }}
-          >
-            <option value="">Kategori seç…</option>
-            {categories?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={form.measurementType}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                measurementType: e.target.value as MeasurementType,
-              })
-            }
-          >
-            {Object.entries(MEASUREMENT_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <input
-            className="input"
-            placeholder="Tür/Varyant (örn. Dökme / Çekme)"
-            value={form.defaultVariant ?? ''}
-            onChange={(e) => setForm({ ...form, defaultVariant: e.target.value })}
-          />
+        <div ref={formRef} className="card space-y-3">
+          <h2 className="font-semibold">
+            {editingId ? 'Ürün türünü düzenle' : 'Yeni ürün türü'}
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block min-w-0">
+              <span className="label">
+                Kategori <span className="text-red-600">*</span>
+              </span>
+              <select
+                className="input"
+                autoFocus={!editingId}
+                value={form.categoryId}
+                onChange={(e) => {
+                  const cat = categories?.find((c) => c.id === e.target.value);
+                  setNameTouched(false);
+                  setForm({
+                    ...form,
+                    categoryId: e.target.value,
+                    measurementType: cat?.defaultMeasurementType ?? form.measurementType,
+                    // Kategori değişti — önceki kategorinin kataloğu geçersiz.
+                    defaultBrandId: undefined,
+                    defaultColorId: undefined,
+                    defaultSizeId: undefined,
+                    defaultThicknessId: undefined,
+                    // #1 Ad kategori (tür) adıyla başlasın; kullanıcı elle değiştirebilir.
+                    name: cat?.name ? `${cat.name} ` : '',
+                  });
+                }}
+              >
+                <option value="">Kategori seç…</option>
+                {categories?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block min-w-0">
+              <span className="label">Ölçü birimi</span>
+              <select
+                className="input"
+                value={form.measurementType}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    measurementType: e.target.value as MeasurementType,
+                  })
+                }
+              >
+                {Object.entries(MEASUREMENT_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block min-w-0 sm:col-span-2">
+              <span className="label">
+                Ad <span className="text-red-600">*</span>
+              </span>
+              <input
+                className="input"
+                placeholder="Ad (örn. Alüminyum Kompozit 3mm)"
+                value={form.name}
+                onChange={(e) => {
+                  setNameTouched(true);
+                  setForm({ ...form, name: e.target.value });
+                }}
+              />
+              <span className="mt-1 block text-xs text-slate-400">
+                Marka/renk/ebat/kalınlık seçtikçe otomatik oluşur; elle değiştirebilirsiniz.
+              </span>
+            </label>
+            <label className="block min-w-0 sm:col-span-2">
+              <span className="label">Tür/Varyant</span>
+              <input
+                className="input"
+                placeholder="Tür/Varyant (örn. Dökme / Çekme)"
+                value={form.defaultVariant ?? ''}
+                onChange={(e) => setForm({ ...form, defaultVariant: e.target.value })}
+              />
+            </label>
+          </div>
 
           {!form.categoryId ? (
-            <p className="text-sm text-slate-400">
+            <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
               Marka/renk/ebat/kalınlık seçmek için önce kategori seçin.
             </p>
           ) : (
-            <>
-              <div className="space-y-1">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <CatalogBlock title="Marka">
                 <div className="flex gap-2">
                   <select
-                    className="input flex-1"
+                    className="input min-w-0 flex-1"
+                    aria-label="Marka"
                     value={form.defaultBrandId ?? ''}
                     onChange={(e) =>
                       patchCatalog({ defaultBrandId: e.target.value || null })
@@ -407,8 +533,9 @@ export function MaterialTemplatesPage() {
                   </select>
                   {/* Seçili katalog kaydını düzenle / sil */}
                   <button
-                    className="btn"
+                    className={iconBtn}
                     title="Seçili markayı düzenle"
+                    aria-label="Seçili markayı düzenle"
                     disabled={!form.defaultBrandId}
                     onClick={() => {
                       const b = brands?.find((x) => x.id === form.defaultBrandId);
@@ -420,12 +547,13 @@ export function MaterialTemplatesPage() {
                     ✏️
                   </button>
                   <button
-                    className="btn text-red-600"
+                    className={iconDangerBtn}
                     title="Seçili markayı sil"
+                    aria-label="Seçili markayı sil"
                     disabled={!form.defaultBrandId || deleteBrandMut.isPending}
-                    onClick={() => {
+                    onClick={async () => {
                       const b = brands?.find((x) => x.id === form.defaultBrandId);
-                      if (b && confirm(`"${b.name}" markası silinsin mi?`)) {
+                      if (b && (await confirmDelete(`"${b.name}" markası silinsin mi?`))) {
                         deleteBrandMut.mutate(b.id);
                       }
                     }}
@@ -433,15 +561,15 @@ export function MaterialTemplatesPage() {
                     🗑️
                   </button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input
-                    className="input flex-1"
+                    className="input min-w-0 flex-1 basis-40"
                     placeholder={editingBrandId ? 'Marka adını düzenle' : '+ Yeni marka adı'}
                     value={newBrandName}
                     onChange={(e) => setNewBrandName(e.target.value)}
                   />
                   <button
-                    className="btn"
+                    className={iconBtn}
                     disabled={!newBrandName.trim()}
                     onClick={() =>
                       editingBrandId
@@ -459,7 +587,7 @@ export function MaterialTemplatesPage() {
                   </button>
                   {editingBrandId && (
                     <button
-                      className="btn"
+                      className="btn-ghost shrink-0 px-3"
                       onClick={() => {
                         setEditingBrandId(null);
                         setNewBrandName('');
@@ -469,12 +597,13 @@ export function MaterialTemplatesPage() {
                     </button>
                   )}
                 </div>
-              </div>
+              </CatalogBlock>
 
-              <div className="space-y-1">
+              <CatalogBlock title="Renk">
                 <div className="flex gap-2">
                   <select
-                    className="input flex-1"
+                    className="input min-w-0 flex-1"
+                    aria-label="Renk"
                     value={form.defaultColorId ?? ''}
                     onChange={(e) =>
                       patchCatalog({ defaultColorId: e.target.value || null })
@@ -489,8 +618,9 @@ export function MaterialTemplatesPage() {
                     ))}
                   </select>
                   <button
-                    className="btn"
+                    className={iconBtn}
                     title="Seçili rengi düzenle"
+                    aria-label="Seçili rengi düzenle"
                     disabled={!form.defaultColorId}
                     onClick={() => {
                       const c = colors?.find((x) => x.id === form.defaultColorId);
@@ -503,12 +633,13 @@ export function MaterialTemplatesPage() {
                     ✏️
                   </button>
                   <button
-                    className="btn text-red-600"
+                    className={iconDangerBtn}
                     title="Seçili rengi sil"
+                    aria-label="Seçili rengi sil"
                     disabled={!form.defaultColorId || deleteColorMut.isPending}
-                    onClick={() => {
+                    onClick={async () => {
                       const c = colors?.find((x) => x.id === form.defaultColorId);
-                      if (c && confirm(`"${c.name}" rengi silinsin mi?`)) {
+                      if (c && (await confirmDelete(`"${c.name}" rengi silinsin mi?`))) {
                         deleteColorMut.mutate(c.id);
                       }
                     }}
@@ -516,21 +647,22 @@ export function MaterialTemplatesPage() {
                     🗑️
                   </button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input
-                    className="input flex-1"
+                    className="input min-w-0 flex-1 basis-36"
                     placeholder={editingColorId ? 'Renk adını düzenle' : '+ Yeni renk adı'}
                     value={newColorName}
                     onChange={(e) => setNewColorName(e.target.value)}
                   />
                   <input
-                    className="input w-28"
+                    className="input w-24 shrink-0"
                     placeholder="Kod"
+                    aria-label="Renk kodu"
                     value={newColorCode}
                     onChange={(e) => setNewColorCode(e.target.value)}
                   />
                   <button
-                    className="btn"
+                    className={iconBtn}
                     disabled={!newColorName.trim()}
                     onClick={() =>
                       editingColorId
@@ -550,7 +682,7 @@ export function MaterialTemplatesPage() {
                   </button>
                   {editingColorId && (
                     <button
-                      className="btn"
+                      className="btn-ghost shrink-0 px-3"
                       onClick={() => {
                         setEditingColorId(null);
                         setNewColorName('');
@@ -561,12 +693,13 @@ export function MaterialTemplatesPage() {
                     </button>
                   )}
                 </div>
-              </div>
+              </CatalogBlock>
 
-              <div className="space-y-1">
+              <CatalogBlock title="Ebat (standart tabaka)">
                 <div className="flex gap-2">
                   <select
-                    className="input flex-1"
+                    className="input min-w-0 flex-1"
+                    aria-label="Ebat"
                     value={form.defaultSizeId ?? ''}
                     onChange={(e) =>
                       patchCatalog({ defaultSizeId: e.target.value || null })
@@ -580,8 +713,9 @@ export function MaterialTemplatesPage() {
                     ))}
                   </select>
                   <button
-                    className="btn"
+                    className={iconBtn}
                     title="Seçili ebadı düzenle"
+                    aria-label="Seçili ebadı düzenle"
                     disabled={!form.defaultSizeId}
                     onClick={() => {
                       const s = sizes?.find((x) => x.id === form.defaultSizeId);
@@ -594,14 +728,15 @@ export function MaterialTemplatesPage() {
                     ✏️
                   </button>
                   <button
-                    className="btn text-red-600"
+                    className={iconDangerBtn}
                     title="Seçili ebadı sil"
+                    aria-label="Seçili ebadı sil"
                     disabled={!form.defaultSizeId || deleteSizeMut.isPending}
-                    onClick={() => {
+                    onClick={async () => {
                       const s = sizes?.find((x) => x.id === form.defaultSizeId);
                       if (
                         s &&
-                        confirm(`${s.widthMm}×${s.heightMm} mm ebadı silinsin mi?`)
+                        (await confirmDelete(`${s.widthMm}×${s.heightMm} mm ebadı silinsin mi?`))
                       ) {
                         deleteSizeMut.mutate(s.id);
                       }
@@ -610,25 +745,27 @@ export function MaterialTemplatesPage() {
                     🗑️
                   </button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input
-                    className="input flex-1"
+                    className="input min-w-0 flex-1 basis-24"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     placeholder={editingSizeId ? 'En (mm) düzenle' : '+ En (mm)'}
                     value={newSizeWidth}
                     onChange={(e) => setNewSizeWidth(e.target.value)}
                   />
                   <input
-                    className="input flex-1"
+                    className="input min-w-0 flex-1 basis-24"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     placeholder="Boy (mm)"
                     value={newSizeHeight}
                     onChange={(e) => setNewSizeHeight(e.target.value)}
                   />
                   <button
-                    className="btn"
+                    className={iconBtn}
                     disabled={!newSizeWidth || !newSizeHeight}
                     onClick={() =>
                       editingSizeId
@@ -648,7 +785,7 @@ export function MaterialTemplatesPage() {
                   </button>
                   {editingSizeId && (
                     <button
-                      className="btn"
+                      className="btn-ghost shrink-0 px-3"
                       onClick={() => {
                         setEditingSizeId(null);
                         setNewSizeWidth('');
@@ -659,12 +796,13 @@ export function MaterialTemplatesPage() {
                     </button>
                   )}
                 </div>
-              </div>
+              </CatalogBlock>
 
-              <div className="space-y-1">
+              <CatalogBlock title="Kalınlık">
                 <div className="flex gap-2">
                   <select
-                    className="input flex-1"
+                    className="input min-w-0 flex-1"
+                    aria-label="Kalınlık"
                     value={form.defaultThicknessId ?? ''}
                     onChange={(e) =>
                       patchCatalog({ defaultThicknessId: e.target.value || null })
@@ -678,8 +816,9 @@ export function MaterialTemplatesPage() {
                     ))}
                   </select>
                   <button
-                    className="btn"
+                    className={iconBtn}
                     title="Seçili kalınlığı düzenle"
+                    aria-label="Seçili kalınlığı düzenle"
                     disabled={!form.defaultThicknessId}
                     onClick={() => {
                       const t = thicknesses?.find(
@@ -693,14 +832,15 @@ export function MaterialTemplatesPage() {
                     ✏️
                   </button>
                   <button
-                    className="btn text-red-600"
+                    className={iconDangerBtn}
                     title="Seçili kalınlığı sil"
+                    aria-label="Seçili kalınlığı sil"
                     disabled={!form.defaultThicknessId || deleteThicknessMut.isPending}
-                    onClick={() => {
+                    onClick={async () => {
                       const t = thicknesses?.find(
                         (x) => x.id === form.defaultThicknessId,
                       );
-                      if (t && confirm(`${t.valueMm} mm kalınlık silinsin mi?`)) {
+                      if (t && (await confirmDelete(`${t.valueMm} mm kalınlık silinsin mi?`))) {
                         deleteThicknessMut.mutate(t.id);
                       }
                     }}
@@ -708,10 +848,11 @@ export function MaterialTemplatesPage() {
                     🗑️
                   </button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input
-                    className="input flex-1"
+                    className="input min-w-0 flex-1 basis-40"
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     placeholder={
                       editingThicknessId
@@ -722,7 +863,7 @@ export function MaterialTemplatesPage() {
                     onChange={(e) => setNewThicknessValue(e.target.value)}
                   />
                   <button
-                    className="btn"
+                    className={iconBtn}
                     disabled={!newThicknessValue}
                     onClick={() =>
                       editingThicknessId
@@ -740,7 +881,7 @@ export function MaterialTemplatesPage() {
                   </button>
                   {editingThicknessId && (
                     <button
-                      className="btn"
+                      className="btn-ghost shrink-0 px-3"
                       onClick={() => {
                         setEditingThicknessId(null);
                         setNewThicknessValue('');
@@ -750,16 +891,19 @@ export function MaterialTemplatesPage() {
                     </button>
                   )}
                 </div>
-              </div>
-            </>
+              </CatalogBlock>
+            </div>
           )}
 
-          <input
-            className="input"
-            placeholder="Açıklama"
-            value={form.description ?? ''}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
+          <label className="block min-w-0">
+            <span className="label">Açıklama</span>
+            <input
+              className="input"
+              placeholder="Açıklama"
+              value={form.description ?? ''}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -768,12 +912,21 @@ export function MaterialTemplatesPage() {
             />
             Aktif
           </label>
-          <div className="flex gap-2">
-            <button className="btn-primary" onClick={submit}>
-              Kaydet
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+            <button
+              className="btn-primary"
+              disabled={
+                !form.name.trim() ||
+                !form.categoryId ||
+                createMut.isPending ||
+                updateMut.isPending
+              }
+              onClick={submit}
+            >
+              {createMut.isPending || updateMut.isPending ? 'Kaydediliyor…' : 'Kaydet'}
             </button>
             <button
-              className="btn"
+              className="btn-secondary"
               onClick={() => {
                 setForm(null);
                 setEditingId(null);
@@ -785,78 +938,148 @@ export function MaterialTemplatesPage() {
         </div>
       )}
 
+      {!isLoading && !!data?.length && (
+        <Filters
+          search={
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Ara (ad, kategori, marka, renk)…"
+              aria-label="Ürün türlerinde ara"
+            />
+          }
+        />
+      )}
+
       {isLoading ? (
-        <p className="text-slate-400">Yükleniyor…</p>
+        <LoadingBlock />
+      ) : !data?.length ? (
+        <EmptyState
+          icon="🧩"
+          title="Henüz ürün türü yok"
+          hint="Ürün türü (şablon), stok kalemi eklerken seçilir ve marka/renk/ebat/kalınlık bilgisini taşır. Önce bir malzeme türü (kategori) tanımlı olmalıdır."
+          action={
+            !form && (
+              <Can module="catalog" level="write">
+                <button className="btn-primary" onClick={openCreate}>
+                  + Yeni Ürün Türü
+                </button>
+              </Can>
+            )
+          }
+        />
+      ) : !visible.length ? (
+        <EmptyState
+          compact
+          icon="🔍"
+          title="Aramaya uyan ürün türü yok"
+          hint="Farklı bir kelime deneyin."
+          action={
+            <button className="btn-secondary btn-sm" onClick={() => setSearch('')}>
+              Aramayı temizle
+            </button>
+          }
+        />
       ) : (
         <div className="space-y-5">
           {/* #3 Malzemeler kategorilerine göre gruplanır. */}
-          {groupByCategory(data ?? []).map(([catName, tpls]) => (
+          {groupByCategory(visible).map(([catName, tpls]) => (
             <GroupSection
               key={catName}
               title={catName}
               count={tpls.length}
               countLabel="tür"
             >
-              {tpls.map((t) => (
-            <div key={t.id} className="card flex items-center justify-between">
-              <div>
-                <h3 className="font-medium">
-                  {t.name}{' '}
-                  {!t.isActive && (
-                    <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                      Pasif
-                    </span>
-                  )}
-                </h3>
-                <p className="text-sm text-slate-500">
-                  {t.category?.name ?? '—'} · {MEASUREMENT_LABELS[t.measurementType as MaterialMeasurementType]}
-                  {t.defaultVariant ? ` · ${t.defaultVariant}` : ''}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {t.defaultBrand?.name ?? '—'} · {t.defaultColor?.name ?? '—'}
-                  {t.defaultColor?.code ? ` (${t.defaultColor.code})` : ''}
-                  {t.defaultSize ? ` · ${t.defaultSize.widthMm}×${t.defaultSize.heightMm} mm` : ''}
-                  {t.defaultThickness ? ` · ${t.defaultThickness.valueMm} mm` : ''}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setEditingId(t.id);
-                    setNameTouched(true);
-                    setForm({
-                      name: t.name,
-                      categoryId: t.categoryId,
-                      measurementType: t.measurementType,
-                      defaultBrandId: t.defaultBrandId,
-                      defaultColorId: t.defaultColorId,
-                      defaultSizeId: t.defaultSizeId,
-                      defaultThicknessId: t.defaultThicknessId,
-                      defaultVariant: t.defaultVariant,
-                      description: t.description,
-                      isActive: t.isActive,
-                    });
-                  }}
-                >
-                  Düzenle
-                </button>
-                <button
-                  className="btn text-red-600"
-                  onClick={() => {
-                    if (confirm(`"${t.name}" silinsin mi?`)) {
-                      deleteMut.mutate(t.id);
-                    }
-                  }}
-                >
-                  Sil
-                </button>
-              </div>
-            </div>
-              ))}
+              {tpls.map((t) => {
+                const specs = templateSpecs(t);
+                // Otomatik adda eksik kısımlar "—" ile duruyor: başlıkta temiz
+                // hâli gösterilir, eksik olduğu küçük bir rozetle belirtilir.
+                const incomplete = t.name.includes('—');
+                const title = stripNamePlaceholders(t.name) || t.category?.name || t.name;
+                return (
+                  <div
+                    key={t.id}
+                    className={`card flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${
+                      editingId === t.id ? 'ring-2 ring-blue-500/40' : ''
+                    }`}
+                  >
+                    <div className="min-w-0 space-y-1.5">
+                      <h3 className="flex flex-wrap items-center gap-2 font-semibold">
+                        <span className="break-words">{title}</span>
+                        {!t.isActive && (
+                          <span className="badge bg-slate-100 text-slate-500">Pasif</span>
+                        )}
+                        {incomplete && (
+                          <span
+                            className="badge bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
+                            title={`Kayıtlı ad: ${t.name} — eksik kısımları Düzenle ile tamamlayabilirsiniz.`}
+                          >
+                            Ad eksik
+                          </span>
+                        )}
+                      </h3>
+                      <p className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+                        <span className="badge bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200">
+                          {MEASUREMENT_LABELS[t.measurementType as MaterialMeasurementType] ??
+                            t.measurementType}
+                        </span>
+                        {t.defaultVariant && <span>{t.defaultVariant}</span>}
+                      </p>
+                      {specs.length > 0 ? (
+                        <p className="flex flex-wrap gap-1.5">
+                          {specs.map((sp) => (
+                            <span
+                              key={sp.key}
+                              className="badge bg-slate-100 font-normal text-slate-600"
+                            >
+                              <span className="text-slate-400">{sp.label}:</span> {sp.value}
+                            </span>
+                          ))}
+                        </p>
+                      ) : null}
+                      {t.description && (
+                        <p className="text-xs text-slate-400">{t.description}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        className="btn-secondary btn-sm"
+                        onClick={() => {
+                          setEditingId(t.id);
+                          setNameTouched(true);
+                          setForm({
+                            name: t.name,
+                            categoryId: t.categoryId,
+                            measurementType: t.measurementType,
+                            defaultBrandId: t.defaultBrandId,
+                            defaultColorId: t.defaultColorId,
+                            defaultSizeId: t.defaultSizeId,
+                            defaultThicknessId: t.defaultThicknessId,
+                            defaultVariant: t.defaultVariant,
+                            description: t.description,
+                            isActive: t.isActive,
+                          });
+                        }}
+                      >
+                        ✏️ Düzenle
+                      </button>
+                      <button
+                        className="btn-danger-soft btn-sm"
+                        disabled={deleteMut.isPending}
+                        onClick={async () => {
+                          if (await confirmDelete(`"${title}" ürün türü silinsin mi?`)) {
+                            deleteMut.mutate(t.id);
+                          }
+                        }}
+                      >
+                        🗑️ Sil
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </GroupSection>
           ))}
-          {!data?.length && <p className="text-slate-400">Kayıt bulunamadı.</p>}
         </div>
       )}
     </div>

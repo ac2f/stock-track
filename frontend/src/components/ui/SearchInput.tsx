@@ -10,7 +10,7 @@ export const SearchInput = forwardRef<
     value: string;
     onChange: (value: string) => void;
   }
->(function SearchInput({ value, onChange, className = '', placeholder = 'Ara…', ...rest }, ref) {
+>(function SearchInput({ value, onChange, onKeyDown, className = '', placeholder = 'Ara…', ...rest }, ref) {
   return (
     <div className={`relative ${className}`}>
       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden>
@@ -23,13 +23,14 @@ export const SearchInput = forwardRef<
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        {...rest}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' && value) {
+          onKeyDown?.(e);
+          if (!e.defaultPrevented && e.key === 'Escape' && value) {
             e.stopPropagation();
             onChange('');
           }
         }}
-        {...rest}
       />
       {value && (
         <button

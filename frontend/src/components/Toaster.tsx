@@ -41,7 +41,7 @@ export function Toaster() {
           <button
             className="-mr-1 rounded-md px-1.5 text-lg leading-none opacity-60 hover:opacity-100"
             onClick={() => dismissToast(t.id)}
-            aria-label="Kapat"
+            aria-label="Bildirimi kapat"
           >
             ×
           </button>

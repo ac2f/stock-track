@@ -111,7 +111,7 @@ export function ResponsiveLayout() {
                 <div className="truncate text-[15px] font-bold leading-tight text-slate-900" title={brandName}>
                   {brandName}
                 </div>
-                {shop && <div className="truncate text-xs text-slate-500">{shop.name}</div>}
+                {shop && shop.name !== brandName && <div className="truncate text-xs text-slate-500">{shop.name}</div>}
               </div>
             )}
           </div>
@@ -174,7 +174,7 @@ export function ResponsiveLayout() {
               <div className="truncate text-sm font-bold leading-tight">{brandName}</div>
               <div className="truncate text-xs text-slate-500">
                 {page?.title ?? ''}
-                {shop ? ` · ${shop.name}` : ''}
+                {shop && shop.name !== brandName ? ` · ${shop.name}` : ''}
               </div>
             </div>
             <CurrencyTicker compact />

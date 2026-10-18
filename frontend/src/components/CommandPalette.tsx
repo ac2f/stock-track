@@ -8,6 +8,7 @@ import { fetchQuotes } from '../api/quotes.api';
 import { applyTheme, resolveInitialTheme } from '../lib/theme';
 import { applyFontScale, getFontScale } from '../lib/fontScale';
 import type { NavItem } from '../layouts/nav';
+import { SECTIONS as SETTINGS_SECTIONS } from '../features/settings/SettingsPage';
 import type { ShopModule } from '../types';
 
 /**
@@ -126,7 +127,7 @@ export function CommandPalette({
   onShowHelp: () => void;
 }) {
   const navigate = useNavigate();
-  const { can, logout, shop } = useAuth();
+  const { can, logout, shop, isOwner, managesAnyShop } = useAuth();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -163,6 +164,22 @@ export function CommandPalette({
     for (const a of QUICK_ACTIONS) {
       if (!can(a.module, a.level)) continue;
       list.push({ id: a.id, group: 'İşlemler', icon: a.icon, label: a.label, keywords: a.keywords, run: () => go(a.to) });
+    }
+    if (managesAnyShop) {
+      list.push({ id: 'team-add', group: 'İşlemler', icon: '👥', label: 'Ekibe kişi ekle', keywords: 'çalışan kullanıcı davet yetki', run: () => go('/team?new=1') });
+    }
+    if (can('settings')) {
+      for (const sec of SETTINGS_SECTIONS) {
+        if (sec.ownerOnly && !isOwner) continue;
+        list.push({
+          id: `settings:${sec.id}`,
+          group: 'Ayarlar',
+          icon: sec.icon,
+          label: sec.title,
+          keywords: `ayar ${sec.short} ${sec.keywords}`,
+          run: () => go(`/settings#ayar-${sec.id}`),
+        });
+      }
     }
     for (const n of nav) {
       list.push({
@@ -202,7 +219,7 @@ export function CommandPalette({
     list.push({ id: 'logout', group: 'Hesap', icon: '🚪', label: 'Çıkış yap', keywords: 'oturum kapat', run: logout });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav, can]);
+  }, [nav, can, isOwner, managesAnyShop]);
 
   const tokens = fold(q.trim()).split(/\s+/).filter(Boolean);
 

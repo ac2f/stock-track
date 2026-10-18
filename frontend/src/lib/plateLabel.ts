@@ -46,3 +46,78 @@ export function isPartialSheet(
   if (!w || !h) return false;
   return w < Number(std.widthMm) || h < Number(std.heightMm);
 }
+
+/** Ölçü değeri → okunur metin ("1350", "2.8"); boş/sıfır ise null. */
+function dim(value: unknown): string | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? String(n) : null;
+}
+
+/** Ölçü kalıbındaki tek değer: sayı ya da eksik ("—"). */
+const DIM_TOKEN = '([\\d.,]+|—)';
+const DIMS_RE = new RegExp(`(^|\\s)${DIM_TOKEN}x${DIM_TOKEN}x${DIM_TOKEN}(?=\\s|$)`, 'g');
+
+/**
+ * Otomatik üretilmiş addaki "—" yer tutucularını temizler (yalnız GÖSTERİM).
+ * Sunucu eksik marka/renk/ebadı "—" ile doldurur: "Pleksi —[—] —x—x—".
+ *   "Pleksi —[—] 3x—x—"         → "Pleksi 3 mm"
+ *   "Mega[—] —x1350x2000"       → "Mega 1350x2000"
+ *   "—[Kırmızı 12] 2.8x1350x2000" → "[Kırmızı 12] 2.8x1350x2000"
+ * Yer tutucu yoksa ad olduğu gibi döner.
+ */
+export function stripNamePlaceholders(raw: string | null | undefined): string {
+  const s = (raw ?? '').trim();
+  if (!s.includes('—')) return s;
+  return s
+    .replace(DIMS_RE, (_m, lead: string, t: string, w: string, h: string) => {
+      const ok = (v: string) => v !== '—';
+      if (ok(t) && ok(w) && ok(h)) return `${lead}${t}x${w}x${h}`;
+      const size = ok(w) && ok(h) ? `${w}x${h}` : '';
+      const thick = ok(t) ? `${t} mm` : '';
+      return `${lead}${[size, thick].filter(Boolean).join(' ')}`;
+    })
+    .replace(/\[\s*—\s*\]/g, '') // boş renk: "[—]"
+    .replace(/(^|\s)—(?=\[)/g, '$1') // eksik marka: "—[Renk]"
+    .replace(/(^|\s)—(?=\s|$)/g, '$1') // kalan tek başına "—"
+    .replace(/\s+/g, ' ')
+    .replace(/(\s*·\s*)+/g, ' · ') // boşalan "a ·  · b" ayraçları
+    .replace(/^\s*·\s*|\s*·\s*$/g, '')
+    .trim();
+}
+
+/** Liste başlığı için kısa ölçü: "3 mm · 1350×2000 mm" (eksikler atlanır). */
+export function plateSizeSummary(
+  plate: Pick<PlateBrief, 'measurementType' | 'widthMm' | 'heightMm' | 'thicknessMm'>,
+): string {
+  const w = dim(plate.widthMm);
+  const h = dim(plate.heightMm);
+  const t = dim(plate.thicknessMm);
+  const size =
+    plate.measurementType === 'length'
+      ? h
+        ? `${h} mm yükseklik`
+        : ''
+      : w && h
+        ? `${w}×${h} mm`
+        : '';
+  return [t ? `${t} mm` : '', size].filter(Boolean).join(' · ');
+}
+
+/**
+ * Kartlarda gösterilecek temiz başlık (veri DEĞİŞMEZ). Addaki "—" yer
+ * tutucuları atılır; geriye anlamlı bir şey kalmazsa (boş ya da yalnız tür adı)
+ * şablon/tür adı + ölçülere düşülür: "Pleksi · 3 mm · 1350×2000 mm".
+ */
+export function displayPlateName(
+  plate: Pick<PlateBrief, 'name' | 'measurementType' | 'widthMm' | 'heightMm' | 'thicknessMm'> & {
+    template?: { name?: string | null; category?: { name?: string | null } | null } | null;
+  },
+): string {
+  const cleaned = stripNamePlaceholders(plate.name);
+  const category = plate.template?.category?.name?.trim() ?? '';
+  const same = (a: string, b: string) => a.toLocaleLowerCase('tr') === b.toLocaleLowerCase('tr');
+  if (cleaned && !(category && same(cleaned, category))) return cleaned;
+  const base = stripNamePlaceholders(plate.template?.name) || category || cleaned || 'Malzeme';
+  const size = plateSizeSummary(plate);
+  return size ? `${base} · ${size}` : base;
+}

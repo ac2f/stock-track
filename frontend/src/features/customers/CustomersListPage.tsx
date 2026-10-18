@@ -1,6 +1,7 @@
 import { Can } from '../../components/Can';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import {
   addCustomerLedgerEntry,
   createCustomer,
@@ -24,15 +25,44 @@ import { fetchBankAccounts } from '../../api/bank-accounts.api';
 import { useAuth } from '../../context/AuthContext';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { Pagination } from '../../components/Pagination';
+import { confirmDialog } from '../../components/ConfirmDialog';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { LoadingBlock, Spinner } from '../../components/ui/Loading';
+import { Filters } from '../../components/ui/Filters';
+import { SearchInput } from '../../components/ui/SearchInput';
+import { DateRangeFilter } from '../../components/ui/DateRangeFilter';
 import { usePageSize } from '../../hooks/usePageSize';
+import { useUrlParam } from '../../hooks/useUrlParam';
+import { formatDate, formatMoney } from '../../lib/format';
+import { toast } from '../../lib/toast';
 import type { Customer, CustomerLedgerEntry, PaymentMethod } from '../../types';
 
-const currency = new Intl.NumberFormat('tr-TR', {
-  style: 'currency',
-  currency: 'TRY',
-});
-
 const EMPTY: CreateCustomerInput = { name: '' };
+
+/** Bakiye rengi: borç kırmızı, alacak yeşil, sıfır soluk. */
+function balanceTone(balance: number): string {
+  if (balance > 0) return 'text-red-600';
+  if (balance < 0) return 'text-emerald-600';
+  return 'text-slate-400';
+}
+
+function balanceLabel(balance: number): string {
+  if (balance > 0) return 'borç';
+  if (balance < 0) return 'alacak';
+  return 'bakiye yok';
+}
+
+/** tel: bağlantısı için yalnız rakam ve + kalsın. */
+function telHref(phone: string): string {
+  return `tel:${phone.replace(/[^\d+]/g, '')}`;
+}
+
+const METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
+  { value: 'cash', label: 'Nakit' },
+  { value: 'bank_transfer', label: 'Havale/EFT' },
+  { value: 'card', label: 'Kart' },
+];
 
 function NewCustomerForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -46,75 +76,120 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
     },
   });
 
+  // Enter ile de kaydedilir (ad boşken ya da kayıt sürerken değil).
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!form.name || createMut.isPending) return;
+    createMut.mutate(form);
+  };
+
   return (
-    <div className="card space-y-3">
+    <form className="card space-y-4" onSubmit={submit} noValidate>
+      <div>
+        <h2 className="text-base font-semibold">Yeni müşteri</h2>
+        <p className="text-xs text-slate-500">
+          Yalnızca ad zorunlu; diğer bilgiler sonradan "Düzenle" ile eklenebilir.
+        </p>
+      </div>
       {createMut.error && (
-        <p className="text-sm text-red-600">
+        <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">
           {(createMut.error as { response?: { data?: { message?: string } } })
             ?.response?.data?.message ?? 'Müşteri oluşturulamadı.'}
         </p>
       )}
-      <input
-        className="input"
-        placeholder="Ad Soyad"
-        value={form.name}
-        onChange={(e) => setForm({ ...form, name: e.target.value })}
-      />
-      <input
-        className="input"
-        placeholder="Firma Adı"
-        value={form.companyName ?? ''}
-        onChange={(e) => setForm({ ...form, companyName: e.target.value || undefined })}
-      />
-      <input
-        className="input"
-        placeholder="Telefon"
-        value={form.phone ?? ''}
-        onChange={(e) => setForm({ ...form, phone: e.target.value || undefined })}
-      />
-      <input
-        className="input"
-        placeholder="E-posta"
-        value={form.email ?? ''}
-        onChange={(e) => setForm({ ...form, email: e.target.value || undefined })}
-      />
-      <input
-        className="input"
-        placeholder="Adres"
-        value={form.address ?? ''}
-        onChange={(e) => setForm({ ...form, address: e.target.value || undefined })}
-      />
-      <input
-        className="input"
-        placeholder="Vergi No"
-        value={form.taxNumber ?? ''}
-        onChange={(e) => setForm({ ...form, taxNumber: e.target.value || undefined })}
-      />
-      <input
-        className="input"
-        type="number"
-        placeholder="Açılış Bakiyesi"
-        value={form.openingBalance ?? ''}
-        onChange={(e) =>
-          setForm({
-            ...form,
-            openingBalance: e.target.value ? Number(e.target.value) : undefined,
-          })
-        }
-      />
-      <div className="flex gap-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="label">
+            Ad Soyad / Ünvan <span className="text-red-600">*</span>
+          </span>
+          <input
+            className="input"
+            placeholder="Ad Soyad"
+            autoFocus
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+        </label>
+        <label className="block">
+          <span className="label">Firma</span>
+          <input
+            className="input"
+            placeholder="Firma Adı"
+            value={form.companyName ?? ''}
+            onChange={(e) => setForm({ ...form, companyName: e.target.value || undefined })}
+          />
+        </label>
+        <label className="block">
+          <span className="label">Telefon</span>
+          <input
+            className="input"
+            type="tel"
+            inputMode="tel"
+            placeholder="Telefon"
+            value={form.phone ?? ''}
+            onChange={(e) => setForm({ ...form, phone: e.target.value || undefined })}
+          />
+        </label>
+        <label className="block">
+          <span className="label">E-posta</span>
+          <input
+            className="input"
+            type="email"
+            inputMode="email"
+            placeholder="E-posta"
+            value={form.email ?? ''}
+            onChange={(e) => setForm({ ...form, email: e.target.value || undefined })}
+          />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className="label">Adres</span>
+          <input
+            className="input"
+            placeholder="Adres"
+            value={form.address ?? ''}
+            onChange={(e) => setForm({ ...form, address: e.target.value || undefined })}
+          />
+        </label>
+        <label className="block">
+          <span className="label">Vergi No</span>
+          <input
+            className="input"
+            inputMode="numeric"
+            placeholder="Vergi No"
+            value={form.taxNumber ?? ''}
+            onChange={(e) => setForm({ ...form, taxNumber: e.target.value || undefined })}
+          />
+        </label>
+        <label className="block">
+          <span className="label">Açılış bakiyesi (varsa mevcut borç)</span>
+          <input
+            className="input"
+            type="number"
+            inputMode="decimal"
+            placeholder="Açılış Bakiyesi"
+            value={form.openingBalance ?? ''}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                openingBalance: e.target.value ? Number(e.target.value) : undefined,
+              })
+            }
+          />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-2">
         <button
+          type="submit"
           className="btn-primary"
-          disabled={!form.name}
-          onClick={() => createMut.mutate(form)}
+          disabled={!form.name || createMut.isPending}
         >
           Kaydet
         </button>
-        <button className="btn" onClick={onClose}>
+        <button type="button" className="btn-secondary" onClick={onClose}>
           İptal
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -144,6 +219,8 @@ export function CustomersListPage() {
     setApplied((f) => (f ? { ...f, limit: n, page: 1 } : f));
   };
   const [showForm, setShowForm] = useState(false);
+  // Hızlı aramadan gelen "ekstresini aç" isteği: satır çizilince açılır.
+  const [openId, setOpenId] = useState<string | null>(null);
   const { mini, toggle: toggleMini } = useListDensity();
 
   const { data, isLoading, isFetching } = useQuery({
@@ -153,6 +230,39 @@ export function CustomersListPage() {
     enabled: applied !== null,
   });
 
+  // Hızlı arama (Ctrl+K) bağlantıları — kullanıcının kendi isteği olduğundan
+  // sorgu burada çalıştırılır:
+  //   ?new=1            → yeni müşteri formu
+  //   ?q=Ad&open=<id>   → adı arar ve o müşterinin ekstresini açar
+  //   ?debt=1           → yalnızca borçlular, borca göre
+  useUrlParam('new', () => setShowForm(true));
+  useUrlParam('q', (q) => runQuery({ search: q || undefined }));
+  useUrlParam('open', (id) => setOpenId(id));
+  useUrlParam('debt', () => runQuery({ hasDebt: true, sort: 'balance' }));
+
+  // Yalnız ?open geldiyse (arama yoksa) müşterinin adıyla sorgula.
+  useEffect(() => {
+    if (!openId || applied) return;
+    let cancelled = false;
+    fetchCustomer(openId)
+      .then((c) => {
+        if (!cancelled) runQuery({ search: c.name });
+      })
+      .catch(() => {
+        if (!cancelled) setOpenId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, applied]);
+
+  // Aranan müşteri sonuçlarda yoksa bekleyen isteği bırak.
+  useEffect(() => {
+    if (!openId || !data || isFetching) return;
+    if (!data.items.some((c) => c.id === openId)) setOpenId(null);
+  }, [openId, data, isFetching]);
+
   const set = (patch: Partial<CustomerFilters>) =>
     setDraft((f) => ({ ...f, ...patch, page: 1 }));
   const goPage = (page: number) => {
@@ -161,56 +271,77 @@ export function CustomersListPage() {
   };
   const meta = data?.meta;
 
+  const activeCount =
+    (draft.from || draft.to ? 1 : 0) +
+    (draft.hasDebt ? 1 : 0) +
+    (draft.sort && draft.sort !== 'balance' ? 1 : 0);
+  // Filtreleri sıfırla (arama metni kalır). Liste zaten sorgulanmışsa yeni
+  // hali hemen görünsün; sorgulanmamışsa yine Sorgula beklenir.
+  const clearFilters = () => {
+    const patch: Partial<CustomerFilters> = {
+      from: undefined,
+      to: undefined,
+      hasDebt: undefined,
+      sort: 'balance',
+    };
+    if (applied) runQuery(patch);
+    else set(patch);
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Müşteriler / Cari</h1>
-        <div className="flex items-center gap-2">
-          <DensityToggle mini={mini} onToggle={toggleMini} />
-          {!showForm && (
-            <Can module="customers" level="write">
-              <button className="btn-primary" onClick={() => setShowForm(true)}>
-                + Yeni Müşteri
-              </button>
-            </Can>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Müşteriler / Cari"
+        icon="👥"
+        subtitle="Müşteriyi arayıp Sorgula'ya basın; bakiye, ekstre ve portal linki satırdan açılır."
+        actions={
+          <>
+            <DensityToggle mini={mini} onToggle={toggleMini} />
+            {!showForm && (
+              <Can module="customers" level="write">
+                <button
+                  className="btn-primary"
+                  data-hotkey="n"
+                  title="Yeni müşteri (N)"
+                  onClick={() => setShowForm(true)}
+                >
+                  + Yeni Müşteri
+                </button>
+              </Can>
+            )}
+          </>
+        }
+      />
 
-      {showForm && <NewCustomerForm onClose={() => setShowForm(false)} />}
+      {showForm && (
+        <Can module="customers" level="write">
+          <NewCustomerForm onClose={() => setShowForm(false)} />
+        </Can>
+      )}
 
-      <div className="card space-y-3">
-        <input
-          className="input"
-          placeholder="Ara (ad, firma, telefon)…"
-          value={draft.search ?? ''}
-          onChange={(e) => set({ search: e.target.value || undefined })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') runQuery();
-          }}
+      <Filters
+        search={
+          <SearchInput
+            placeholder="Ara (ad, firma, telefon)…"
+            value={draft.search ?? ''}
+            onChange={(v) => set({ search: v || undefined })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') runQuery();
+            }}
+            enterKeyHint="search"
+          />
+        }
+        activeCount={activeCount}
+        onClear={clearFilters}
+      >
+        <DateRangeFilter
+          value={{ from: draft.from, to: draft.to }}
+          onChange={(r) => set({ from: r.from, to: r.to })}
+          fromLabel="Kayıt başlangıç"
+          toLabel="Kayıt bitiş"
         />
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Kayıt başlangıç</span>
-            <input
-              className="input"
-              type="date"
-              value={draft.from ?? ''}
-              onChange={(e) => set({ from: e.target.value || undefined })}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs text-slate-500">Kayıt bitiş</span>
-            <input
-              className="input"
-              type="date"
-              value={draft.to ?? ''}
-              onChange={(e) => set({ to: e.target.value || undefined })}
-            />
-          </label>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <label className="flex min-h-[44px] items-center gap-2 px-2 text-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm">
             <input
               type="checkbox"
               checked={!!draft.hasDebt}
@@ -218,68 +349,125 @@ export function CustomersListPage() {
             />
             Yalnızca borçlular
           </label>
-          <select
-            className="input w-auto"
-            value={draft.sort}
-            onChange={(e) =>
-              set({ sort: e.target.value as CustomerFilters['sort'] })
-            }
-          >
-            <option value="balance">Borca göre</option>
-            <option value="name">Ada göre</option>
-            <option value="recent">Son hareket</option>
-          </select>
+          <label className="block min-w-[10rem]">
+            <span className="label">Sıralama</span>
+            <select
+              className="input"
+              value={draft.sort}
+              onChange={(e) =>
+                set({ sort: e.target.value as CustomerFilters['sort'] })
+              }
+            >
+              <option value="balance">Borca göre</option>
+              <option value="name">Ada göre</option>
+              <option value="recent">Son hareket</option>
+            </select>
+          </label>
         </div>
+      </Filters>
 
-        {/* Liste yalnızca burada çalışır — sayfa açılışında sorgu atılmaz. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            className="btn-primary"
-            disabled={isFetching}
-            onClick={() => runQuery()}
-          >
-            {isFetching ? 'Sorgulanıyor…' : '🔍 Sorgula'}
-          </button>
-          <button
-            className="btn bg-slate-100"
-            onClick={() => {
-              const cleared: CustomerFilters = {
-                page: 1,
-                limit: pageSize,
-                sort: 'balance',
-              };
-              setDraft(cleared);
-              setApplied(null);
-            }}
-          >
-            Temizle
-          </button>
-          <button
-            className="btn bg-slate-100 text-xs"
-            title="Filtresiz, borca göre tüm cariler"
-            onClick={() => runQuery({ search: undefined, hasDebt: undefined })}
-          >
-            Tümünü listele
-          </button>
-        </div>
+      {/* Liste yalnızca burada çalışır — sayfa açılışında sorgu atılmaz.
+          Düğmeler filtre kutusunun dışında: telefonda filtreler kapalıyken de
+          görünür kalsın. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          className="btn-primary flex-1 sm:flex-none sm:px-6"
+          disabled={isFetching}
+          onClick={() => runQuery()}
+        >
+          {isFetching ? 'Sorgulanıyor…' : '🔍 Sorgula'}
+        </button>
+        <button
+          className="btn-secondary"
+          title="Filtresiz, borca göre tüm cariler"
+          onClick={() => runQuery({ search: undefined, hasDebt: undefined })}
+        >
+          Tümünü listele
+        </button>
+        <button
+          className="btn-ghost"
+          title="Aramayı ve filtreleri sıfırla, listeyi boşalt"
+          onClick={() => {
+            const cleared: CustomerFilters = {
+              page: 1,
+              limit: pageSize,
+              sort: 'balance',
+            };
+            setDraft(cleared);
+            setApplied(null);
+          }}
+        >
+          Temizle
+        </button>
       </div>
 
       {applied === null ? (
-        <div className="card text-center text-sm text-slate-500">
-          Aramak istediğiniz müşteriyi yazıp <b>Sorgula</b>'ya basın.
-          <span className="mt-1 block text-xs text-slate-400">
-            Liste, siz sorgulayana kadar boş kalır.
-          </span>
-        </div>
+        <EmptyState
+          icon="🔒"
+          title={
+            <>
+              Aramak istediğiniz müşteriyi yazıp <b>Sorgula</b>'ya basın.
+            </>
+          }
+          hint="Liste, siz sorgulayana kadar boş kalır. Ekran müşteriye dönükken diğer cariler görünmesin diye böyledir."
+          action={
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => runQuery({ hasDebt: true, sort: 'balance' })}
+            >
+              ⚠ Borçluları listele
+            </button>
+          }
+        />
       ) : isLoading ? (
-        <p className="text-slate-400">Yükleniyor…</p>
+        <LoadingBlock rows={3} />
       ) : (
         <div className="space-y-2">
+          {meta && data?.items.length ? (
+            <div className="flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
+              <span>
+                {meta.total} müşteri
+                {applied.hasDebt ? ' · yalnızca borçlular' : ''}
+                {applied.search ? ` · "${applied.search}"` : ''}
+              </span>
+              {isFetching && <Spinner className="text-blue-600" />}
+            </div>
+          ) : null}
           {data?.items.map((c) => (
-            <CustomerRow key={c.id} customer={c} mini={mini} />
+            <CustomerRow
+              key={c.id}
+              customer={c}
+              mini={mini}
+              autoOpen={c.id === openId}
+              onAutoOpened={() => setOpenId(null)}
+            />
           ))}
           {!data?.items.length && (
-            <p className="text-slate-400">Kayıt bulunamadı.</p>
+            <EmptyState
+              compact
+              icon="🔍"
+              title="Kayıt bulunamadı."
+              hint="Aramayı kısaltın, yazımı kontrol edin ya da filtreleri temizleyin."
+              action={
+                <>
+                  {activeCount > 0 && (
+                    <button className="btn-secondary btn-sm" onClick={clearFilters}>
+                      Filtreleri temizle
+                    </button>
+                  )}
+                  {!showForm && (
+                    <Can module="customers" level="write">
+                      <button
+                        className="btn-primary btn-sm"
+                        onClick={() => setShowForm(true)}
+                      >
+                        Yeni müşteri ekle
+                      </button>
+                    </Can>
+                  )}
+                </>
+              }
+            />
           )}
 
           {meta && (
@@ -333,18 +521,24 @@ function EditCustomerForm({
   });
 
   // #3 Silme kolay olmasın: düzenle sekmesinin içinde, iki kez onay sorar.
-  function handleDelete() {
+  async function handleDelete() {
     if (
-      !window.confirm(
-        `"${customer.name}" carisini KALICI olarak silmek üzeresiniz. Müşterinin tüm borç/alacak geçmişi, ödemeleri, teklifleri ve satışları silinir ve raporlarda artık görünmez. Devam edilsin mi?`,
-      )
+      !(await confirmDialog({
+        title: 'Müşteri kalıcı silinsin mi?',
+        message: `"${customer.name}" carisini KALICI olarak silmek üzeresiniz. Müşterinin tüm borç/alacak geçmişi, ödemeleri, teklifleri ve satışları silinir ve raporlarda artık görünmez. Devam edilsin mi?`,
+        confirmText: 'Devam et',
+        danger: true,
+      }))
     ) {
       return;
     }
     if (
-      !window.confirm(
-        `Son onay: "${customer.name}" ve tüm kayıtları geri alınamaz biçimde silinecek. Emin misiniz?`,
-      )
+      !(await confirmDialog({
+        title: 'Son onay',
+        message: `"${customer.name}" ve tüm kayıtları geri alınamaz biçimde silinecek. Emin misiniz?`,
+        confirmText: 'Kalıcı olarak sil',
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -353,30 +547,40 @@ function EditCustomerForm({
 
   const set = (k: keyof UpdateCustomerInput, v: string) =>
     setForm((f) => ({ ...f, [k]: v || undefined }));
-  const field = (label: string, k: keyof UpdateCustomerInput) => (
-    <label className="block text-xs">
-      <span className="mb-1 block text-slate-500">{label}</span>
+  const field = (
+    label: string,
+    k: keyof UpdateCustomerInput,
+    extra: { type?: string; inputMode?: 'tel' | 'email' | 'numeric'; required?: boolean } = {},
+  ) => (
+    <label className="block">
+      <span className="label">
+        {label}
+        {extra.required && <span className="text-red-600"> *</span>}
+      </span>
       <input
         className="input"
+        type={extra.type}
+        inputMode={extra.inputMode}
         value={(form[k] as string) ?? ''}
         onChange={(e) => set(k, e.target.value)}
       />
     </label>
   );
   return (
-    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2">
-      <div className="grid grid-cols-2 gap-2">
-        {field('Ad / Ünvan', 'name')}
+    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
+      <h4 className="text-sm font-semibold">Bilgileri düzenle</h4>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {field('Ad / Ünvan', 'name', { required: true })}
         {field('Firma', 'companyName')}
-        {field('Telefon', 'phone')}
-        {field('E-posta', 'email')}
-        {field('Vergi No', 'taxNumber')}
+        {field('Telefon', 'phone', { type: 'tel', inputMode: 'tel' })}
+        {field('E-posta', 'email', { type: 'email', inputMode: 'email' })}
+        {field('Vergi No', 'taxNumber', { inputMode: 'numeric' })}
         {field('Adres', 'address')}
       </div>
       {mut.isError && (
         <p className="text-xs text-red-600">Güncellenemedi.</p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           className="btn-primary"
           disabled={!form.name || mut.isPending}
@@ -384,15 +588,15 @@ function EditCustomerForm({
         >
           Kaydet
         </button>
-        <button className="btn" onClick={onDone}>
+        <button className="btn-secondary" onClick={onDone}>
           Vazgeç
         </button>
       </div>
 
       {/* #3 Tehlikeli bölge: müşteriyi kalıcı sil (iki onay). */}
-      <div className="mt-2 space-y-1 rounded-lg border border-red-200 bg-red-50 p-2">
-        <p className="text-xs font-semibold text-red-700">Tehlikeli bölge</p>
-        <p className="text-xs text-red-600">
+      <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/60 dark:bg-red-950/30">
+        <p className="text-xs font-semibold text-red-700 dark:text-red-300">⚠ Tehlikeli bölge</p>
+        <p className="text-xs text-red-600 dark:text-red-300">
           Müşteriyi kalıcı siler; borç/alacak geçmişi, ödemeleri, teklif ve
           satışları tamamen kaldırılır ve raporlarda görünmez.
         </p>
@@ -403,7 +607,7 @@ function EditCustomerForm({
           </p>
         )}
         <button
-          className="btn bg-red-600 text-xs text-white"
+          className="btn-danger btn-sm"
           disabled={delMut.isPending}
           onClick={handleDelete}
         >
@@ -439,9 +643,11 @@ function PortalLinkPanel({ customer }: { customer: Customer }) {
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
+      toast.success('Bağlantı kopyalandı');
     } catch {
       // Pano izni yoksa metni seçili input üzerinden elle kopyalasın.
       setCopied(false);
+      toast.warning('Kopyalanamadı', 'Bağlantıyı kutudan seçip elle kopyalayın.');
     }
   };
 
@@ -452,7 +658,8 @@ function PortalLinkPanel({ customer }: { customer: Customer }) {
     : '#';
 
   return (
-    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2 text-sm dark:border-slate-700">
+    <div className="mt-3 space-y-2 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700">
+      <h4 className="text-sm font-semibold">🔗 Müşteri portal linki</h4>
       <p className="text-xs text-slate-500">
         Müşteri bu linkle borcunu ve ekstresini kendisi görüntüler (giriş gerekmez).
         Link üretmek eskisini geçersiz kılar; "İptal et" tüm erişimi kapatır.
@@ -460,27 +667,30 @@ function PortalLinkPanel({ customer }: { customer: Customer }) {
       {issueMut.isError && (
         <p className="text-xs text-red-600">Link üretilemedi. Tekrar deneyin.</p>
       )}
+      {link && (
+        <input
+          className="input font-mono text-xs md:text-xs"
+          readOnly
+          value={link}
+          aria-label="Portal linki"
+          onFocus={(e) => e.target.select()}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <button
-          className="btn bg-indigo-600 text-white"
+          className={link ? 'btn-secondary btn-sm' : 'btn-primary btn-sm'}
           disabled={issueMut.isPending}
           onClick={() => issueMut.mutate()}
         >
-          {link ? 'Yeni link üret' : 'Link üret'}
+          {issueMut.isPending ? 'Üretiliyor…' : link ? 'Yeni link üret' : 'Link üret'}
         </button>
         {link && (
           <>
-            <input
-              className="input min-w-0 flex-1 text-xs"
-              readOnly
-              value={link}
-              onFocus={(e) => e.target.select()}
-            />
-            <button className="btn bg-slate-100" onClick={copy}>
+            <button className="btn-primary btn-sm" onClick={copy}>
               {copied ? '✓ Kopyalandı' : 'Kopyala'}
             </button>
             <a
-              className="btn bg-emerald-600 text-white"
+              className="btn-success btn-sm"
               href={waHref}
               target="_blank"
               rel="noreferrer"
@@ -488,10 +698,16 @@ function PortalLinkPanel({ customer }: { customer: Customer }) {
               WhatsApp
             </a>
             <button
-              className="btn bg-red-50 text-red-600"
+              className="btn-danger-soft btn-sm"
               disabled={revokeMut.isPending}
-              onClick={() => {
-                if (confirm('Portal erişimi iptal edilsin mi? Link geçersizleşir.')) {
+              onClick={async () => {
+                if (
+                  await confirmDialog({
+                    message: 'Portal erişimi iptal edilsin mi? Link geçersizleşir.',
+                    confirmText: 'İptal et',
+                    danger: true,
+                  })
+                ) {
                   revokeMut.mutate();
                 }
               }}
@@ -506,52 +722,144 @@ function PortalLinkPanel({ customer }: { customer: Customer }) {
 }
 
 /** Tek cari satırı: bakiye + ekstre + düzenle/sil. */
-function CustomerRow({ customer, mini }: { customer: Customer; mini?: boolean }) {
+function CustomerRow({
+  customer,
+  mini,
+  autoOpen,
+  onAutoOpened,
+}: {
+  customer: Customer;
+  mini?: boolean;
+  /** Hızlı aramadan gelindi: ekstreyi açıp satırı görünür alana kaydır. */
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
+}) {
   const [openStatement, setOpenStatement] = useState(false);
   const [editing, setEditing] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const balance = Number(customer.currentBalance);
+
+  useEffect(() => {
+    if (!autoOpen) return;
+    setOpenStatement(true);
+    setFlash(true);
+    onAutoOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
+  // Vurgulanan satır görünür alana kayar; vurgu birkaç saniyede söner.
+  useEffect(() => {
+    if (!flash) return;
+    const raf = requestAnimationFrame(() =>
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    );
+    const t = window.setTimeout(() => setFlash(false), 2500);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [flash]);
+
+  const actions = (
+    <div className={`flex flex-wrap items-center gap-2 ${mini ? '' : 'mt-3'}`}>
+      <button
+        className={openStatement ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+        aria-expanded={openStatement}
+        onClick={() => setOpenStatement((o) => !o)}
+      >
+        {openStatement ? 'Kapat' : 'Ekstre'}
+      </button>
+      <Can module="payments" level="write">
+        <Link
+          className="btn-secondary btn-sm"
+          to={`/payments?customer=${customer.id}`}
+          title="Bu müşteriden tahsilat al"
+        >
+          💰 Tahsilat
+        </Link>
+      </Can>
+      <button
+        className={portalOpen ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+        title="Müşteri portal linki (borç/ekstre görüntüleme)"
+        aria-expanded={portalOpen}
+        onClick={() => setPortalOpen((p) => !p)}
+      >
+        🔗 Portal
+      </button>
+      <button
+        className={editing ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+        aria-expanded={editing}
+        onClick={() => setEditing((e) => !e)}
+      >
+        {editing ? 'Vazgeç' : 'Düzenle'}
+      </button>
+    </div>
+  );
 
   return (
-    <div className={mini ? 'card !p-2' : 'card'}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="font-medium">
-            {customer.name}
-            {mini && (customer.companyName || customer.phone) ? (
-              <span className="ml-2 text-xs font-normal text-slate-400">
-                {customer.companyName ?? customer.phone}
-              </span>
-            ) : null}
-          </h3>
-          {!mini && (
-            <p className="text-sm text-slate-500">
-              {customer.companyName ?? customer.phone ?? '—'}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-sm font-semibold ${
-              customer.currentBalance > 0 ? 'text-red-600' : 'text-emerald-600'
-            }`}
-          >
-            {currency.format(customer.currentBalance)}
+    <div
+      ref={rowRef}
+      className={`card scroll-mt-3 transition-shadow ${mini ? '!p-2' : ''} ${
+        flash ? 'ring-2 ring-blue-400' : ''
+      }`}
+    >
+      {mini ? (
+        // Mini görünüm: ad, bakiye ve düğmeler tek satırda (sığmazsa sarılır).
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-semibold">
+              {customer.name}
+              {customer.companyName ? (
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  {customer.companyName}
+                </span>
+              ) : customer.phone ? (
+                <a
+                  href={telHref(customer.phone)}
+                  className="ml-2 text-xs font-normal text-blue-600 hover:underline"
+                >
+                  {customer.phone}
+                </a>
+              ) : null}
+            </h3>
+          </div>
+          <span className={`whitespace-nowrap font-bold ${balanceTone(balance)}`}>
+            {formatMoney(balance)}
           </span>
-          <button className="btn bg-slate-100 text-xs" onClick={() => setOpenStatement((o) => !o)}>
-            {openStatement ? 'Kapat' : 'Ekstre'}
-          </button>
-          <button
-            className="btn bg-slate-100 text-xs"
-            title="Müşteri portal linki (borç/ekstre görüntüleme)"
-            onClick={() => setPortalOpen((p) => !p)}
-          >
-            🔗 Portal
-          </button>
-          <button className="btn bg-slate-100 text-xs" onClick={() => setEditing((e) => !e)}>
-            {editing ? 'Vazgeç' : 'Düzenle'}
-          </button>
+          {actions}
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="break-words font-semibold">{customer.name}</h3>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                {customer.companyName && (
+                  <span className="min-w-0 break-words">🏢 {customer.companyName}</span>
+                )}
+                {customer.phone && (
+                  <a
+                    href={telHref(customer.phone)}
+                    className="inline-flex min-h-[28px] items-center text-blue-600 hover:underline"
+                    title="Ara"
+                  >
+                    📞 {customer.phone}
+                  </a>
+                )}
+                {!customer.companyName && !customer.phone && <span>—</span>}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className={`text-lg font-bold leading-tight ${balanceTone(balance)}`}>
+                {formatMoney(balance)}
+              </div>
+              <div className="text-xs text-slate-500">{balanceLabel(balance)}</div>
+            </div>
+          </div>
+          {actions}
+        </>
+      )}
       {portalOpen && <PortalLinkPanel customer={customer} />}
       {editing && (
         <EditCustomerForm customer={customer} onDone={() => setEditing(false)} />
@@ -570,6 +878,16 @@ const SOURCE_LABELS: Record<string, string> = {
   payment: 'Ödeme',
   discount: 'İndirim',
   manual_adjustment: 'Manuel',
+};
+
+/** Ekstrede hareket kaynağı rozet renkleri. */
+const SOURCE_BADGES: Record<string, string> = {
+  opening: 'bg-slate-100 text-slate-700',
+  processing: 'bg-blue-100 text-blue-800',
+  sale: 'bg-indigo-100 text-indigo-800',
+  payment: 'bg-emerald-100 text-emerald-800',
+  discount: 'bg-amber-100 text-amber-800',
+  manual_adjustment: 'bg-purple-100 text-purple-800',
 };
 
 /** Elle girildiği için ekstreden geri alınabilen hareket kaynakları. */
@@ -639,6 +957,9 @@ function CustomerStatement({
   );
   const [rangeFrom, setRangeFrom] = useState('');
   const [rangeTo, setRangeTo] = useState('');
+  // Yalnız arayüz: "Tarih aralığı seç…" seçildi ama henüz tarih girilmedi.
+  const [customPicked, setCustomPicked] = useState(false);
+  const isCustom = customPicked || !!rangeFrom || !!rangeTo;
   const statementQuery = {
     ...(rangeFrom ? { from: rangeFrom } : {}),
     ...(rangeTo ? { to: rangeTo } : {}),
@@ -653,7 +974,7 @@ function CustomerStatement({
     return qs ? `?${qs}` : '';
   })();
 
-  const { data: statement } = useQuery({
+  const { data: statement, isLoading: statementLoading } = useQuery({
     queryKey: ['ledger', customerId, statementQuery],
     queryFn: () => fetchCustomerStatement(customerId, statementQuery),
   });
@@ -696,18 +1017,21 @@ function CustomerStatement({
     },
   });
 
-  function undoEntry(entry: CustomerLedgerEntry) {
+  async function undoEntry(entry: CustomerLedgerEntry) {
     const label = SOURCE_LABELS[entry.sourceType] ?? entry.sourceType;
     const extra =
       entry.sourceType === 'payment' && entry.sourceId
         ? ' Bu hareketin ödeme kaydı da silinir; borç kapatma indirimi varsa o da geri alınır.'
         : '';
     if (
-      !window.confirm(
-        `${entry.occurredAt?.slice(0, 10)} tarihli "${label}" hareketi (${currency.format(
-          Number(entry.amount),
+      !(await confirmDialog({
+        title: 'Hareket geri alınsın mı?',
+        message: `${formatDate(entry.occurredAt?.slice(0, 10))} tarihli "${label}" hareketi (${formatMoney(
+          entry.amount,
         )}) geri alınacak.${extra} Cari bakiyesi yeniden hesaplanır. Devam edilsin mi?`,
-      )
+        confirmText: 'Geri al',
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -725,6 +1049,15 @@ function CustomerStatement({
   // henüz gelmemişse ledger toplamına düş.
   const currentBalance =
     freshCustomer != null ? Number(freshCustomer.currentBalance) : ledgerBalance;
+  // Yalnız gösterim: listelenen dönemin borç/ödeme toplamları.
+  const periodDebit = computed.reduce(
+    (s, e) => s + (e.entryType === 'debit' ? Number(e.amount) : 0),
+    0,
+  );
+  const periodCredit = computed.reduce(
+    (s, e) => s + (e.entryType === 'credit' ? Number(e.amount) : 0),
+    0,
+  );
 
   // #5 Borç kapatma: müşterinin ödediği tutarı (varsa) ve ödeme yöntemini gir.
   // Tahsil edilen tutar gerçek bir ödeme olarak kaydedilir (ödeme geçmişinde
@@ -796,68 +1129,40 @@ function CustomerStatement({
       .replace(/[^a-z0-9çğıöşü]+/gi, '-')
       .replace(/^-+|-+$/g, '') || customerId.slice(0, 8);
 
+  const colCount = showUndo ? 6 : 5;
+
   return (
-    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-2">
+    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
       {/* Dönem seçimi — çıktılar (CSV/PDF) da bu dönemi kullanır. */}
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="block text-xs">
-            <span className="mb-1 block text-slate-500">Dönem</span>
-            <select
-              className="input w-auto"
-              value={rangeFrom || rangeTo ? 'custom' : scope}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === 'custom') {
-                  // Serbest aralığa geç: başlangıcı son kapatma tarihine kur.
-                  setRangeFrom(statement?.lastSettledAt?.slice(0, 10) ?? '');
-                  return;
-                }
-                setRangeFrom('');
-                setRangeTo('');
-                setScope(v as 'since-settlement' | 'all');
-              }}
-            >
-              <option value="since-settlement">Son borç kapatmadan bugüne</option>
-              <option value="all">Tüm hareketler</option>
-              <option value="custom">Tarih aralığı seç…</option>
-            </select>
-          </label>
-          {(rangeFrom || rangeTo) && (
-            <>
-              <label className="block text-xs">
-                <span className="mb-1 block text-slate-500">Başlangıç</span>
-                <input
-                  className="input w-auto"
-                  type="date"
-                  value={rangeFrom}
-                  onChange={(e) => setRangeFrom(e.target.value)}
-                />
-              </label>
-              <label className="block text-xs">
-                <span className="mb-1 block text-slate-500">Bitiş</span>
-                <input
-                  className="input w-auto"
-                  type="date"
-                  value={rangeTo}
-                  onChange={(e) => setRangeTo(e.target.value)}
-                />
-              </label>
-              <button
-                className="btn bg-slate-100 text-xs"
-                onClick={() => {
-                  setRangeFrom('');
-                  setRangeTo('');
-                }}
-              >
-                Sıfırla
-              </button>
-            </>
-          )}
-        </div>
+        <label className="block min-w-0 flex-1 sm:max-w-xs">
+          <span className="label">Ekstre dönemi</span>
+          <select
+            className="input"
+            value={isCustom ? 'custom' : scope}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'custom') {
+                // Serbest aralığa geç: başlangıcı son kapatma tarihine kur.
+                setCustomPicked(true);
+                setRangeFrom(statement?.lastSettledAt?.slice(0, 10) ?? '');
+                return;
+              }
+              setCustomPicked(false);
+              setRangeFrom('');
+              setRangeTo('');
+              setScope(v as 'since-settlement' | 'all');
+            }}
+          >
+            <option value="since-settlement">Son borç kapatmadan bugüne</option>
+            <option value="all">Tüm hareketler</option>
+            <option value="custom">Tarih aralığı seç…</option>
+          </select>
+        </label>
         <div className="flex gap-2">
           <button
-            className="btn bg-slate-100 text-xs"
+            className="btn-secondary btn-sm"
+            title="Ekstreyi CSV (Excel) olarak indir"
             onClick={() =>
               downloadFile(
                 `/customers/${customerId}/statement.csv${statementParams}`,
@@ -865,24 +1170,37 @@ function CustomerStatement({
               )
             }
           >
-            CSV
+            ⬇ CSV
           </button>
           <button
-            className="btn bg-slate-100 text-xs"
+            className="btn-secondary btn-sm"
+            title="Ekstreyi PDF olarak aç / yazdır"
             onClick={() =>
               openPdf(`/customers/${customerId}/statement${statementParams}`)
             }
           >
-            PDF
+            🖨 PDF
           </button>
         </div>
       </div>
+      {isCustom && (
+        <DateRangeFilter
+          value={{ from: rangeFrom || undefined, to: rangeTo || undefined }}
+          onChange={(r) => {
+            setRangeFrom(r.from ?? '');
+            setRangeTo(r.to ?? '');
+            // Aralık tamamen temizlenince varsayılan döneme dönülür.
+            if (!r.from && !r.to) setCustomPicked(false);
+          }}
+          presets={['month', 'lastMonth', '30d', 'year']}
+        />
+      )}
 
       {/* Hangi dönemin gösterildiği açıkça yazılsın. */}
-      <p className="text-xs text-slate-500">
+      <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-slate-900/40">
         {statement?.scope === 'since-settlement' && statement.lastSettledAt ? (
           <>
-            Borç en son <b>{statement.lastSettledAt.slice(0, 10)}</b> tarihinde
+            Borç en son <b>{formatDate(statement.lastSettledAt.slice(0, 10))}</b> tarihinde
             kapanmış; o tarihten sonraki hareketler gösteriliyor.
           </>
         ) : statement?.scope === 'custom' ? (
@@ -894,78 +1212,109 @@ function CustomerStatement({
           ? ` Öncesinde ${statement.totalCount - statement.entries.length} hareket daha var (devir satırına bakın).`
           : ''}
       </p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="text-left text-slate-500">
+      {/* Dar ekranda tablo kendi içinde yana kayar; sayfa taşmaz. */}
+      <div className="-mx-3 overflow-x-auto px-3">
+        <table className="w-full min-w-[520px] text-xs sm:text-sm">
+          <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-900/40">
             <tr>
-              <th className="py-1">Tarih</th>
-              <th className="py-1">Açıklama</th>
-              <th className="py-1 text-right">Borç</th>
-              <th className="py-1 text-right">Ödeme/Alacak</th>
-              <th className="py-1 text-right">Bakiye</th>
-              {showUndo && <th className="py-1 text-right">İşlem</th>}
+              <th className="px-2 py-2 font-medium">Tarih</th>
+              <th className="px-2 py-2 font-medium">Açıklama</th>
+              <th className="px-2 py-2 text-right font-medium">Borç</th>
+              <th className="px-2 py-2 text-right font-medium">Ödeme/Alacak</th>
+              <th className="px-2 py-2 text-right font-medium">Bakiye</th>
+              {showUndo && <th className="px-2 py-2 text-right font-medium">İşlem</th>}
             </tr>
           </thead>
           <tbody>
+            {statementLoading && (
+              <tr>
+                <td colSpan={colCount} className="px-2 py-4 text-center text-slate-400">
+                  <Spinner className="mr-2 align-middle" /> Ekstre yükleniyor…
+                </td>
+              </tr>
+            )}
             {/* Dönem başı devri — ekstre kendi içinde tutarlı kalsın. */}
             {statement?.hasEarlier && (
-              <tr className="border-t border-slate-100 bg-slate-50">
-                <td className="py-1">
-                  {statement.scope === 'since-settlement'
-                    ? statement.lastSettledAt?.slice(0, 10)
+              <tr className="border-t border-slate-100 bg-slate-50/60 dark:bg-slate-900/30">
+                <td className="whitespace-nowrap px-2 py-2">
+                  {statement.scope === 'since-settlement' && statement.lastSettledAt
+                    ? formatDate(statement.lastSettledAt.slice(0, 10))
                     : ''}
                 </td>
-                <td className="py-1 italic text-slate-500">
+                <td className="px-2 py-2 italic text-slate-500">
                   Devir (önceki dönemden bakiye)
                 </td>
-                <td className="py-1" />
-                <td className="py-1" />
-                <td className="py-1 text-right font-medium">
-                  {currency.format(statement.openingBalance)}
+                <td className="px-2 py-2" />
+                <td className="px-2 py-2" />
+                <td
+                  className={`whitespace-nowrap px-2 py-2 text-right font-semibold ${balanceTone(
+                    Number(statement.openingBalance),
+                  )}`}
+                >
+                  {formatMoney(statement.openingBalance)}
                 </td>
-                {showUndo && <td className="py-1" />}
+                {showUndo && <td className="px-2 py-2" />}
               </tr>
             )}
             {computed.map((e) => {
               const blocked = showUndo ? undoBlockReason(e, isOwner) : null;
               return (
-                <tr key={e.id} className="border-t border-slate-100">
-                  <td className="py-1">{e.occurredAt?.slice(0, 10)}</td>
-                  <td className="py-1">
-                    {SOURCE_LABELS[e.sourceType] ?? e.sourceType}
-                    {e.description ? ` · ${e.description}` : ''}
+                <tr
+                  key={e.id}
+                  className="border-t border-slate-100 align-top hover:bg-slate-50 dark:hover:bg-slate-900/30"
+                >
+                  <td className="whitespace-nowrap px-2 py-2 text-slate-600">
+                    {formatDate(e.occurredAt?.slice(0, 10))}
                   </td>
-                  <td className="py-1 text-right text-red-600">
-                    {e.entryType === 'debit' ? currency.format(Number(e.amount)) : ''}
+                  <td className="px-2 py-2">
+                    <span
+                      className={`badge mr-1 ${
+                        SOURCE_BADGES[e.sourceType] ?? 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {SOURCE_LABELS[e.sourceType] ?? e.sourceType}
+                    </span>
+                    {e.description ? (
+                      <span className="break-words text-slate-600">{e.description}</span>
+                    ) : null}
                   </td>
-                  <td className="py-1 text-right text-emerald-700">
-                    {e.entryType === 'credit' ? currency.format(Number(e.amount)) : ''}
+                  <td className="whitespace-nowrap px-2 py-2 text-right font-medium text-red-600">
+                    {e.entryType === 'debit' ? formatMoney(e.amount) : ''}
                   </td>
-                  <td className="py-1 text-right font-medium">{currency.format(e.running)}</td>
+                  <td className="whitespace-nowrap px-2 py-2 text-right font-medium text-emerald-700">
+                    {e.entryType === 'credit' ? formatMoney(e.amount) : ''}
+                  </td>
+                  <td
+                    className={`whitespace-nowrap px-2 py-2 text-right font-semibold ${balanceTone(
+                      e.running,
+                    )}`}
+                  >
+                    {formatMoney(e.running)}
+                  </td>
                   {showUndo && (
-                  <td className="py-1 text-right">
-                    {blocked ? (
-                      <span className="text-slate-300" title={blocked}>
-                        —
-                      </span>
-                    ) : (
-                      <button
-                        className="btn bg-red-50 px-2 py-1 text-xs text-red-600"
-                        title="Yanlış girilen bu hareketi geri al (sil)"
-                        disabled={undoMut.isPending}
-                        onClick={() => undoEntry(e)}
-                      >
-                        {undoingId === e.id ? '…' : 'Geri al'}
-                      </button>
-                    )}
-                  </td>
+                    <td className="px-2 py-1.5 text-right">
+                      {blocked ? (
+                        <span className="text-slate-300" title={blocked}>
+                          —
+                        </span>
+                      ) : (
+                        <button
+                          className="btn-danger-soft btn-sm"
+                          title="Yanlış girilen bu hareketi geri al (sil)"
+                          disabled={undoMut.isPending}
+                          onClick={() => undoEntry(e)}
+                        >
+                          {undoingId === e.id ? '…' : 'Geri al'}
+                        </button>
+                      )}
+                    </td>
                   )}
                 </tr>
               );
             })}
-            {!computed.length && (
+            {!statementLoading && !computed.length && (
               <tr>
-                <td colSpan={showUndo ? 6 : 5} className="py-2 text-center text-slate-400">
+                <td colSpan={colCount} className="px-2 py-4 text-center text-slate-400">
                   {statement?.scope === 'since-settlement' && statement.hasEarlier
                     ? 'Son borç kapatmadan bu yana hareket yok — borç kapalı.'
                     : 'Hareket yok.'}
@@ -973,6 +1322,29 @@ function CustomerStatement({
               </tr>
             )}
           </tbody>
+          {computed.length > 0 && (
+            <tfoot className="border-t-2 border-slate-200 font-semibold">
+              <tr>
+                <td className="px-2 py-2 text-slate-500" colSpan={2}>
+                  Dönem toplamı / son bakiye
+                </td>
+                <td className="whitespace-nowrap px-2 py-2 text-right text-red-600">
+                  {formatMoney(periodDebit)}
+                </td>
+                <td className="whitespace-nowrap px-2 py-2 text-right text-emerald-700">
+                  {formatMoney(periodCredit)}
+                </td>
+                <td
+                  className={`whitespace-nowrap px-2 py-2 text-right ${balanceTone(
+                    Number(ledgerBalance),
+                  )}`}
+                >
+                  {formatMoney(ledgerBalance)}
+                </td>
+                {showUndo && <td />}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       {undoMut.isError && (
@@ -983,98 +1355,145 @@ function CustomerStatement({
       )}
 
       {/* Geçmiş tarihli borç/ödeme ekle */}
-      <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-2">
-        <select
-          className="input w-auto"
-          value={entryType}
-          onChange={(e) => setEntryType(e.target.value as 'debit' | 'credit')}
-        >
-          <option value="debit">Borç ekle</option>
-          <option value="credit">Ödeme/alacak ekle</option>
-        </select>
-        <input
-          className="input w-28"
-          type="number"
-          min={0}
-          placeholder="Tutar"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-        <input
-          className="input w-auto"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-        <input
-          className="input flex-1"
-          placeholder="Açıklama (örn. nakit / havale ABC Banka)"
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-        />
-        <button
-          className="btn-primary"
-          disabled={!amount || Number(amount) <= 0 || addMut.isPending}
-          onClick={() => addMut.mutate()}
-        >
-          Ekle
-        </button>
+      <div className="space-y-2 border-t border-slate-200 pt-3">
+        <h4 className="text-sm font-semibold">Hareket ekle</h4>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[auto_8rem_auto_1fr_auto] sm:items-end">
+          <label className="block min-w-0">
+            <span className="label">Tür</span>
+            <select
+              className="input"
+              value={entryType}
+              onChange={(e) => setEntryType(e.target.value as 'debit' | 'credit')}
+            >
+              <option value="debit">Borç ekle</option>
+              <option value="credit">Ödeme/alacak ekle</option>
+            </select>
+          </label>
+          <label className="block min-w-0">
+            <span className="label">Tutar</span>
+            <input
+              className="input"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              placeholder="0,00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="label">Tarih</span>
+            <input
+              className="input"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="label">Açıklama</span>
+            <input
+              className="input"
+              placeholder="örn. nakit / havale ABC Banka"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
+          </label>
+          <button
+            className="btn-primary col-span-2 sm:col-span-1"
+            disabled={!amount || Number(amount) <= 0 || addMut.isPending}
+            onClick={() => addMut.mutate()}
+          >
+            Ekle
+          </button>
+        </div>
       </div>
 
       {/* #5 Borcu kapat: tahsil edilen tutarı ve yöntemini gir; kalan fark
           "İndirim" olur. Hiç para almadan kapatmak için tutarı boş/0 bırakın. */}
       {currentBalance > 0 && (
-        <div className="space-y-2 border-t border-slate-200 pt-2">
-          <p className="text-xs font-medium text-slate-600">
-            Borç kapatma · Güncel borç: {currency.format(currentBalance)}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              className="input w-36"
-              type="number"
-              min={0}
-              placeholder="Tahsil edilen (0 = para yok)"
-              value={paid}
-              onChange={(e) => setPaid(e.target.value)}
-            />
-            <button
-              className="btn bg-slate-100 text-xs"
-              title="Kalan borcun tamamını tahsilat olarak yaz (indirim yok)"
-              onClick={() => setPaid(String(currentBalance))}
-            >
-              Tümü
-            </button>
-            <input
-              className="input w-auto"
-              type="date"
-              value={settleDate}
-              onChange={(e) => setSettleDate(e.target.value)}
-            />
-            <span className="text-xs text-slate-500">
-              İndirim:{' '}
-              <span className="font-semibold text-amber-600">
-                {currency.format(discountAmount)}
-              </span>
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Borç kapatma
+            </h4>
+            <span className="text-sm text-slate-600">
+              Güncel borç:{' '}
+              <span className="font-bold text-red-600">{formatMoney(currentBalance)}</span>
             </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:items-end">
+            <div className="min-w-0">
+              <label className="label" htmlFor={`settle-paid-${customerId}`}>
+                Tahsil edilen (0 = para yok)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id={`settle-paid-${customerId}`}
+                  className="input min-w-0"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  placeholder="0,00"
+                  value={paid}
+                  onChange={(e) => setPaid(e.target.value)}
+                />
+                <button
+                  className="btn-secondary shrink-0"
+                  title="Kalan borcun tamamını tahsilat olarak yaz (indirim yok)"
+                  onClick={() => setPaid(String(currentBalance))}
+                >
+                  Tümü
+                </button>
+              </div>
+            </div>
+            <label className="block min-w-0">
+              <span className="label">Tarih</span>
+              <input
+                className="input"
+                type="date"
+                value={settleDate}
+                onChange={(e) => setSettleDate(e.target.value)}
+              />
+            </label>
+            <div className="flex min-h-[44px] items-center text-sm text-slate-600">
+              İndirim olarak yazılacak:&nbsp;
+              <span className="font-bold text-amber-600">
+                {formatMoney(discountAmount)}
+              </span>
+            </div>
           </div>
 
           {/* Para giriliyorsa ödeme yöntemi (ödeme formundaki gibi). */}
           {paidNum > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="input w-auto"
-                value={settleMethod}
-                onChange={(e) => setSettleMethod(e.target.value as PaymentMethod)}
+            <div className="space-y-2">
+              <div
+                className="grid grid-cols-3 gap-2"
+                role="group"
+                aria-label="Ödeme yöntemi"
               >
-                <option value="cash">Nakit</option>
-                <option value="bank_transfer">Havale/EFT</option>
-                <option value="card">Kart</option>
-              </select>
+                {METHOD_OPTIONS.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    aria-pressed={settleMethod === m.value}
+                    className={`btn btn-sm border px-2 ${
+                      settleMethod === m.value
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                    }`}
+                    onClick={() => setSettleMethod(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
               {settleMethod === 'cash' && (
                 <select
-                  className="input w-auto"
+                  className="input"
                   value={settleReceivedById}
                   onChange={(e) => setSettleReceivedById(e.target.value)}
+                  aria-label="Parayı alan çalışan"
                 >
                   <option value="">Parayı alan çalışan…</option>
                   {settleEmployees?.map((emp) => (
@@ -1086,9 +1505,10 @@ function CustomerStatement({
               )}
               {settleMethod === 'bank_transfer' && (
                 <select
-                  className="input w-auto"
+                  className="input"
                   value={settleBankAccountId}
                   onChange={(e) => setSettleBankAccountId(e.target.value)}
+                  aria-label="Banka hesabı"
                 >
                   <option value="">Banka hesabı…</option>
                   {settleBanks?.map((b) => (
@@ -1101,7 +1521,7 @@ function CustomerStatement({
               )}
               {settleMethod === 'card' && (
                 <input
-                  className="input w-auto flex-1"
+                  className="input"
                   placeholder="İşletme / POS adı"
                   value={settleCardBusiness}
                   onChange={(e) => setSettleCardBusiness(e.target.value)}
@@ -1112,14 +1532,16 @@ function CustomerStatement({
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className="btn bg-amber-600 text-white"
+              className="btn bg-amber-600 text-white hover:bg-amber-700"
               disabled={!settleMethodReady || discountMut.isPending}
-              onClick={() => {
+              onClick={async () => {
                 if (
                   paidNum <= 0 &&
-                  !window.confirm(
-                    `Hiç para alınmadan ${currency.format(currentBalance)} borç kapatılacak (tamamı indirim). Devam edilsin mi?`,
-                  )
+                  !(await confirmDialog({
+                    message: `Hiç para alınmadan ${formatMoney(currentBalance)} borç kapatılacak (tamamı indirim). Devam edilsin mi?`,
+                    confirmText: 'Borcu kapat',
+                    danger: true,
+                  }))
                 ) {
                   return;
                 }
@@ -1129,8 +1551,15 @@ function CustomerStatement({
               {paidNum > 0 ? 'Borcu kapat (tahsilatla)' : 'Borcu kapat (para almadan)'}
             </button>
             {paidNum <= 0 && (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 Tutar 0 → gerçek ödeme oluşmaz, borç indirimle kapanır.
+              </span>
+            )}
+            {paidNum > 0 && !settleMethodReady && (
+              <span className="text-xs text-amber-700">
+                {settleMethod === 'cash'
+                  ? 'Parayı alan çalışanı seçin.'
+                  : 'Banka hesabını seçin.'}
               </span>
             )}
           </div>
