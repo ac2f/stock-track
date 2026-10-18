@@ -11,7 +11,10 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CreateMaterialTemplateDto } from '../dto/create-material-template.dto';
-import { UpdateMaterialTemplateDto } from '../dto/update-material-template.dto';
+import {
+  MergeMaterialTemplatesDto,
+  UpdateMaterialTemplateDto,
+} from '../dto/update-material-template.dto';
 import { MaterialTemplatesService } from '../services/material-templates.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
 
@@ -49,6 +52,15 @@ export class MaterialTemplatesController {
     @Body() dto: UpdateMaterialTemplateDto,
   ) {
     return this.templatesService.update(id, dto);
+  }
+
+  /** Kopyaları bu türe birleştirir (stok kalemleri taşınır, silinmez). */
+  @Post(':id/merge')
+  merge(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MergeMaterialTemplatesDto,
+  ) {
+    return this.templatesService.merge(id, dto.sourceIds);
   }
 
   @Delete(':id')

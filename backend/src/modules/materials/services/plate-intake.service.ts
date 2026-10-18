@@ -180,17 +180,25 @@ export class PlateIntakeService {
         .filter(Boolean)
         .join(' ');
 
-    // Aynı tür + aynı varsayılanlar → aynı şablon (kopya açılmaz).
-    const existing = (
+    // Aynı tür + aynı marka/renk/kalınlık/ebat → var olan şablon (kopya
+    // açılmaz, ad farklı yazılmış olsa da). Birden çok aday varsa kalemin alt
+    // türüyle aynı olan, yoksa alt türsüz olan, yoksa ilki seçilir; kalem kendi
+    // alt türünü yine taşır. Hiç özellik yoksa ayırt edici olan ad.
+    const sameAttrs = (
       await this.templatesRepo.find({ where: { categoryId: category.id } })
-    ).find(
+    ).filter(
       (t) =>
         (t.defaultBrandId ?? null) === (brand?.id ?? null) &&
         (t.defaultColorId ?? null) === (color?.id ?? null) &&
         (t.defaultThicknessId ?? null) === (thickness?.id ?? null) &&
         (t.defaultSizeId ?? null) === (size?.id ?? null) &&
-        normalizeName(t.name) === normalizeName(name),
+        (brand || color || thickness || size || normalizeName(t.name) === normalizeName(name)),
     );
+    const variant = normalizeName(item.variant);
+    const existing =
+      sameAttrs.find((t) => normalizeName(t.defaultVariant) === variant) ??
+      sameAttrs.find((t) => !normalizeName(t.defaultVariant)) ??
+      sameAttrs[0];
     if (existing) return existing.id;
 
     const created = await this.templatesRepo.save(

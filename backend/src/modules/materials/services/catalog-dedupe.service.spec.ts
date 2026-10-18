@@ -5,6 +5,7 @@ import { MaterialPlate } from '../entities/material-plate.entity';
 import { MaterialSize } from '../entities/material-size.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialThickness } from '../entities/material-thickness.entity';
+import { PriceRule } from '../entities/price-rule.entity';
 import { CatalogDedupeService } from './catalog-dedupe.service';
 
 /**
@@ -101,9 +102,10 @@ describe('CatalogDedupeService', () => {
     await service.apply();
 
     const moved = updates.filter((u) => (u.where as { categoryId?: string }).categoryId === 'dup');
-    // Şablon + marka + renk + ebat + kalınlık taşınmalı.
+    // Şablon + marka + renk + ebat + kalınlık + fiyat çatısı taşınmalı.
     expect(moved.map((u) => u.entity).sort()).toEqual(
       [
+        PriceRule.name,
         MaterialBrand.name,
         MaterialColor.name,
         MaterialSize.name,

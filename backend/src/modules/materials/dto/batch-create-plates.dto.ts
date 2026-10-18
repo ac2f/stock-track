@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -19,6 +20,11 @@ import { CreatePlateDto } from './create-plate.dto';
  * önceden tek tek tanım yapmaya gerek kalmaz.
  */
 export class BatchPlateItemDto extends CreatePlateDto {
+  /** Toplu girişte şablon isteğe bağlıdır: verilmezse adlardan bulunur/açılır. */
+  @IsOptional()
+  @IsUUID()
+  templateId: string;
+
   /** Şablon verilmediğinde kullanılır; yoksa açılır. */
   @IsOptional()
   @IsString()

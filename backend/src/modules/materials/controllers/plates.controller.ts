@@ -145,6 +145,12 @@ export class PlatesController {
     return this.pricingService.setRetailPrice(id, dto);
   }
 
+  /** Kalemin kendi fiyatını kaldırır; öneri (varsa) fiyat çatısından gelir. */
+  @Delete(':id/retail-price')
+  clearRetailPrice(@Param('id', ParseUUIDPipe) id: string) {
+    return this.pricingService.clearRetailPrice(id);
+  }
+
   /**
    * Aynı türdeki (marka/renk farklı olabilir) fiyatı tanımlı malzemeler —
    * fiyatı olmayan bir malzemeye "aynısını uygula" için.

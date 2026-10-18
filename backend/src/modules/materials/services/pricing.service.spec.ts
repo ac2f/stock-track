@@ -1,6 +1,7 @@
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { PriceUnit } from '../../../common/enums/price-unit.enum';
 import { PricingService } from './pricing.service';
+import { PriceRulesService } from './price-rules.service';
 
 /**
  * Satış fiyatı = perakende × (1 + kâr%). Malzemeci fiyatlarıyla karşılaştırılır;
@@ -20,6 +21,8 @@ describe('PricingService', () => {
     commission?: number;
     /** Baz para birimine çevrim katsayısı (ör. USD → 34 TL). */
     rate?: number;
+    /** Etkin fiyat çatıları (girdileriyle). */
+    rules?: Record<string, unknown>[];
   }) {
     const plate = {
       id: 'p1',
@@ -44,11 +47,25 @@ describe('PricingService', () => {
       baseCurrency: 'TRY',
       toBase: jest.fn(async (amount: number) => amount * (opts.rate ?? 1)),
     };
+    // Gerçek çatı servisi: eşleşme ve referans seçimi gerçekten çalışsın.
+    const rules = new PriceRulesService(
+      { find: jest.fn(async () => opts.rules ?? []) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      currency as never,
+    );
     return new PricingService(
       platesRepo as never,
       pricesRepo as never,
       settings as never,
       currency as never,
+      rules,
     );
   }
 
@@ -188,5 +205,178 @@ describe('PricingService', () => {
     const p = await service.forPlate('p1');
 
     expect(p.commissionPercent).toBe(15);
+  });
+
+  describe('fiyat çatısı', () => {
+    /** Pleksi 2.8 mm Akpolimer beyaz, 3050×1560 tabaka. */
+    const PLEKSI = {
+      template: {
+        categoryId: 'pleksi',
+        defaultSize: SHEET,
+        defaultSizeId: 's1',
+        defaultThicknessId: 't28',
+        defaultThickness: { valueMm: 2.8 },
+        defaultBrandId: 'akp',
+        defaultBrand: { name: 'Akpolimer' },
+        defaultColorId: 'beyaz',
+        defaultColor: { name: 'Beyaz' },
+      },
+    };
+    const rule = (o: Record<string, unknown>) => ({
+      id: 'r',
+      categoryId: 'pleksi',
+      category: { name: 'Pleksi' },
+      unit: PriceUnit.PER_M2,
+      markupPercent: null,
+      referenceEntryId: null,
+      entries: [],
+      ...o,
+    });
+    const entry = (id: string, price: number, currency = 'TRY', supplier = id) => ({
+      id,
+      price,
+      currency,
+      supplierId: supplier,
+      supplier: { name: supplier },
+      priceUpdatedAt: new Date('2026-10-01'),
+    });
+
+    it('kalem fiyatı yoksa çatının referans fiyatından önerir', async () => {
+      const service = buildService({
+        plate: PLEKSI,
+        markup: 20,
+        rules: [rule({ entries: [entry('e1', 500)] })],
+      });
+
+      const p = await service.forPlate('p1');
+
+      expect(p.priceSource).toBe('rule');
+      expect(p.basePrice).toBe(500);
+      expect(p.suggestedUnitPrice).toBe(600);
+      expect(p.rule?.label).toBe('Tüm Pleksi');
+      expect(p.rule?.autoPicked).toBe(true);
+    });
+
+    it('dövizli malzemeci fiyatını son kurla çevirir', async () => {
+      // 12 USD × 34 = 408 TL/m²
+      const service = buildService({
+        plate: PLEKSI,
+        rate: 34,
+        rules: [rule({ entries: [entry('e1', 12, 'USD')] })],
+      });
+
+      const p = await service.forPlate('p1');
+
+      expect(p.basePrice).toBe(408);
+      expect(p.rule?.currency).toBe('USD');
+    });
+
+    it('seçilen malzemecinin fiyatı referanstır, seçilmezse en ucuzu', async () => {
+      const entries = [entry('ucuz', 400), entry('secilen', 450)];
+      const auto = await buildService({
+        plate: PLEKSI,
+        rules: [rule({ entries })],
+      }).forPlate('p1');
+      const chosen = await buildService({
+        plate: PLEKSI,
+        rules: [rule({ entries, referenceEntryId: 'secilen' })],
+      }).forPlate('p1');
+
+      expect(auto.rule?.supplierName).toBe('ucuz');
+      expect(chosen.rule?.supplierName).toBe('secilen');
+      expect(chosen.rule?.autoPicked).toBe(false);
+      expect(chosen.basePrice).toBe(450);
+      // Çatıdaki fiyatlar piyasa karşılaştırmasına da girer.
+      expect(chosen.marketCheapest).toBe(400);
+    });
+
+    it('en özel çatı geçerlidir', async () => {
+      const service = buildService({
+        plate: PLEKSI,
+        rules: [
+          rule({ id: 'tum', entries: [entry('a', 300)] }),
+          rule({
+            id: 'kalin',
+            thicknessId: 't28',
+            thickness: { valueMm: 2.8 },
+            entries: [entry('b', 350)],
+          }),
+          rule({
+            id: 'beyaz',
+            colorId: 'beyaz',
+            color: { name: 'Beyaz' },
+            entries: [entry('c', 320)],
+          }),
+          rule({
+            id: 'baska-renk',
+            thicknessId: 't28',
+            thickness: { valueMm: 2.8 },
+            colorId: 'siyah',
+            color: { name: 'Siyah' },
+            entries: [entry('d', 999)],
+          }),
+        ],
+      });
+
+      const p = await service.forPlate('p1');
+
+      // Kalınlık ile renk aynı sayıda alan: kalınlık fiyata daha çok etki eder.
+      expect(p.rule?.id).toBe('kalin');
+      expect(p.basePrice).toBe(350);
+    });
+
+    it('tabaka başına çatı fiyatını m² fiyatına çevirir', async () => {
+      // 1000 TL/tabaka ÷ 4.758 m² = 210.17 TL/m²
+      const service = buildService({
+        plate: PLEKSI,
+        rules: [rule({ unit: PriceUnit.PER_PLATE, sizeId: 's1', entries: [entry('e', 1000)] })],
+      });
+
+      const p = await service.forPlate('p1');
+
+      expect(p.basePrice).toBeCloseTo(210.17, 1);
+    });
+
+    it('kalemin kendi fiyatı çatıdan önce gelir, çatı yine gösterilir', async () => {
+      const service = buildService({
+        plate: { ...PLEKSI, retailPrice: 100 },
+        rules: [rule({ entries: [entry('e', 500)] })],
+      });
+
+      const p = await service.forPlate('p1');
+
+      expect(p.priceSource).toBe('plate');
+      expect(p.suggestedUnitPrice).toBe(100);
+      expect(p.rule?.price).toBe(500);
+    });
+
+    it('çatının kâr yüzdesi genel oranı ezer, kaleminki çatınınkini', async () => {
+      const ruleMarkup = await buildService({
+        plate: PLEKSI,
+        markup: 40,
+        rules: [rule({ markupPercent: 10, entries: [entry('e', 100)] })],
+      }).forPlate('p1');
+      const plateMarkup = await buildService({
+        plate: { ...PLEKSI, markupPercent: 5 },
+        markup: 40,
+        rules: [rule({ markupPercent: 10, entries: [entry('e', 100)] })],
+      }).forPlate('p1');
+
+      expect(ruleMarkup.suggestedUnitPrice).toBe(110);
+      expect(plateMarkup.suggestedUnitPrice).toBe(105);
+    });
+
+    it('başka kategorinin çatısı uygulanmaz', async () => {
+      const service = buildService({
+        plate: PLEKSI,
+        rules: [rule({ categoryId: 'dekota', entries: [entry('e', 100)] })],
+      });
+
+      const p = await service.forPlate('p1');
+
+      expect(p.priceSource).toBeNull();
+      expect(p.rule).toBeNull();
+      expect(p.suggestedUnitPrice).toBeNull();
+    });
   });
 });

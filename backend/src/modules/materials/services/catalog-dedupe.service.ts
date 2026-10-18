@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager, IsNull, Not } from 'typeorm';
-import { normalizeName, sizeKey, normalizeNumber } from '../catalog-key.util';
+import { normalizeName, sizeKey, normalizeNumber, templateKey } from '../catalog-key.util';
 import { MaterialBrand } from '../entities/material-brand.entity';
 import { MaterialCategoryEntity } from '../entities/material-category.entity';
 import { MaterialColor } from '../entities/material-color.entity';
@@ -8,6 +8,7 @@ import { MaterialPlate } from '../entities/material-plate.entity';
 import { MaterialSize } from '../entities/material-size.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialThickness } from '../entities/material-thickness.entity';
+import { PriceRule } from '../entities/price-rule.entity';
 
 /** Bir katalog türünde bulunan kopya kümesi. */
 export interface DuplicateGroup {
@@ -38,7 +39,8 @@ export interface DedupeReport {
  * kopyaları bulur ve İSTENDİĞİNDE birleştirir:
  *
  *  - Her kopya kümesinde EN ESKİ kayıt korunur (geçmiş ona bağlıydı),
- *  - kopyalara işaret eden TÜM referanslar (şablon, plaka, alt kataloglar)
+ *  - kopyalara işaret eden TÜM referanslar (şablon, plaka, alt kataloglar,
+ *    fiyat çatıları)
  *    korunan kayda taşınır,
  *  - kopyalar ancak referansları taşındıktan SONRA soft-delete edilir.
  *
@@ -123,22 +125,9 @@ export class CatalogDedupeService {
         (t) => `${t.categoryId}|${normalizeNumber(t.valueMm)}`,
         (t) => `${Number(t.valueMm)}mm`,
       ),
-      // Şablonlarda "aynı" olmak için kategori + ad + tüm varsayılanlar eşleşmeli
-      // (farklı varsayılanlar gerçekten farklı şablonlardır).
-      templates: this.group(
-        templates,
-        (t) =>
-          [
-            t.categoryId,
-            normalizeName(t.name),
-            t.defaultBrandId ?? '',
-            t.defaultColorId ?? '',
-            t.defaultSizeId ?? '',
-            t.defaultThicknessId ?? '',
-            normalizeName(t.defaultVariant ?? ''),
-          ].join('|'),
-        (t) => t.name,
-      ),
+      // Şablonlarda "aynı" olmak oluşturmadaki kopya engeliyle aynı kuraldır:
+      // kategori + marka/renk/ebat/kalınlık + alt tür (özelliksiz türde ad).
+      templates: this.group(templates, (t) => templateKey(t), (t) => t.name),
       merged: 0,
     };
   }
@@ -171,6 +160,7 @@ export class CatalogDedupeService {
     for (const id of g.mergeIds) {
       await m.update(MaterialTemplate, { defaultBrandId: id }, { defaultBrandId: g.keepId });
       await m.update(MaterialPlate, { brandId: id }, { brandId: g.keepId });
+      await m.update(PriceRule, { brandId: id }, { brandId: g.keepId });
     }
     await this.softDelete(m, MaterialBrand, g.mergeIds);
     return g.mergeIds.length;
@@ -180,6 +170,7 @@ export class CatalogDedupeService {
     for (const id of g.mergeIds) {
       await m.update(MaterialTemplate, { defaultColorId: id }, { defaultColorId: g.keepId });
       await m.update(MaterialPlate, { colorId: id }, { colorId: g.keepId });
+      await m.update(PriceRule, { colorId: id }, { colorId: g.keepId });
     }
     await this.softDelete(m, MaterialColor, g.mergeIds);
     return g.mergeIds.length;
@@ -189,6 +180,7 @@ export class CatalogDedupeService {
     for (const id of g.mergeIds) {
       await m.update(MaterialTemplate, { defaultSizeId: id }, { defaultSizeId: g.keepId });
       await m.update(MaterialPlate, { sizeId: id }, { sizeId: g.keepId });
+      await m.update(PriceRule, { sizeId: id }, { sizeId: g.keepId });
     }
     await this.softDelete(m, MaterialSize, g.mergeIds);
     return g.mergeIds.length;
@@ -205,9 +197,22 @@ export class CatalogDedupeService {
         { defaultThicknessId: g.keepId },
       );
       await m.update(MaterialPlate, { thicknessId: id }, { thicknessId: g.keepId });
+      await m.update(PriceRule, { thicknessId: id }, { thicknessId: g.keepId });
     }
     await this.softDelete(m, MaterialThickness, g.mergeIds);
     return g.mergeIds.length;
+  }
+
+  /**
+   * Seçilen ürün türlerini birine birleştirir (kullanıcı kopyaları elle
+   * birleştirince). Stok kalemleri korunan türe taşınır, hiçbiri silinmez.
+   */
+  async mergeTemplates(keepId: string, mergeIds: string[]): Promise<number> {
+    const ids = [...new Set(mergeIds)].filter((id) => id !== keepId);
+    if (!ids.length) return 0;
+    return this.dataSource.transaction((m) =>
+      this.mergeTemplate(m, { label: '', keepId, mergeIds: ids }),
+    );
   }
 
   private async mergeTemplate(
@@ -232,6 +237,7 @@ export class CatalogDedupeService {
       await m.update(MaterialColor, { categoryId: id }, { categoryId: g.keepId });
       await m.update(MaterialSize, { categoryId: id }, { categoryId: g.keepId });
       await m.update(MaterialThickness, { categoryId: id }, { categoryId: g.keepId });
+      await m.update(PriceRule, { categoryId: id }, { categoryId: g.keepId });
     }
     await this.softDelete(m, MaterialCategoryEntity, g.mergeIds);
     return g.mergeIds.length;

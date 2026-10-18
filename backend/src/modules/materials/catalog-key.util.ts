@@ -41,3 +41,35 @@ export function sizeKey(
 export function cleanName(name: string): string {
   return name.trim().replace(/\s+/g, ' ');
 }
+
+/** Ürün türünün (şablon) kimliğini belirleyen alanlar. */
+export interface TemplateKeyFields {
+  categoryId: string;
+  name?: string | null;
+  defaultBrandId?: string | null;
+  defaultColorId?: string | null;
+  defaultSizeId?: string | null;
+  defaultThicknessId?: string | null;
+  defaultVariant?: string | null;
+}
+
+/**
+ * Ürün türü anahtarı: aynı anahtarlı iki tür AYNI üründür, ikincisi açılmaz.
+ *
+ * Anahtar kategori + marka + renk + ebat + kalınlık + alt türdür; ad
+ * sayılmaz (aynı özellikte "Pleksi Beyaz 3mm" ile "Beyaz Pleksi 3 mm" aynı
+ * şeydir). Hiç özelliği seçilmemiş türlerde ayırt edici tek şey ad olduğu
+ * için o zaman ad da anahtara girer ("Folyo 641" / "Folyo 651").
+ */
+export function templateKey(t: TemplateKeyFields): string {
+  const attrs = [t.defaultBrandId, t.defaultColorId, t.defaultSizeId, t.defaultThicknessId].map(
+    (v) => v ?? '',
+  );
+  const hasAttrs = attrs.some(Boolean);
+  return [
+    t.categoryId,
+    ...attrs,
+    normalizeName(t.defaultVariant),
+    hasAttrs ? '' : normalizeName(t.name),
+  ].join('|');
+}

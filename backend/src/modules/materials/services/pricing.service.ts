@@ -8,6 +8,30 @@ import { CurrencyService } from '../../currency/currency.service';
 import { SettingsService } from '../../settings/settings.service';
 import { MaterialPlate } from '../entities/material-plate.entity';
 import { SupplierMaterialPrice } from '../entities/supplier-material-price.entity';
+import { PriceRule } from '../entities/price-rule.entity';
+import { PriceRulesService } from './price-rules.service';
+import { ruleLabel } from '../price-rule-match.util';
+
+/** Kaleme uyan fiyat çatısı ve referans fiyatı. */
+export interface PricingRuleRef {
+  id: string;
+  /** "Pleksi · 2.8 mm · Beyaz" */
+  label: string;
+  supplierId: string | null;
+  /** Referans malzemeci; boşsa işletmenin liste fiyatı. */
+  supplierName: string | null;
+  /** Referans fiyat — girildiği para biriminde ve çatının biriminde. */
+  price: number;
+  currency: string;
+  unit: PriceUnit;
+  /** Referans seçilmemiş, en ucuz fiyat alındı. */
+  autoPicked: boolean;
+  priceUpdatedAt: Date;
+  /** Referansın bu kalemin ölçü birimine ve baz para birimine çevrilmiş hali. */
+  unitPriceBase: number | null;
+  /** Çatıya özel kâr yüzdesi (yoksa null). */
+  markupPercent: number | null;
+}
 
 /** Bir malzemenin satış fiyatı önerisi ve piyasa karşılaştırması. */
 export interface PlatePricing {
@@ -20,6 +44,18 @@ export interface PlatePricing {
   retailCurrency: string;
   /** Perakende fiyatın baz para birimindeki karşılığı (çevrilemezse null). */
   retailPriceBase: number | null;
+  /**
+   * Önerinin dayandığı fiyat: kalemin kendi perakende fiyatı ('plate'), fiyat
+   * çatısı ('rule') ya da hiçbiri (null → fiyat elle girilir).
+   */
+  priceSource: 'plate' | 'rule' | null;
+  /** Kâr eklenmeden önceki birim fiyat (baz para biriminde, ölçü birimi başına). */
+  basePrice: number | null;
+  /**
+   * Kaleme uyan en özel fiyat çatısı (kalem fiyatı öncelikli olsa da
+   * gösterilir: "çatı fiyatı da var").
+   */
+  rule: PricingRuleRef | null;
   /** Sistemin baz para birimi — önerilen fiyat ve piyasa bu birimdedir. */
   baseCurrency: string;
   /** Uygulanan kâr yüzdesi (plakaya özel varsa o, yoksa genel ayar). */
@@ -61,8 +97,10 @@ export interface RetailPriceSuggestion {
 /**
  * Satış fiyatlandırması.
  *
- * Kural: satış birim fiyatı = perakende fiyat × (1 + kâr%). Kâr yüzdesi
- * plakaya özel girilmişse o, yoksa ayarlardaki genel oran kullanılır.
+ * Kural: satış birim fiyatı = taban fiyat × (1 + kâr%). Taban fiyat kalemin
+ * kendi perakende fiyatıdır; yoksa kaleme uyan en özel fiyat çatısının
+ * referans fiyatı (son kurla TRY'ye çevrilir). Kâr yüzdesi plakaya özel
+ * girilmişse o, yoksa çatınınki, yoksa ayarlardaki genel oran kullanılır.
  *
  * Ayrıca malzemecilerin (tedarikçi) fiyatlarıyla karşılaştırılır: bizim
  * fiyatımız daha düşükse aradaki fark "indirim yüzdesi" olarak teklif ve cari
@@ -81,6 +119,7 @@ export class PricingService {
     private readonly pricesRepo: Repository<SupplierMaterialPrice>,
     private readonly settings: SettingsService,
     private readonly currency: CurrencyService,
+    private readonly rules: PriceRulesService,
   ) {}
 
   async forPlate(plateId: string): Promise<PlatePricing> {
@@ -91,15 +130,18 @@ export class PricingService {
     if (!plate) {
       return this.empty(plateId);
     }
-    const prices = await this.pricesRepo.find({ where: { plateId } });
-    const settings = await this.settings.getPricing();
-    return this.compute(plate, prices, settings);
+    const [prices, settings, rules] = await Promise.all([
+      this.pricesRepo.find({ where: { plateId } }),
+      this.settings.getPricing(),
+      this.rules.activeRules(),
+    ]);
+    return this.compute(plate, prices, settings, rules);
   }
 
   /** Birden çok plaka için tek turda fiyatlandırma (teklif ekranı listesi). */
   async forPlates(plateIds: string[]): Promise<Record<string, PlatePricing>> {
     if (!plateIds.length) return {};
-    const [plates, prices, settings] = await Promise.all([
+    const [plates, prices, settings, rules] = await Promise.all([
       this.platesRepo.find({
         where: plateIds.map((id) => ({ id })),
         relations: { template: { defaultSize: true } },
@@ -109,6 +151,7 @@ export class PricingService {
         .where('p.plate_id IN (:...ids)', { ids: plateIds })
         .getMany(),
       this.settings.getPricing(),
+      this.rules.activeRules(),
     ]);
     const byPlate = new Map<string, SupplierMaterialPrice[]>();
     for (const row of prices) {
@@ -122,6 +165,7 @@ export class PricingService {
         plate,
         byPlate.get(plate.id) ?? [],
         settings,
+        rules,
       );
     }
     return result;
@@ -145,6 +189,19 @@ export class PricingService {
       plate.markupPercent = input.markupPercent;
     }
     await this.platesRepo.save(plate);
+    return this.forPlate(plateId);
+  }
+
+  /**
+   * Kalemin kendi perakende fiyatını (ve kâr yüzdesini) kaldırır; öneri
+   * varsa fiyat çatısından gelir.
+   */
+  async clearRetailPrice(plateId: string): Promise<PlatePricing> {
+    const plate = await this.platesRepo.findOne({ where: { id: plateId } });
+    if (!plate) {
+      throw new NotFoundException('Stok kalemi bulunamadı.');
+    }
+    await this.platesRepo.update(plateId, { retailPrice: null, markupPercent: null });
     return this.forPlate(plateId);
   }
 
@@ -213,6 +270,7 @@ export class PricingService {
     plate: MaterialPlate,
     prices: SupplierMaterialPrice[],
     settings: { saleMarkupPercent: number; consignmentCommissionPercent: number },
+    rules: PriceRule[],
   ): Promise<PlatePricing> {
     const unit = (plate.measurementType ?? MeasurementType.AREA) as MeasurementType;
     const retailPrice =
@@ -222,20 +280,68 @@ export class PricingService {
     // Fiyat dövizle girilmiş olabilir; hesap her zaman baz para biriminde.
     const retailPriceBase =
       retailPrice == null ? null : await this.toBase(retailPrice, retailCurrency);
+
+    // Fiyat çatısı: kaleme uyan en özel çatının referans fiyatı (son kurla
+    // baz para birimine, sonra kalemin ölçü birimine çevrilir).
+    const matched = this.rules.ruleFor(rules, plate);
+    let rule: PricingRuleRef | null = null;
+    if (matched) {
+      const ref = await this.rules.referenceOf(matched);
+      if (ref) {
+        rule = {
+          id: matched.id,
+          label: ruleLabel(matched),
+          supplierId: ref.supplierId,
+          supplierName: ref.supplierName,
+          price: ref.price,
+          currency: ref.currency,
+          unit: matched.unit,
+          autoPicked: ref.autoPicked,
+          priceUpdatedAt: ref.priceUpdatedAt,
+          unitPriceBase:
+            ref.priceBase == null
+              ? null
+              : this.roundOrNull(this.toUnitPrice(ref.priceBase, matched.unit, unit, plate)),
+          markupPercent:
+            matched.markupPercent != null ? Number(matched.markupPercent) : null,
+        };
+      }
+    }
+
+    // Öncelik: kalemin kendi fiyatı (en özel) → fiyat çatısı → yok.
+    let priceSource: PlatePricing['priceSource'] = null;
+    let basePrice: number | null = null;
+    if (retailPriceBase != null) {
+      priceSource = 'plate';
+      basePrice = retailPriceBase;
+    } else if (rule?.unitPriceBase != null) {
+      priceSource = 'rule';
+      basePrice = rule.unitPriceBase;
+    }
+
     const markupPercent =
       plate.markupPercent != null
         ? Number(plate.markupPercent)
-        : Number(settings.saleMarkupPercent ?? 0);
+        : priceSource === 'rule' && rule?.markupPercent != null
+          ? rule.markupPercent
+          : Number(settings.saleMarkupPercent ?? 0);
 
     const suggestedUnitPrice =
-      retailPriceBase == null
-        ? null
-        : roundMoney(retailPriceBase * (1 + markupPercent / 100));
+      basePrice == null ? null : roundMoney(basePrice * (1 + markupPercent / 100));
 
-    // Tedarikçi fiyatlarını malzemenin ölçü birimine çevir.
-    const converted = prices
-      .map((p) => this.toUnitPrice(Number(p.price), p.unit, unit, plate))
-      .filter((v): v is number => v != null && v > 0);
+    // Malzemeci fiyatları: kaleme girilenler + uyan çatıdakiler; hepsi baz
+    // para birimine ve kalemin ölçü birimine çevrilir.
+    const converted: number[] = [];
+    for (const p of prices) {
+      const base = await this.toBase(Number(p.price), (p.currency || this.currency.baseCurrency).toUpperCase());
+      const v = base == null ? null : this.toUnitPrice(base, p.unit, unit, plate);
+      if (v != null && v > 0) converted.push(v);
+    }
+    for (const e of matched?.entries ?? []) {
+      const base = await this.toBase(Number(e.price), (e.currency || this.currency.baseCurrency).toUpperCase());
+      const v = base == null ? null : this.toUnitPrice(base, matched!.unit, unit, plate);
+      if (v != null && v > 0) converted.push(v);
+    }
 
     const marketCheapest = converted.length ? Math.min(...converted) : null;
     const marketAverage = converted.length
@@ -254,6 +360,9 @@ export class PricingService {
       retailPrice,
       retailCurrency,
       retailPriceBase,
+      priceSource,
+      basePrice,
+      rule,
       baseCurrency: this.currency.baseCurrency,
       markupPercent,
       suggestedUnitPrice,
@@ -262,6 +371,10 @@ export class PricingService {
       discountPercent,
       commissionPercent: Number(settings.consignmentCommissionPercent ?? 0),
     };
+  }
+
+  private roundOrNull(v: number | null): number | null {
+    return v == null ? null : roundMoney(v);
   }
 
   /**
@@ -319,6 +432,9 @@ export class PricingService {
       retailPrice: null,
       retailCurrency: this.currency.baseCurrency,
       retailPriceBase: null,
+      priceSource: null,
+      basePrice: null,
+      rule: null,
       baseCurrency: this.currency.baseCurrency,
       markupPercent: 0,
       suggestedUnitPrice: null,

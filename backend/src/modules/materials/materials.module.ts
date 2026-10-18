@@ -14,6 +14,8 @@ import { MaterialSize } from './entities/material-size.entity';
 import { MaterialThickness } from './entities/material-thickness.entity';
 import { SupplierMaterialPrice } from './entities/supplier-material-price.entity';
 import { StockLevel } from './entities/stock-level.entity';
+import { PriceRule } from './entities/price-rule.entity';
+import { PriceRuleEntry } from './entities/price-rule-entry.entity';
 import { MaterialTemplatesController } from './controllers/material-templates.controller';
 import { MaterialCategoriesController } from './controllers/material-categories.controller';
 import { MaterialBrandsController } from './controllers/material-brands.controller';
@@ -22,6 +24,7 @@ import { MaterialSizesController } from './controllers/material-sizes.controller
 import { MaterialThicknessesController } from './controllers/material-thicknesses.controller';
 import { PlatesController } from './controllers/plates.controller';
 import { CatalogMaintenanceController } from './controllers/catalog-maintenance.controller';
+import { PriceRulesController } from './controllers/price-rules.controller';
 import { MaterialTemplatesService } from './services/material-templates.service';
 import { MaterialCategoriesService } from './services/material-categories.service';
 import { MaterialBrandsService } from './services/material-brands.service';
@@ -33,6 +36,7 @@ import { CatalogDedupeService } from './services/catalog-dedupe.service';
 import { PricingService } from './services/pricing.service';
 import { PlateIntakeService } from './services/plate-intake.service';
 import { SupplierPricesService } from './services/supplier-prices.service';
+import { PriceRulesService } from './services/price-rules.service';
 
 /**
  * Stok & Tedarik çekirdeği:
@@ -40,6 +44,7 @@ import { SupplierPricesService } from './services/supplier-prices.service';
  * - Kategoriye özel kataloglar (marka/renk/ebat/kalınlık)
  * - Plakalar (stok SKU)
  * - Tedarikçi piyasa fiyatları (karşılaştırma)
+ * - Fiyat çatıları (bir grup malzemeye ortak referans fiyat)
  */
 @Module({
   imports: [
@@ -53,6 +58,8 @@ import { SupplierPricesService } from './services/supplier-prices.service';
       MaterialThickness,
       SupplierMaterialPrice,
       StockLevel,
+      PriceRule,
+      PriceRuleEntry,
     ]),
     SuppliersModule,
     WarehousesModule,
@@ -69,6 +76,7 @@ import { SupplierPricesService } from './services/supplier-prices.service';
     MaterialTemplatesController,
     PlatesController,
     CatalogMaintenanceController,
+    PriceRulesController,
   ],
   providers: [
     MaterialCategoriesService,
@@ -82,6 +90,7 @@ import { SupplierPricesService } from './services/supplier-prices.service';
     PricingService,
     PlateIntakeService,
     SupplierPricesService,
+    PriceRulesService,
   ],
   // Satın alma & işleme modülleri stok ayarı için PlatesService kullanır.
   exports: [
