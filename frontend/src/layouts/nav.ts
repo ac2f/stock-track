@@ -43,6 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Yönetim',
     items: [
+      { to: '/price-rules', label: 'Fiyat Çatıları', title: 'Fiyat Çatıları', icon: '💰', module: 'catalog', keywords: 'fiyat çatı malzemeci tedarikçi referans döviz dolar satış önerisi' },
       { to: '/material-templates', label: 'Ürün Türleri', title: 'Ürün Türleri', icon: '🗂️', module: 'catalog', keywords: 'katalog şablon marka renk kalınlık ebat' },
       { to: '/material-categories', label: 'Malzeme Türleri', title: 'Malzeme Türleri', icon: '🏷️', module: 'catalog', keywords: 'katalog kategori pleksi' },
       { to: '/team', label: 'Ekip', title: 'Ekip ve yetkiler', icon: '👥', team: true, keywords: 'çalışan kullanıcı yetki dükkân' },

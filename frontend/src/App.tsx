@@ -5,6 +5,7 @@ import { LoginPage } from './features/auth/LoginPage';
 import { PlatesListPage } from './features/materials/PlatesListPage';
 import { MaterialCategoriesPage } from './features/materials/MaterialCategoriesPage';
 import { MaterialTemplatesPage } from './features/materials/MaterialTemplatesPage';
+import { PriceRulesPage } from './features/materials/PriceRulesPage';
 import { CustomersListPage } from './features/customers/CustomersListPage';
 import { DashboardPage } from './features/reports/DashboardPage';
 import { QuotesPage } from './features/quotes/QuotesPage';
@@ -93,6 +94,14 @@ export default function App() {
           element={
             <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
               <MaterialTemplatesPage />
+            </Can>
+          }
+        />
+        <Route
+          path="/price-rules"
+          element={
+            <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
+              <PriceRulesPage />
             </Can>
           }
         />

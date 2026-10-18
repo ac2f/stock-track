@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { groupChipClass } from './GroupSection';
+import { matchesSearch } from '../lib/search';
 
 export interface SearchOption {
   id: string;
@@ -45,13 +46,11 @@ export function SearchSelect({
 
   const selected = options.find((o) => o.id === value);
 
+  // Sözcük sırası, Türkçe harf ve ondalık yazımı fark etmez ("beyaz 2,8").
   const filtered = useMemo(() => {
-    const t = term.trim().toLocaleLowerCase('tr');
-    if (!t) return options;
+    if (!term.trim()) return options;
     return options.filter((o) =>
-      `${o.label} ${o.sublabel ?? ''} ${o.group ?? ''}`
-        .toLocaleLowerCase('tr')
-        .includes(t),
+      matchesSearch(`${o.label} ${o.sublabel ?? ''} ${o.group ?? ''} ${o.subgroup ?? ''}`, term),
     );
   }, [options, term]);
 

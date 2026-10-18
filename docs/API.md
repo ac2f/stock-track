@@ -163,12 +163,20 @@ kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda d
 | POST | `/material-templates` | 👔 | Yeni şablon — `{ categoryId, defaultBrandId?, defaultColorId?, defaultSizeId?, defaultThicknessId?, defaultVariant?, ... }`. Her `default*Id`'nin işaret ettiği katalog kaydı şablonun `categoryId`'siyle eşleşmelidir, aksi halde `400`. `defaultVariant` kategori içi alt tür için (örn. Pleksi'de "Dökme"/"Çekme") |
 | GET | `/material-templates` | 👥 | `?categoryId=&search=` — yanıt `defaultBrand/defaultColor/defaultSize/defaultThickness` ilişkilerini eager döner |
 | PATCH | `/material-templates/:id` | 👔 | |
+| POST | `/material-templates/:id/merge` | 👔 | `{ sourceIds[] }` — kopya türleri bu türe birleştirir; stok kalemleri taşınır, kopyalar silinir (aynı kategori) |
+
+**Aynı ürün türü ikinci kez açılmaz** (oluşturma, düzenleme, toplu stok
+girişi): aynı kategori + marka + renk + ebat + kalınlık + alt tür zaten varsa
+`409`. Ad sayılmaz; hiç özelliği seçilmemiş türlerde ise ayırt edici olan ad
+olduğu için aynı ad kopya sayılır. Farklı bir ürünse alt tür (`defaultVariant`)
+ile ayrılır. Toplu stok girişinde (`POST /plates/batch`, `templateId`
+verilmeden adlarla) aynı özellikli tür varsa o kullanılır.
 
 ## Materials — Plakalar (Stok)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, name?, sku?, variant?, widthMm?, heightMm?, ownerCustomerId?, addedAt?, processedAt?, quantityInStock?, warehouseId? }`. Marka/renk/ebat/kalınlık şablonun `default*Id` değerlerinden miras alınır. `widthMm/heightMm` bu fiziksel parçanın **kalan (kesilmiş) ebadıdır**; verilmezse standart tabaka ebadından alınır, verilirse standart ebadı **aşamaz** (`400`). `sku` boşsa `tür+marka+renk+kalınlık+tabaka ebatı`'ndan otomatik üretilir (gerekirse `-N` ekiyle benzersizleştirilir). `ownerCustomerId` verilirse açılış stoğu o müşterinin **konsinye** stoğu olarak yazılır; `addedAt` verilmezse bugün |
-| GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&search=&inStock=true&page=&limit=` |
+| GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&thicknessMm=&sizeId=&search=&inStock=true&page=&limit=` — `search` sözcüklere bölünür, her sözcük ad/stok kodu/renk kodu/marka/renk/alt türden birinde geçmeli (sıra fark etmez; `2,8` = `2.8`, `1220x2440` iki sözcük). `sizeId` kalemin ya da ürün türünün standart tabakası. |
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
 | PATCH | `/plates/:id` | 🧑‍🔧 | Kalan ebat, tarihler (`addedAt/processedAt`), ad, `sku`, `variant` güncellenir; kalan ebat türün standart tabaka ebadını aşamaz |
 | POST | `/plates/:id/transfer-ownership` | 👔 | Sahipliği taraflar arasında serbestçe aktarır (işletme↔müşteri, müşteri↔müşteri) — `{ fromOwnerCustomerId?, toOwnerCustomerId?, warehouseId?, quantity? }`. Boş taraf işletmedir; miktar verilmezse kaynaktaki tümü |
@@ -537,6 +545,7 @@ her zaman rol ve süre denetiminden geçer.
 | PUT | `/settings/pricing` | 👔 | `{ saleMarkupPercent?, consignmentCommissionPercent? }` |
 | GET | `/plates/:id/pricing` | 👥 | Satış fiyatı önerisi ve piyasa karşılaştırması |
 | PUT | `/plates/:id/retail-price` | 🧑‍🔧 | `{ retailPrice, currency?, markupPercent? }` — perakende fiyatı girer/günceller |
+| DELETE | `/plates/:id/retail-price` | 🧑‍🔧 | Kalemin kendi fiyatını (ve kâr yüzdesini) kaldırır; öneri varsa fiyat çatısından gelir |
 | GET | `/plates/:id/retail-suggestions` | 👥 | Aynı türdeki (marka/renk farklı) fiyatı tanımlı malzemeler |
 
 Perakende fiyat **TRY (varsayılan), USD veya EUR** girilebilir; `retailCurrency`
@@ -549,16 +558,61 @@ döner (fiyat elle girilir). Yanıt hem girilen değeri (`retailPrice` +
 malzemenin fiyatını uygulamak için kullanılır; aynı kalınlıktakiler
 (`sameThickness`) listenin başında gelir.
 
-Kural: **satış birim fiyatı = perakende fiyat × (1 + kâr%)**. Kâr yüzdesi
-plakaya özel girilmişse (`markupPercent`) o, yoksa ayarlardaki genel oran
-kullanılır. Perakende fiyat (`retailPrice`) plakada tutulur ve ölçü birimi
-malzemenin ölçüm tipiyle aynıdır (m² / metre / adet).
+Kural: **satış birim fiyatı = taban fiyat × (1 + kâr%)**. Taban fiyat
+kalemin kendi perakende fiyatıdır (`retailPrice`, plakada tutulur, ölçü birimi
+malzemenin ölçüm tipiyle aynı: m² / metre / adet); yoksa kaleme uyan en özel
+**fiyat çatısının** referans fiyatıdır (aşağıda). Kâr yüzdesi plakaya özel
+girilmişse (`markupPercent`) o, yoksa çatınınki, yoksa ayarlardaki genel oran.
+
+`/plates/:id/pricing` yanıtındaki ek alanlar:
+
+| Alan | Açıklama |
+|------|----------|
+| `priceSource` | `plate` (kalemin kendi fiyatı), `rule` (fiyat çatısı) ya da `null` (fiyat yok, elle girilir) |
+| `basePrice` | Kâr eklenmeden önceki birim fiyat — baz para biriminde, ölçü birimi başına |
+| `rule` | Kaleme uyan en özel çatı (kalem fiyatı öncelikli olsa da gösterilir): `id, label, supplierId, supplierName, price, currency, unit, autoPicked, priceUpdatedAt, unitPriceBase, markupPercent` |
 
 Malzemeci (tedarikçi) fiyatlarıyla karşılaştırma yapılırken tabaka başına
-girilen fiyatlar standart tabaka alanına bölünerek m² fiyatına çevrilir.
+girilen fiyatlar standart tabaka alanına bölünerek m² fiyatına çevrilir;
+dövizli fiyatlar son kurla baz para birimine çevrilir. Karşılaştırmaya kalemin
+malzemeci fiyatlarıyla birlikte uyan çatıdaki malzemeci fiyatları da girer.
 Bizim fiyatımız daha düşükse `discountPercent` döner ("piyasadan %X uygun");
 piyasadan pahalıysak `null`. Bu oran teklif ekranında canlı gösterilir ve
 satış anında cari ekstre açıklamasına da yazılır.
+
+### Fiyat çatıları
+Bir grup malzemeye ortak referans fiyat: **kategori** (zorunlu) + isteğe bağlı
+**marka, kalınlık, renk, ebat (standart tabaka), alt tür**. Boş alan "hepsi"
+demektir: "tüm pleksiler", "2.8 mm pleksiler", "beyaz pleksiler", "Akpolimer
+2.8 mm beyaz pleksi". Katalog alanına aittir (`catalog` okuma / yazma).
+
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/price-rules?categoryId=` | Çatılar: kapsam, `label`, `unit`, `markupPercent`, `entries[]` (malzemeci, fiyat, para birimi, `priceBase`), `reference`, `coverage { matched, effective, ownPrice }` |
+| GET | `/price-rules/preview?categoryId=&brandId=&thicknessId=&colorId=&sizeId=&variant=&excludeId=` | Kaydetmeden önce: `{ label, matched, effective, samples[], duplicate }` |
+| GET | `/price-rules/:id` | Tek çatı |
+| POST | `/price-rules` | `{ categoryId, brandId?, thicknessId?, colorId?, sizeId?, variant?, unit?, markupPercent?, note? }` — aynı kapsam varsa 409 |
+| PATCH | `/price-rules/:id` | Aynı alanlar + `isActive` |
+| DELETE | `/price-rules/:id` | Çatı ve fiyatları silinir |
+| PUT | `/price-rules/:id/entries` | `{ supplierId?, price, currency?, note?, makeReference? }` — malzemeci başına tek satır (ekle/güncelle); `supplierId` boşsa işletmenin liste fiyatı |
+| DELETE | `/price-rules/:id/entries/:entryId` | Fiyatı sil (referanssa en ucuza döner) |
+| PUT | `/price-rules/:id/reference` | `{ entryId }` — çatı fiyatı olacak malzemeci; `null` → her zaman en ucuz |
+
+- **Birim** (`unit`) çatının bütün fiyatları için tektir: `per_m2`, `per_plate`
+  (tabaka/adet), `per_meter`, `per_kg`. Verilmezse tabaka malzemede ebat
+  seçildiyse `per_plate`, değilse `per_m2`. Tabaka fiyatı kalemin standart
+  tabaka alanına bölünür.
+- **Para birimi** TRY ya da döviz (USD, EUR ...); hesapta **son kurla** baz
+  para birimine çevrilir. Kur yoksa o fiyat öneride kullanılamaz.
+- **Referans:** `reference` seçilen fiyattır; seçilmemişse (ya da silinmişse)
+  TRY karşılığı en ucuz olan (`autoPicked: true`). İlk eklenen fiyat arayüzde
+  kendiliğinden referans yapılır.
+- **Hangi çatı geçerli:** kaleme uyan çatılardan en çok alanı tutan; eşitlikte
+  kalınlık > ebat > marka > alt tür > renk. Eşleşmede kalemin kendi değeri,
+  yoksa ürün türünün varsayılanı kullanılır. Pasif çatı uygulanmaz.
+- `coverage`: stokta olan etkin kalemlerden kaçının kapsamda olduğu
+  (`matched`), kaçında bu çatının geçerli olduğu (`effective`) ve bunlardan
+  kaçının kendi fiyatı olduğu (`ownPrice` — onlarda kalem fiyatı kullanılır).
 
 
 ---

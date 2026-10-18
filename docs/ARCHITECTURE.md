@@ -209,6 +209,8 @@ başlayın:
 | Sayfa başlığı, boş durum, yükleniyor, filtre kutusu, arama kutusu, tarih aralığı | `components/ui/*` | Telefonda taşmayan ortak yerleşim |
 | Biçimler | `lib/format.ts` | `formatDate` (17.10.2026), `formatMoney`, `relativeDay` |
 | Adres parametresi | `hooks/useUrlParam.ts` | `?new=1`, `?q=…` gibi hızlı arama bağlantılarını bir kez işler |
+| Arama | `lib/search.ts` | `matchesSearch(metin, arama)` — sözcük sırası, Türkçe harf ve ondalık yazımı (2,8 / 2.80) fark etmez |
+| Süzgeç çipleri | `components/ui/FacetChips.tsx`, `lib/catalogKey.ts` | `useFacets(liste, TEMPLATE_FACETS / PLATE_FACETS)` + `<FacetChips>`: marka, kalınlık, ebat, renk; her çipte kalan sonuç sayısı |
 
 Düğme ve alan sınıfları `styles/index.css` içindedir: `.btn-primary`,
 `.btn-secondary`, `.btn-ghost`, `.btn-danger`, `.btn-danger-soft`,

@@ -258,15 +258,29 @@ export class PlatesService {
         { exclOwner: query.excludeOwnerCustomerId },
       );
     }
-    if (query.search) {
+    if (query.thicknessMm != null) {
+      qb.andWhere('ROUND(plate.thickness_mm::numeric, 2) = ROUND(CAST(:thk AS numeric), 2)', {
+        thk: query.thicknessMm,
+      });
+    }
+    if (query.sizeId) {
       qb.andWhere(
-        new Brackets((w) => {
-          w.where('plate.name ILIKE :s', { s: `%${query.search}%` })
-            .orWhere('plate.sku ILIKE :s', { s: `%${query.search}%` })
-            .orWhere('plate.color_code ILIKE :s', { s: `%${query.search}%` });
-        }),
+        '(plate.size_id = :sizeId OR (plate.size_id IS NULL AND template.default_size_id = :sizeId))',
+        { sizeId: query.sizeId },
       );
     }
+    // Arama sözcüklere bölünür; her sözcük ad, stok kodu, renk kodu, marka,
+    // renk ya da alt türden birinde geçmeli (sıra fark etmez: "beyaz 2,8").
+    searchTokens(query.search).forEach((token, i) => {
+      const param = `s${i}`;
+      qb.andWhere(
+        new Brackets((w) => {
+          for (const col of ['name', 'sku', 'color_code', 'brand', 'color', 'variant']) {
+            w.orWhere(`plate.${col} ILIKE :${param}`, { [param]: `%${token}%` });
+          }
+        }),
+      );
+    });
 
     qb.orderBy('plate.name', 'ASC').skip(query.skip).take(query.limit);
 
@@ -841,4 +855,20 @@ export class PlatesService {
     }
     return record;
   }
+}
+
+/**
+ * Stok aramasının sözcükleri: "2,8" → "2.8", "1220x2440" → "1220", "2440";
+ * "mm", "cm" gibi birimler atılır. LIKE joker karakterleri kaçırılır.
+ */
+export function searchTokens(search: string | undefined): string[] {
+  if (!search?.trim()) return [];
+  return search
+    .replace(/(\d),(\d)/g, '$1.$2')
+    .replace(/(\d)\s*[xX×]\s*(\d)/g, '$1 $2')
+    .replace(/(\d)(mm|cm)\b/gi, '$1')
+    .split(/[\s[\]()/·,;|+]+/)
+    .map((t) => t.trim().replace(/[%_\\]/g, (c) => `\\${c}`))
+    .filter((t) => t && !/^(mm|cm|x)$/i.test(t))
+    .slice(0, 8);
 }

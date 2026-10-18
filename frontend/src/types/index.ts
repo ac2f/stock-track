@@ -185,6 +185,7 @@ export interface MaterialTemplate {
   defaultAttributes?: Record<string, unknown>;
   description?: string;
   isActive: boolean;
+  createdAt?: string;
 }
 
 export interface MaterialBrand {

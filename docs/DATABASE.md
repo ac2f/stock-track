@@ -165,6 +165,43 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | description | text (nullable) | |
 | is_active | boolean | |
 
+Aynı kategori + marka + renk + ebat + kalınlık + alt tür ile ikinci şablon
+açılmaz (servis katmanında denetlenir; özelliksiz şablonda ad ayırt eder).
+
+### 5b. `price_rules` / `price_rule_entries` — Fiyat Çatıları
+> Bir grup malzemenin ortak referans fiyatı. Kapsam kategoriyle başlar, diğer
+> alanlar boşsa "hepsi" demektir. Bir kaleme birden çok çatı uyarsa en özel
+> olan geçerlidir. Aynı kapsamda ikinci çatı açılamaz.
+
+`price_rules`
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| category_id | uuid (FK → material_categories) | Zorunlu |
+| brand_id / thickness_id / color_id / size_id | uuid (FK, nullable) | Kategorinin kataloğundan; boş = hepsi. Ebat standart tabakadır |
+| variant | varchar (nullable) | Alt tür (Dökme / Çekme), büyük/küçük harf fark etmez |
+| unit | enum `per_plate` / `per_m2` / `per_meter` / `per_kg` | Çatıdaki bütün fiyatların birimi |
+| markup_percent | numeric(6,2) (nullable) | Çatıya özel kâr; boşsa genel oran |
+| reference_entry_id | uuid (nullable) | Referans seçilen fiyat; boşsa en ucuzu |
+| note | text (nullable) | |
+| is_active | boolean | Pasif çatı uygulanmaz |
+
+`price_rule_entries`
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| id | uuid (PK) | |
+| rule_id | uuid (FK → price_rules, cascade) | |
+| supplier_id | uuid (FK → suppliers, nullable) | Boşsa işletmenin kendi liste fiyatı; çatı başına malzemeci başına tek satır |
+| price | numeric(14,2) | Çatının biriminde |
+| currency | varchar(3) | TRY ya da döviz; hesapta son kurla baz para birimine çevrilir |
+| price_updated_at | timestamptz | |
+| note | varchar (nullable) | |
+
+Katalog birleştirme (marka/renk/ebat/kalınlık/tür kopyaları) çatıların
+referanslarını da korunan kayda taşır.
+
 ### 6. `material_plates` — Plaka (Stok SKU)
 > `brand/color/color_code/width_mm/height_mm/thickness_mm` skaler kolonları
 > hesaplama kodu (alan/m², işleme, teklif) tarafından doğrudan okunduğu için

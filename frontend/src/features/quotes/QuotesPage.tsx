@@ -45,7 +45,11 @@ import { Filters } from '../../components/ui/Filters';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { DATE_PRESETS, DateRangeFilter } from '../../components/ui/DateRangeFilter';
 import { useUrlParam } from '../../hooks/useUrlParam';
-import { formatDate, relativeDay } from '../../lib/format';
+import { formatDate, formatMoney, relativeDay } from '../../lib/format';
+import { RULE_UNIT_LABEL } from '../../api/price-rules.api';
+import { matchesSearch } from '../../lib/search';
+import { FacetChips, useFacets } from '../../components/ui/FacetChips';
+import { PLATE_FACETS } from '../../lib/catalogKey';
 import type {
   MeasurementType,
   Plate,
@@ -269,15 +273,20 @@ function SalePlatePicker({
   });
 
   const all = data?.items ?? [];
-  const q = term.trim().toLocaleLowerCase('tr');
-  const filtered = q
+  // Sözcük sırası/Türkçe harf/ondalık yazımı fark etmez ("beyaz 2,8 akpolimer").
+  const searched = term.trim()
     ? all.filter((p) =>
-        `${p.name} ${p.brand ?? ''} ${p.color ?? ''} ${plateOwnerLabel(p)}`
-          .toLocaleLowerCase('tr')
-          .includes(q),
+        matchesSearch(
+          `${p.name} ${p.brand ?? ''} ${p.color ?? ''} ${p.colorCode ?? ''} ${p.variant ?? ''} ${
+            p.thicknessMm ? `${p.thicknessMm} mm` : ''
+          } ${plateCategory(p)} ${plateOwnerLabel(p)}`,
+          term,
+        ),
       )
     : all;
-  const groups = groupPlates(filtered);
+  // Tür içinde marka / kalınlık / ebat / renk çipleriyle daraltma.
+  const facets = useFacets(searched, PLATE_FACETS);
+  const groups = groupPlates(facets.filtered);
 
   // Seçili malzeme: kart olarak özetlenir.
   if (!open && selectedPlate) {
@@ -336,7 +345,10 @@ function SalePlatePicker({
               ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
               : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
           }`}
-          onClick={() => setCategoryId('')}
+          onClick={() => {
+            setCategoryId('');
+            facets.clear();
+          }}
         >
           Tümü
         </button>
@@ -348,12 +360,17 @@ function SalePlatePicker({
                 ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
             }`}
-            onClick={() => setCategoryId(c.id)}
+            onClick={() => {
+              setCategoryId(c.id);
+              facets.clear();
+            }}
           >
             {c.name}
           </button>
         ))}
       </div>
+
+      {(categoryId || term.trim()) && <FacetChips facets={PLATE_FACETS} state={facets} />}
 
       <div className="max-h-72 space-y-2 overflow-y-auto">
         {isFetching && !all.length && (
@@ -417,7 +434,7 @@ function SalePlatePicker({
             </div>
           </div>
         ))}
-        {!isFetching && !filtered.length && (
+        {!isFetching && !facets.filtered.length && (
           <p className="py-2 text-center text-xs text-slate-400">
             Uygun malzeme yok.
           </p>
@@ -449,6 +466,11 @@ function PlatePriceBadge({ plateId }: { plateId: string }) {
       </span>
       <span className="block text-[10px] text-slate-400">
         /{UNIT_LABEL[data.unit]}
+        {data.priceSource === 'rule' && (
+          <span className="ml-1 text-indigo-500" title={data.rule?.label}>
+            çatı
+          </span>
+        )}
         {data.discountPercent != null && (
           <span className="ml-1 font-semibold text-emerald-600">
             −%{data.discountPercent}
@@ -458,6 +480,14 @@ function PlatePriceBadge({ plateId }: { plateId: string }) {
     </span>
   );
 }
+
+/** Ölçü birimine doğal karşılık gelen fiyat birimi (çevrim gerekmeyen). */
+const NATURAL_PRICE_UNIT: Record<string, string> = {
+  area: 'per_m2',
+  length: 'per_meter',
+  weight: 'per_kg',
+  piece: 'per_plate',
+};
 
 const money = new Intl.NumberFormat('tr-TR', {
   style: 'currency',
@@ -1209,12 +1239,14 @@ function SalePricingNote({
     );
   }
 
-  // Perakende fiyat yoksa: kullanıcıya eklemek isteyip istemediğini sor.
-  if (data.retailPrice == null) {
+  // Ne kalem fiyatı ne de uyan bir fiyat çatısı var: eklemeyi öner.
+  if (data.priceSource == null) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] text-amber-700 dark:text-amber-400">
-          Bu malzemenin perakende fiyatı yok — satış fiyatı otomatik önerilemiyor.
+          {data.rule
+            ? `“${data.rule.label}” çatısının fiyatı çevrilemedi (kur yok) — satış fiyatı önerilemiyor.`
+            : 'Bu malzemenin fiyatı yok — satış fiyatı otomatik önerilemiyor.'}
         </span>
         <button
           type="button"
@@ -1223,30 +1255,56 @@ function SalePricingNote({
         >
           💰 Fiyat ekle
         </button>
+        <Link
+          to="/price-rules?new=1"
+          className="text-[11px] font-medium text-indigo-600 underline dark:text-indigo-400"
+        >
+          ya da fiyat çatısı tanımla
+        </Link>
       </div>
     );
   }
 
+  const rule = data.rule;
+  const ruleUnit = rule ? RULE_UNIT_LABEL[rule.unit] : '';
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-      <span>
-        Perakende {data.retailPrice} {data.retailCurrency}
-        {data.retailCurrency !== data.baseCurrency &&
-          data.retailPriceBase != null && (
-            <> (≈ {money.format(data.retailPriceBase)})</>
-          )}{' '}
-        + %{data.markupPercent} kâr
-        {data.suggestedUnitPrice != null && (
-          <> → önerilen {money.format(data.suggestedUnitPrice)}</>
-        )}
-      </span>
+      {data.priceSource === 'rule' && rule ? (
+        <span>
+          <span className="mr-1 rounded-full bg-indigo-100 px-1.5 py-0.5 font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+            Çatı
+          </span>
+          {rule.label} · {rule.supplierName ?? 'liste fiyatı'} {formatMoney(rule.price, rule.currency)}/{ruleUnit}
+          {data.basePrice != null &&
+            (rule.unit !== NATURAL_PRICE_UNIT[data.unit] || rule.currency !== data.baseCurrency) && (
+              <> (≈ {money.format(data.basePrice)}/{UNIT_LABEL[data.unit]})</>
+            )}{' '}
+          + %{data.markupPercent} kâr
+          {data.suggestedUnitPrice != null && (
+            <> → önerilen {money.format(data.suggestedUnitPrice)}</>
+          )}
+        </span>
+      ) : (
+        <span>
+          Perakende {data.retailPrice} {data.retailCurrency}
+          {data.retailCurrency !== data.baseCurrency &&
+            data.retailPriceBase != null && (
+              <> (≈ {money.format(data.retailPriceBase)})</>
+            )}{' '}
+          + %{data.markupPercent} kâr
+          {data.suggestedUnitPrice != null && (
+            <> → önerilen {money.format(data.suggestedUnitPrice)}</>
+          )}
+          {rule && <span className="text-slate-400"> (kalem fiyatı; çatı: {rule.label})</span>}
+        </span>
+      )}
       {market != null && <span>Malzemeci en ucuz: {money.format(market)}</span>}
       {liveDiscount != null && (
         <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
           Piyasadan %{liveDiscount} uygun
         </span>
       )}
-      {market != null && liveDiscount == null && price > 0 && (
+      {market != null && liveDiscount == null && price > market + 0.01 && (
         <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
           Piyasa fiyatının üzerinde
         </span>

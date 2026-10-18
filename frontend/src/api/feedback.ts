@@ -37,6 +37,11 @@ const SPECIAL: [RegExp, string][] = [
   [/\/corel\/rotate$/, 'Yeni anahtar üretildi'],
   [/\/material-catalog\/dedupe$/, 'Katalog temizlendi'],
   [/\/plates\/batch$/, 'Stok kalemleri eklendi'],
+  [/\/price-rules\/[^/]+\/entries$/, 'Fiyat kaydedildi'],
+  [/\/price-rules\/[^/]+\/entries\/[^/]+$/, 'Fiyat silindi'],
+  [/\/price-rules\/[^/]+\/reference$/, 'Çatı fiyatı seçildi'],
+  [/\/plates\/[^/]+\/retail-price$/, 'Kalem fiyatı güncellendi'],
+  [/\/material-templates\/[^/]+\/merge$/, 'Ürün türleri birleştirildi'],
 ];
 
 /** Bildirim gösterilmeyen istekler (oturum işlemleri). */

@@ -23,8 +23,17 @@ import {
   updateMaterialSize,
   updateMaterialTemplate,
   updateMaterialThickness,
+  mergeMaterialTemplates,
   type MaterialTemplateInput,
 } from '../../api/materials.api';
+import { FacetChips, useFacets } from '../../components/ui/FacetChips';
+import {
+  duplicateTemplateGroups,
+  TEMPLATE_FACETS,
+  templateKey,
+  templateSearchText,
+} from '../../lib/catalogKey';
+import { matchesSearch } from '../../lib/search';
 import { GroupSection } from '../../components/GroupSection';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -134,6 +143,7 @@ export function MaterialTemplatesPage() {
   const [form, setForm] = useState<MaterialTemplateInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const formRef = useRef<HTMLDivElement>(null);
   const formOpen = !!form;
   const [nameTouched, setNameTouched] = useState(false);
@@ -346,26 +356,35 @@ export function MaterialTemplatesPage() {
   const confirmDelete = (message: string) =>
     confirmDialog({ title: 'Silinsin mi?', message, confirmText: 'Sil', danger: true });
 
-  // Ad, kategori, marka, renk ve açıklamada arar (yalnız ekranda süzer).
-  const visible = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase('tr');
-    if (!q) return data ?? [];
-    return (data ?? []).filter((t) =>
-      [
-        t.name,
-        t.category?.name,
-        t.defaultBrand?.name,
-        t.defaultColor?.name,
-        t.defaultColor?.code,
-        t.defaultVariant,
-        t.description,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase('tr')
-        .includes(q),
-    );
-  }, [data, search]);
+  // Önce tür (kategori) çipi ve arama; sonra marka/kalınlık/ebat/renk çipleri.
+  // Arama sözcük sırasından bağımsızdır ("beyaz 2,8 akpolimer").
+  const searched = useMemo(
+    () =>
+      (data ?? []).filter(
+        (t) =>
+          (!categoryFilter || t.categoryId === categoryFilter) &&
+          matchesSearch(templateSearchText(t), search),
+      ),
+    [data, search, categoryFilter],
+  );
+  const facets = useFacets(searched, TEMPLATE_FACETS);
+  const visible = facets.filtered;
+
+  // Formdaki özelliklerle zaten bir ür. türü var mı (kaydetmeden önce uyar).
+  const duplicateOf =
+    form?.categoryId
+      ? (data ?? []).find((t) => t.id !== editingId && templateKey(t) === templateKey(form))
+      : undefined;
+  // Geçmişte açılmış kopyalar: birleştirme önerisi.
+  const duplicateGroups = useMemo(() => duplicateTemplateGroups(data ?? []), [data]);
+  const mergeMut = useMutation({
+    mutationFn: ({ keepId, sourceIds }: { keepId: string; sourceIds: string[] }) =>
+      mergeMaterialTemplates(keepId, sourceIds),
+    onSuccess: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['plates'] });
+    },
+  });
 
   const submit = () => {
     if (!form) return;
@@ -912,12 +931,46 @@ export function MaterialTemplatesPage() {
             />
             Aktif
           </label>
+          {duplicateOf && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100">
+              <p className="font-semibold">Bu özelliklerde bir ürün türü zaten var:</p>
+              <p className="mt-0.5">“{stripNamePlaceholders(duplicateOf.name) || duplicateOf.name}”</p>
+              <p className="mt-1 text-xs">
+                Aynı ürünü ikinci kez açmayın; onu kullanın. Farklı bir ürünse <b>Tür/Varyant</b> alanına ayırt
+                edici bir bilgi yazın (ör. Dökme / Çekme).
+              </p>
+              <button
+                type="button"
+                className="mt-2 font-semibold underline"
+                onClick={() => {
+                  const t = duplicateOf;
+                  setEditingId(t.id);
+                  setNameTouched(true);
+                  setForm({
+                    name: t.name,
+                    categoryId: t.categoryId,
+                    measurementType: t.measurementType,
+                    defaultBrandId: t.defaultBrandId,
+                    defaultColorId: t.defaultColorId,
+                    defaultSizeId: t.defaultSizeId,
+                    defaultThicknessId: t.defaultThicknessId,
+                    defaultVariant: t.defaultVariant,
+                    description: t.description,
+                    isActive: t.isActive,
+                  });
+                }}
+              >
+                Var olanı aç
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
             <button
               className="btn-primary"
               disabled={
                 !form.name.trim() ||
                 !form.categoryId ||
+                !!duplicateOf ||
                 createMut.isPending ||
                 updateMut.isPending
               }
@@ -938,17 +991,94 @@ export function MaterialTemplatesPage() {
         </div>
       )}
 
+      {/* Geçmişte açılmış kopyalar: tek dokunuşla birleştir. */}
+      {can('catalog', 'write') && duplicateGroups.length > 0 && (
+        <div className="card space-y-2 border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/20">
+          <p className="font-semibold text-amber-900 dark:text-amber-100">
+            ⚠️ Aynı özellikte birden çok ürün türü var ({duplicateGroups.length} küme)
+          </p>
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            Birleştirince stok kalemleri en eski türe taşınır; hiçbir stok, teklif ya da satış silinmez.
+          </p>
+          <ul className="space-y-1.5">
+            {duplicateGroups.map((g) => (
+              <li key={g[0].id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <b>{stripNamePlaceholders(g[0].name) || g[0].name}</b>
+                  <span className="text-amber-800 dark:text-amber-200">
+                    {' '}
+                    + {g.length - 1} kopya ({g
+                      .slice(1)
+                      .map((t) => stripNamePlaceholders(t.name) || t.name)
+                      .join(', ')})
+                  </span>
+                </span>
+                <button
+                  className="btn-secondary btn-sm"
+                  disabled={mergeMut.isPending}
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: 'Birleştirilsin mi?',
+                        message: `${g.length - 1} kopya “${stripNamePlaceholders(g[0].name) || g[0].name}” türüne birleştirilecek; stok kalemleri ona taşınır.`,
+                        confirmText: 'Birleştir',
+                      })
+                    )
+                      mergeMut.mutate({ keepId: g[0].id, sourceIds: g.slice(1).map((t) => t.id) });
+                  }}
+                >
+                  Birleştir
+                </button>
+              </li>
+            ))}
+          </ul>
+          {mergeMut.isError && (
+            <p className="text-sm text-red-600">
+              {(mergeMut.error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                'Birleştirilemedi.'}
+            </p>
+          )}
+        </div>
+      )}
+
       {!isLoading && !!data?.length && (
         <Filters
           search={
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Ara (ad, kategori, marka, renk)…"
+              placeholder="Ara: beyaz 2,8 akpolimer…"
               aria-label="Ürün türlerinde ara"
             />
           }
-        />
+          activeCount={facets.activeCount + (categoryFilter ? 1 : 0)}
+          onClear={() => {
+            setCategoryFilter('');
+            facets.clear();
+          }}
+        >
+          <div className="space-y-2">
+            <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+              {[{ id: '', name: 'Tümü' }, ...(categories ?? [])].map((c) => (
+                <button
+                  key={c.id}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
+                    categoryFilter === c.id
+                      ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                  onClick={() => {
+                    setCategoryFilter(c.id);
+                    facets.clear();
+                  }}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+            <FacetChips facets={TEMPLATE_FACETS} state={facets} hideClear />
+          </div>
+        </Filters>
       )}
 
       {isLoading ? (
@@ -975,8 +1105,15 @@ export function MaterialTemplatesPage() {
           title="Aramaya uyan ürün türü yok"
           hint="Farklı bir kelime deneyin."
           action={
-            <button className="btn-secondary btn-sm" onClick={() => setSearch('')}>
-              Aramayı temizle
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => {
+                setSearch('');
+                setCategoryFilter('');
+                facets.clear();
+              }}
+            >
+              Süzgeci temizle
             </button>
           }
         />

@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsEnum,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -31,6 +32,17 @@ export class QueryPlateDto extends PaginationDto {
   @IsOptional()
   @IsString()
   color?: string;
+
+  /** Kalınlık (mm); 2.8 ile 2.80 aynıdır. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  thicknessMm?: number;
+
+  /** Standart tabaka ebadı (kalemin ebadı ya da ürün türünün varsayılanı). */
+  @IsOptional()
+  @IsUUID()
+  sizeId?: string;
 
   @IsOptional()
   @IsString()

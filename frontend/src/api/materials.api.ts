@@ -18,6 +18,10 @@ export interface PlateFilters {
   categoryId?: string;
   brand?: string;
   color?: string;
+  /** Kalınlık (mm). */
+  thicknessMm?: number;
+  /** Standart tabaka ebadı (katalog kaydı). */
+  sizeId?: string;
   inStock?: boolean;
   ownerCustomerId?: string;
   excludeOwnerCustomerId?: string; // alıcının kendi malzemelerini hariç tut
@@ -260,6 +264,18 @@ export async function deleteMaterialTemplate(id: string): Promise<void> {
   await api.delete(`/material-templates/${id}`);
 }
 
+/** Kopya ürün türlerini bu türe birleştirir; stok kalemleri taşınır, silinmez. */
+export async function mergeMaterialTemplates(
+  keepId: string,
+  sourceIds: string[],
+): Promise<{ merged: number; template: MaterialTemplate }> {
+  const { data } = await api.post<{ merged: number; template: MaterialTemplate }>(
+    `/material-templates/${keepId}/merge`,
+    { sourceIds },
+  );
+  return data;
+}
+
 export interface CreatePlateInput {
   /** Toplu eklemede boş bırakılabilir; katalog adlarından çözülür/oluşturulur. */
   templateId?: string;
@@ -429,6 +445,15 @@ export interface PlatePricing {
   retailCurrency: string;
   /** Perakende fiyatın baz para birimindeki karşılığı (kur yoksa null). */
   retailPriceBase: number | null;
+  /**
+   * Önerinin dayandığı fiyat: kalemin kendi perakende fiyatı ('plate'),
+   * fiyat çatısı ('rule') ya da hiçbiri (fiyat elle girilir).
+   */
+  priceSource: 'plate' | 'rule' | null;
+  /** Kâr eklenmeden önceki birim fiyat (baz para biriminde). */
+  basePrice: number | null;
+  /** Kaleme uyan en özel fiyat çatısı (kalem fiyatı öncelikli olsa da). */
+  rule: PricingRuleRef | null;
   /** Sistemin baz para birimi — öneri ve piyasa bu birimdedir. */
   baseCurrency: string;
   /** Uygulanan kâr yüzdesi (plakaya özel varsa o, yoksa genel ayar). */
@@ -442,6 +467,26 @@ export interface PlatePricing {
   discountPercent: number | null;
   /** Konsinye satışta varsayılan komisyon yüzdesi. */
   commissionPercent: number;
+}
+
+/** Kaleme uyan fiyat çatısı ve referans fiyatı. */
+export interface PricingRuleRef {
+  id: string;
+  /** "Pleksi · 2.8 mm · Beyaz" */
+  label: string;
+  supplierId: string | null;
+  /** Referans malzemeci; boşsa işletmenin liste fiyatı. */
+  supplierName: string | null;
+  /** Girildiği para biriminde ve çatının biriminde. */
+  price: number;
+  currency: string;
+  unit: SupplierPriceUnit;
+  /** Referans seçilmemiş, en ucuzu alındı. */
+  autoPicked: boolean;
+  priceUpdatedAt: string;
+  /** Kalemin ölçü birimine ve baz para birimine çevrilmiş hali. */
+  unitPriceBase: number | null;
+  markupPercent: number | null;
 }
 
 export async function fetchPlatePricing(plateId: string): Promise<PlatePricing> {
@@ -468,6 +513,12 @@ export async function setPlateRetailPrice(
     `/plates/${plateId}/retail-price`,
     input,
   );
+  return data;
+}
+
+/** Kalemin kendi fiyatını kaldırır; öneri (varsa) fiyat çatısından gelir. */
+export async function clearPlateRetailPrice(plateId: string): Promise<PlatePricing> {
+  const { data } = await api.delete<PlatePricing>(`/plates/${plateId}/retail-price`);
   return data;
 }
 

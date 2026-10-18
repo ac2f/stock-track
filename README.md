@@ -17,6 +17,7 @@ tek bir çatı altında toplar.
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
+- [Fiyatlar ve fiyat çatıları](#fiyatlar-ve-fiyat-çatıları)
 - [Otomatik klasörler (runner)](#otomatik-klasörler-runner)
 - [Kurulum](#kurulum)
 - [Cluster & Stateless Mimari](#cluster--stateless-mimari)
@@ -160,6 +161,28 @@ alınır ve bağlantı gelince bir kez gönderilir (bkz.
   silme gibi işlemler okunaklı bir onay penceresi ister.
 - Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,
   Son 30 gün, Bu yıl*.
+
+## Fiyatlar ve fiyat çatıları
+
+Teklifte stok kaleminin satış fiyatı şuradan önerilir (öncelik sırasıyla):
+
+1. **Kalemin kendi perakende fiyatı** — *Stok › kalem › Düzenle › Perakende
+   fiyatı* ya da teklifte *Fiyat ekle*.
+2. **Fiyat çatısı** — *Yönetim › Fiyat Çatıları*. Bir grup malzemeye (tüm
+   pleksiler, 2.8 mm pleksiler, beyaz pleksiler, Akpolimer 2.8 mm beyaz pleksi
+   …) malzemecilerin fiyatlarını girersiniz; biri **çatı fiyatı** seçilir
+   (seçilmezse en ucuzu). Fiyat TL ya da dövizle girilebilir, dövizde son kur
+   kullanılır. Bir kaleme birden çok çatı uyarsa en özel olanı geçerlidir.
+
+Öneriye kâr yüzdesi eklenir (kaleminki → çatınınki → Ayarlar › Fiyatlandırma).
+Kalem başına malzemeci fiyatları (*Stok › kalem › Tedarikçi fiyatları*)
+yalnız piyasa karşılaştırması içindir.
+
+**Ürün türleri** aynı özelliklerle (tür + marka + renk + ebat + kalınlık +
+alt tür) ikinci kez açılamaz; eski kopyalar *Ürün Türleri* ekranında tek
+dokunuşla birleştirilir. Stok girişinde, teklifin malzeme seçicisinde, ürün
+türleri ve stok listesinde tür seçince **marka / kalınlık / ebat / renk
+çipleri** çıkar; arama sözcük sırasından bağımsızdır ("beyaz 2,8 akpolimer").
 
 ## Otomatik klasörler (runner)
 

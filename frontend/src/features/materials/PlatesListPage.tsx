@@ -7,6 +7,7 @@ import {
   createPlatesBatch,
   fetchPlatePricing,
   setPlateRetailPrice,
+  clearPlateRetailPrice,
   RETAIL_CURRENCIES,
   type BatchPlateItem,
   type RetailCurrency,
@@ -14,6 +15,10 @@ import {
   depletePlate,
   fetchMaterialCategories,
   fetchMaterialTemplates,
+  fetchMaterialBrands,
+  fetchMaterialThicknesses,
+  fetchMaterialSizes,
+  fetchMaterialColors,
   fetchPlatePrices,
   fetchPlateStockLevels,
   fetchPlates,
@@ -30,7 +35,7 @@ import { fetchSuppliers } from '../../api/suppliers.api';
 import { fetchWarehouses } from '../../api/warehouses.api';
 import { fetchCustomers } from '../../api/customers.api';
 import { CustomerPicker } from '../../components/CustomerPicker';
-import { SearchSelect } from '../../components/SearchSelect';
+import { TemplateFinder } from './TemplateFinder';
 import { groupPlates } from '../../lib/plateGrouping';
 import { UnitConverter } from '../../components/UnitConverter';
 import { GroupSection, groupChipClass } from '../../components/GroupSection';
@@ -211,132 +216,100 @@ function errMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * Açılır kategori/renk ürün-türü tarayıcısı. Ürün türleri KATEGORİ ve RENK ile
- * ayrılır; kategori m² (tabaka) ise türler kendi içinde KALINLIK küçükten büyüğe
- * sıralanır. Her kategori açılır/kapanır → uzun katalogda hızlı seçim.
+ * Stok listesinde tür seçiliyken marka / kalınlık / ebat / renk çipleri.
+ * Değerler o türün kataloğundan gelir; çipe tekrar dokunmak seçimi kaldırır.
  */
-function TemplateBrowser({
-  templates,
-  selectedId,
-  onPick,
+function CatalogFilterChips({
+  categoryId,
+  filters,
+  onChange,
 }: {
-  templates: MaterialTemplate[];
-  selectedId?: string;
-  onPick: (id: string) => void;
+  categoryId: string;
+  filters: PlateFilters;
+  onChange: (patch: Partial<PlateFilters>) => void;
 }) {
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const toggle = (k: string) =>
-    setOpen((s) => {
-      const n = new Set(s);
-      if (n.has(k)) n.delete(k);
-      else n.add(k);
-      return n;
-    });
-
-  // Kategoriye göre grupla.
-  const byCat = new Map<string, MaterialTemplate[]>();
-  for (const t of templates) {
-    const k = t.category?.name ?? 'Diğer';
-    const arr = byCat.get(k);
-    if (arr) arr.push(t);
-    else byCat.set(k, [t]);
-  }
-  const cats = [...byCat.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0], 'tr'),
-  );
-
-  const colorLabel = (t: MaterialTemplate): string =>
-    t.defaultColor
-      ? t.defaultColor.code
-        ? `${t.defaultColor.name} (${t.defaultColor.code})`
-        : t.defaultColor.name
-      : 'Renksiz';
-
-  if (!templates.length) {
-    return (
-      <p className="text-xs text-slate-400">
-        Önce katalogdan ürün türü tanımlayın.
-      </p>
-    );
-  }
-
+  const { data: brands } = useQuery({
+    queryKey: ['material-brands', categoryId],
+    queryFn: () => fetchMaterialBrands(categoryId),
+  });
+  const { data: thicknesses } = useQuery({
+    queryKey: ['material-thicknesses', categoryId],
+    queryFn: () => fetchMaterialThicknesses(categoryId),
+  });
+  const { data: sizes } = useQuery({
+    queryKey: ['material-sizes', categoryId],
+    queryFn: () => fetchMaterialSizes(categoryId),
+  });
+  const { data: colors } = useQuery({
+    queryKey: ['material-colors', categoryId],
+    queryFn: () => fetchMaterialColors(categoryId),
+  });
+  const chip = (on: boolean) =>
+    `shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${
+      on
+        ? 'border-blue-600 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500'
+        : 'border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800'
+    }`;
+  const rows: { label: string; items: { key: string; text: string; on: boolean; pick: () => void }[] }[] = [
+    {
+      label: 'Marka',
+      items: (brands ?? []).map((b) => ({
+        key: b.id,
+        text: b.name,
+        on: filters.brand === b.name,
+        pick: () => onChange({ brand: filters.brand === b.name ? undefined : b.name }),
+      })),
+    },
+    {
+      label: 'Kalınlık',
+      items: [...(thicknesses ?? [])]
+        .sort((a, b) => Number(a.valueMm) - Number(b.valueMm))
+        .map((t) => ({
+          key: t.id,
+          text: `${formatNumber(t.valueMm)} mm`,
+          on: Number(filters.thicknessMm) === Number(t.valueMm),
+          pick: () =>
+            onChange({
+              thicknessMm: Number(filters.thicknessMm) === Number(t.valueMm) ? undefined : Number(t.valueMm),
+            }),
+        })),
+    },
+    {
+      label: 'Ebat',
+      items: (sizes ?? []).map((z) => ({
+        key: z.id,
+        text: `${Number(z.widthMm)}×${Number(z.heightMm)}`,
+        on: filters.sizeId === z.id,
+        pick: () => onChange({ sizeId: filters.sizeId === z.id ? undefined : z.id }),
+      })),
+    },
+    {
+      label: 'Renk',
+      items: (colors ?? []).map((c) => ({
+        key: c.id,
+        text: c.code ? `${c.name} ${c.code}` : c.name,
+        on: filters.color === c.name,
+        pick: () => onChange({ color: filters.color === c.name ? undefined : c.name }),
+      })),
+    },
+  ].filter((r) => r.items.length > 0);
+  if (!rows.length) return null;
   return (
-    <div className="space-y-1">
-      {cats.map(([cat, list]) => {
-        const isArea = list.some(
-          (t) =>
-            (t.measurementType ?? t.category?.defaultMeasurementType) === 'area',
-        );
-        // Renge göre alt-grupla.
-        const byColor = new Map<string, MaterialTemplate[]>();
-        for (const t of list) {
-          const c = colorLabel(t);
-          const arr = byColor.get(c);
-          if (arr) arr.push(t);
-          else byColor.set(c, [t]);
-        }
-        const colors = [...byColor.entries()].sort((a, b) =>
-          a[0].localeCompare(b[0], 'tr'),
-        );
-        const byThicknessAsc = (a: MaterialTemplate, b: MaterialTemplate) =>
-          (a.defaultThickness?.valueMm ?? Number.POSITIVE_INFINITY) -
-          (b.defaultThickness?.valueMm ?? Number.POSITIVE_INFINITY);
-        const isOpen = open.has(cat);
-        return (
-          <div
-            key={cat}
-            className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"
-          >
-            <button
-              type="button"
-              onClick={() => toggle(cat)}
-              className="flex w-full items-center justify-between px-3 py-2 text-left"
-            >
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${groupChipClass(cat)}`}
-              >
-                {cat}
-              </span>
-              <span className="text-xs text-slate-400">
-                {list.length} · {isOpen ? '▾' : '▸'}
-              </span>
-            </button>
-            {isOpen && (
-              <div className="space-y-2 px-3 pb-2">
-                {colors.map(([color, ctpls]) => (
-                  <div key={color}>
-                    <p className="mb-1 text-xs font-medium text-slate-500">
-                      🎨 {color}
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {(isArea ? [...ctpls].sort(byThicknessAsc) : ctpls).map(
-                        (t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => onPick(t.id)}
-                            title={t.name}
-                            className={`rounded-lg border px-2 py-1 text-xs ${
-                              selectedId === t.id
-                                ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900'
-                                : 'border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-700'
-                            }`}
-                          >
-                            {t.defaultThickness
-                              ? `${t.defaultThickness.valueMm}mm · `
-                              : ''}
-                            {t.name}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+    <div className="space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-start gap-2">
+          <span className="w-16 shrink-0 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            {r.label}
+          </span>
+          <div className="-mx-1 flex min-w-0 flex-1 gap-1 overflow-x-auto px-1 pb-0.5 sm:flex-wrap sm:overflow-visible">
+            {r.items.map((it) => (
+              <button key={it.key} type="button" aria-pressed={it.on} className={chip(it.on)} onClick={it.pick}>
+                {it.text}
+              </button>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -361,6 +334,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const [skuTouched, setSkuTouched] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
   const [owner, setOwner] = useState<'business' | 'customer'>('business');
+  const [picking, setPicking] = useState(true);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Form açılınca ilk alana (ürün türü araması) odaklan — yalnız fareli
@@ -496,29 +470,36 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         </p>
       )}
 
-      <Field label="Ürün türü (kategoriye göre gruplu · aratılabilir)" required>
-        {/* #2 Kategoriye göre gruplu, aranabilir, klavyeyle gezilebilir seçici. */}
-        <SearchSelect
-          placeholder="Ürün türü ara / seç…"
-          value={form.templateId ?? ''}
-          options={(templates ?? []).map((t) => ({
-            id: t.id,
-            label: t.name,
-            group: t.category?.name ?? 'Diğer',
-          }))}
-          onChange={(id) => applyTemplateDefaults(id)}
-        />
-      </Field>
-
-      {/* Açılır kategori/renk tarayıcısı — kategori + renk ile ayrılmış, m²
-          türlerde kalınlık küçükten büyüğe sıralı; her kategori açılır/kapanır. */}
-      <Field label="Ya da kategoriye göz atarak seç (açılır · kalınlığa göre sıralı)">
-        <TemplateBrowser
-          templates={templates ?? []}
-          selectedId={form.templateId}
-          onPick={(id) => applyTemplateDefaults(id)}
-        />
-      </Field>
+      {/* <label> değil: içindeki düğmeye tıklayınca tarayıcı tıklamayı
+          yeniden çizilen ilk düğmeye ("Değiştir") aktarıyordu. */}
+      <div className="min-w-0">
+        <span className="label">
+          Ürün türü<span className="ml-0.5 text-red-600">*</span>
+        </span>
+        {/* Seçilince özet kart; değiştirmek için bulucu yeniden açılır. */}
+        {tpl && !picking ? (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-900/20">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">
+                {stripNamePlaceholders(tpl.name) || tpl.name}
+              </span>
+              <span className="block truncate text-xs text-slate-500">{tpl.category?.name}</span>
+            </span>
+            <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => setPicking(true)}>
+              Değiştir
+            </button>
+          </div>
+        ) : (
+          <TemplateFinder
+            templates={templates ?? []}
+            selectedId={form.templateId}
+            onPick={(id) => {
+              applyTemplateDefaults(id);
+              setPicking(false);
+            }}
+          />
+        )}
+      </div>
 
       {tpl && (
         <>
@@ -964,6 +945,14 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
     },
   });
 
+  const clearMut = useMutation({
+    mutationFn: () => clearPlateRetailPrice(plate.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plate-pricing', plate.id] });
+      qc.invalidateQueries({ queryKey: ['price-rules'] });
+    },
+  });
+
   const unitLabel =
     plate.measurementType === 'length'
       ? 'metre'
@@ -972,12 +961,48 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
         : plate.measurementType === 'piece'
           ? 'adet'
           : 'm²';
+  const rule = data?.rule;
 
   return (
     <div className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50 p-2 text-sm dark:border-indigo-900 dark:bg-indigo-900/20">
       <p className="font-medium text-indigo-800 dark:text-indigo-300">
         💰 Perakende (satış) fiyatı — {unitLabel} başına
       </p>
+      {/* Kaleme uyan fiyat çatısı: kalemin kendi fiyatı yoksa öneri buradan. */}
+      {rule && (
+        <div className="space-y-1 rounded-md bg-white/70 p-2 text-xs dark:bg-slate-900/40">
+          <p>
+            <span className="font-semibold">Fiyat çatısı:</span> {rule.label} —{' '}
+            {rule.supplierName ?? 'kendi liste fiyatı'} {formatMoney(rule.price, rule.currency)}
+            {rule.unitPriceBase != null && rule.unit !== 'per_m2' && plate.measurementType === 'area' && (
+              <> (≈ {formatMoney(rule.unitPriceBase, data.baseCurrency)}/m²)</>
+            )}
+            {rule.unitPriceBase != null && rule.currency !== data.baseCurrency && rule.unit === 'per_m2' && (
+              <> (≈ {formatMoney(rule.unitPriceBase, data.baseCurrency)})</>
+            )}
+          </p>
+          {data.priceSource === 'plate' ? (
+            <p className="flex flex-wrap items-center gap-2 text-amber-800 dark:text-amber-300">
+              Bu kalemin kendi fiyatı var; çatı fiyatı kullanılmıyor.
+              <button
+                type="button"
+                className="font-semibold text-indigo-700 underline dark:text-indigo-300"
+                disabled={clearMut.isPending}
+                onClick={() => clearMut.mutate()}
+              >
+                Kalem fiyatını kaldır, çatıyı kullan
+              </button>
+            </p>
+          ) : (
+            <p className="text-slate-500">
+              Satış fiyatı bu çatıdan önerilir. Yalnız bu kaleme özel fiyat isterseniz aşağıya yazın.
+            </p>
+          )}
+          <Link to="/price-rules" className="font-medium text-indigo-700 underline dark:text-indigo-300">
+            Fiyat çatılarını aç
+          </Link>
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-2">
         <label className="block text-xs">
           <span className="label">Perakende fiyat</span>
@@ -1038,9 +1063,9 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
           )}
         </p>
       )}
-      {mut.isError && (
+      {(mut.isError || clearMut.isError) && (
         <p className="text-xs text-red-600">
-          {errMessage(mut.error, 'Fiyat kaydedilemedi.')}
+          {errMessage(mut.error ?? clearMut.error, 'Fiyat kaydedilemedi.')}
         </p>
       )}
     </div>
@@ -2016,6 +2041,8 @@ export function PlatesListPage() {
     filters.categoryId,
     filters.brand,
     filters.color,
+    filters.thicknessMm,
+    filters.sizeId,
     filters.owner || filters.ownerCustomerId,
     filters.inStock,
     filters.from || filters.to,
@@ -2025,6 +2052,8 @@ export function PlatesListPage() {
       categoryId: undefined,
       brand: undefined,
       color: undefined,
+      thicknessMm: undefined,
+      sizeId: undefined,
       owner: undefined,
       ownerCustomerId: undefined,
       inStock: undefined,
@@ -2076,7 +2105,7 @@ export function PlatesListPage() {
           <SearchInput
             value={filters.search ?? ''}
             onChange={(v) => set({ search: v || undefined })}
-            placeholder="Ara (ad, stok kodu, renk kodu)…"
+            placeholder="Ara: beyaz 2,8 akpolimer…"
             aria-label="Stokta ara"
           />
         }
@@ -2089,7 +2118,16 @@ export function PlatesListPage() {
             <select
               className="input"
               value={filters.categoryId ?? ''}
-              onChange={(e) => set({ categoryId: e.target.value || undefined })}
+              onChange={(e) =>
+                // Tür değişince önceki türün marka/kalınlık/ebat/renk seçimi geçersiz.
+                set({
+                  categoryId: e.target.value || undefined,
+                  brand: undefined,
+                  color: undefined,
+                  thicknessMm: undefined,
+                  sizeId: undefined,
+                })
+              }
             >
               <option value="">Tüm türler</option>
               {categories?.map((c) => (
@@ -2099,24 +2137,29 @@ export function PlatesListPage() {
               ))}
             </select>
           </label>
-          <label className="block min-w-0">
-            <span className="label">Marka</span>
-            <input
-              className="input"
-              placeholder="Marka"
-              value={filters.brand ?? ''}
-              onChange={(e) => set({ brand: e.target.value || undefined })}
-            />
-          </label>
-          <label className="block min-w-0">
-            <span className="label">Renk</span>
-            <input
-              className="input"
-              placeholder="Renk"
-              value={filters.color ?? ''}
-              onChange={(e) => set({ color: e.target.value || undefined })}
-            />
-          </label>
+          {/* Tür seçiliyse marka/renk çiplerle (aşağıda) seçilir. */}
+          {!filters.categoryId && (
+            <>
+              <label className="block min-w-0">
+                <span className="label">Marka</span>
+                <input
+                  className="input"
+                  placeholder="Marka"
+                  value={filters.brand ?? ''}
+                  onChange={(e) => set({ brand: e.target.value || undefined })}
+                />
+              </label>
+              <label className="block min-w-0">
+                <span className="label">Renk</span>
+                <input
+                  className="input"
+                  placeholder="Renk"
+                  value={filters.color ?? ''}
+                  onChange={(e) => set({ color: e.target.value || undefined })}
+                />
+              </label>
+            </>
+          )}
           <label className="block min-w-0">
             <span className="label">Sahip</span>
             <select
@@ -2139,6 +2182,13 @@ export function PlatesListPage() {
             </select>
           </label>
         </div>
+        {filters.categoryId && (
+          <CatalogFilterChips
+            categoryId={filters.categoryId}
+            filters={filters}
+            onChange={set}
+          />
+        )}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,36rem)_auto] lg:items-start">
           <DateRangeFilter
             value={{ from: filters.from, to: filters.to }}
