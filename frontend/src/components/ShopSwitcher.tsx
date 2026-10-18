@@ -1,13 +1,15 @@
 import { useAuth } from '../context/AuthContext';
 
 /**
- * Dükkân seçici. Tek dükkânı olan kullanıcıya yalnız adı gösterir; birden
- * çoksa seçim kutusu. Seçim değişince bütün ekranlar o dükkânın verisini yükler.
+ * Dükkân seçici. Tek dükkânı olan kullanıcıya yalnız adı gösterir (hideSingle
+ * ile hiç göstermez); birden çoksa seçim kutusu. Seçim değişince bütün
+ * ekranlar o dükkânın verisini yükler.
  */
-export function ShopSwitcher({ className = '' }: { className?: string }) {
+export function ShopSwitcher({ className = '', hideSingle = false }: { className?: string; hideSingle?: boolean }) {
   const { shops, shop, setShop } = useAuth();
   if (!shops.length) return null;
   if (shops.length === 1) {
+    if (hideSingle) return null;
     return (
       <div className={`truncate text-xs text-slate-500 ${className}`} title="Dükkân">
         🏪 {shops[0].name}
@@ -16,9 +18,9 @@ export function ShopSwitcher({ className = '' }: { className?: string }) {
   }
   return (
     <label className={`block ${className}`}>
-      <span className="sr-only">Dükkân</span>
+      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">Dükkân</span>
       <select
-        className="input py-1.5 text-sm"
+        className="input min-h-[40px] py-1.5 font-medium md:text-sm"
         value={shop?.id ?? ''}
         onChange={(e) => setShop(e.target.value)}
         title="Çalıştığınız dükkân"

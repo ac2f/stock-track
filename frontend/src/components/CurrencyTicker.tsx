@@ -18,7 +18,9 @@ function ageLabel(asOf: string | null): string {
  * gösterilir ve 10 dakikada bir tazelenir. İşletme Sahibi kur rozetine
  * tıklayarak anında yeniden çekilmesini isteyebilir.
  */
-export function CurrencyTicker({ className = '' }: { className?: string }) {
+const SYMBOL: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
+
+export function CurrencyTicker({ className = '', compact = false }: { className?: string; compact?: boolean }) {
   const qc = useQueryClient();
   const { hasRole } = useAuth();
   const { data } = useQuery({
@@ -43,7 +45,7 @@ export function CurrencyTicker({ className = '' }: { className?: string }) {
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-1.5 ${className}`}
+      className={`flex items-center gap-1.5 ${compact ? 'flex-col items-end gap-0.5' : 'flex-wrap'} ${className}`}
       title={
         isOwner
           ? 'Kurları şimdi güncellemek için tıklayın'
@@ -56,7 +58,7 @@ export function CurrencyTicker({ className = '' }: { className?: string }) {
           type="button"
           disabled={!isOwner || syncMut.isPending}
           onClick={() => isOwner && syncMut.mutate()}
-          className={`rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+          className={`rounded-lg font-semibold tabular-nums ${compact ? 'px-1.5 py-0.5 text-[11px]' : 'px-2 py-1 text-xs'} ${
             stale
               ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
               : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
@@ -65,7 +67,7 @@ export function CurrencyTicker({ className = '' }: { className?: string }) {
             r.source === 'manual' ? ' · elle girildi' : ''
           }`}
         >
-          {r.currency}{' '}
+          {compact ? SYMBOL[r.currency] ?? r.currency : r.currency}{' '}
           {r.rate != null ? (
             <span className="font-bold">
               {r.rate.toLocaleString('tr-TR', {

@@ -6,11 +6,15 @@ import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import { DensityProvider } from './context/DensityContext';
 import { applyTheme, resolveInitialTheme } from './lib/theme';
+import { applyFontScale, getFontScale } from './lib/fontScale';
+import { Toaster } from './components/Toaster';
+import { ConfirmHost } from './components/ConfirmDialog';
 import { startSync } from './offline/sync';
 import './styles/index.css';
 
-// Tema seçimini render'dan önce uygula (flash önlemek için).
+// Tema ve yazı boyutunu render'dan önce uygula (flash önlemek için).
 applyTheme(resolveInitialTheme());
+applyFontScale(getFontScale());
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -34,6 +38,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <DensityProvider>
             <App />
+            <Toaster />
+            <ConfirmHost />
           </DensityProvider>
         </AuthProvider>
       </BrowserRouter>

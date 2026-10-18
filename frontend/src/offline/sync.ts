@@ -12,6 +12,7 @@ import {
   type SendResult,
 } from './outbox';
 import { getSessionUser } from './session';
+import { toast } from '../lib/toast';
 
 /**
  * Eşzamanlama: sunucu geri gelince kuyruğu gönderir, ekranları tazeler ve
@@ -91,6 +92,10 @@ export function syncNow(): Promise<void> {
         // Kuyruktaki kayıtlar artık sunucuda: listeler gerçeğini göstersin.
         await queryClient?.invalidateQueries();
         patchNetState({ lastSyncAt: Date.now() });
+        toast.success(`Bağlantı geldi: ${result.sent} işlem sunucuya gönderildi`);
+      }
+      if (result.failed > 0) {
+        toast.error(`${result.failed} işlem sunucuda kabul edilmedi`, 'Üstteki kırmızı şeritten bakabilirsiniz.');
       }
       if (result.stoppedOffline) patchNetState({ online: false });
       await pruneCache();

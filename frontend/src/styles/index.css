@@ -8,24 +8,204 @@
   #root {
     height: 100%;
   }
+  /* Yazı boyutu tercihi (Normal / Büyük / Çok büyük): bütün ölçüler rem
+     olduğundan kök boyutu değişince ekranın tamamı orantılı büyür. */
+  html[data-font='large'] {
+    font-size: 17.5px;
+  }
+  html[data-font='xlarge'] {
+    font-size: 19px;
+  }
   body {
     @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
+    /* Rakamlar eşit genişlikte: tutarlar alt alta hizalı okunur. */
+    font-variant-numeric: tabular-nums;
+  }
+  /* Klavyeyle gezinene nerede olduğunu göster (fareyle tıklayana değil). */
+  :focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: #2563eb;
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+  ::selection {
+    background: #bfdbfe;
+    color: #0f172a;
+  }
+  h1 {
+    letter-spacing: -0.01em;
+  }
+  /* İnce ve sakin kaydırma çubukları (masaüstü). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  .dark * {
+    scrollbar-color: #475569 transparent;
   }
 }
 
 @layer components {
   /* Dokunmaya uygun (min 44px) buton temeli. */
   .btn {
-    @apply inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-sm font-medium transition active:scale-[0.98];
+    @apply inline-flex min-h-[44px] select-none items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
   }
   .btn-primary {
-    @apply btn bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500;
+    @apply btn bg-blue-600 text-white shadow-sm hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500;
+  }
+  .btn-secondary {
+    @apply btn bg-slate-100 text-slate-800 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600;
+  }
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .btn-danger-soft {
+    @apply btn bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50;
+  }
+  .btn-success {
+    @apply btn bg-emerald-600 text-white hover:bg-emerald-700;
+  }
+  .btn-sm {
+    @apply min-h-[36px] rounded-lg px-3 text-xs;
   }
   .card {
     @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800;
   }
+  /* Telefonda 16px: iOS odaklanınca sayfayı yakınlaştırmasın. */
   .input {
-    @apply min-h-[44px] w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-blue-500;
+    @apply min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 md:text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-blue-500;
+  }
+  select.input {
+    @apply appearance-none pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    background-size: 1.15rem;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .kbd {
+    @apply inline-flex min-w-[1.4rem] items-center justify-center rounded-md border border-slate-300 bg-slate-50 px-1.5 font-mono text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.15)] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300;
+  }
+}
+
+/*
+ * Eski ekranlardaki düğmeler: yalnız "btn" sınıfı taşıyan (zemin rengi
+ * verilmemiş) düğmeler ince çerçeveli görünür, gri olanlar üzerine gelince
+ * koyulaşır. Böylece "Düzenle / Sil" gibi düğmeler düz yazıyla karışmaz.
+ */
+.btn:not([class*='bg-']) {
+  border: 1px solid #e2e8f0;
+}
+.btn:not([class*='bg-']):hover {
+  background-color: #f1f5f9;
+}
+.btn.bg-slate-100:hover {
+  background-color: #e2e8f0;
+}
+.btn.bg-red-50:hover {
+  background-color: #fee2e2;
+}
+.btn.bg-emerald-600:hover {
+  background-color: #047857;
+}
+.btn.bg-red-600:hover {
+  background-color: #b91c1c;
+}
+.dark .btn:not([class*='bg-']) {
+  border-color: #334155;
+}
+.dark .btn:not([class*='bg-']):hover {
+  background-color: #334155;
+}
+.dark .btn.bg-slate-100:hover {
+  background-color: #475569;
+}
+
+/*
+ * Okunabilirlik: açık temada en soluk gri (slate-400) beyaz zeminde yeterince
+ * okunmuyordu; bir ton koyulaştırılır. Çok küçük (10px) yazılar 11px olur.
+ */
+html:not(.dark) .text-slate-400 {
+  color: #64748b;
+}
+.text-\[10px\] {
+  font-size: 11px;
+}
+
+/* Hızlı arama ve pencereler için yumuşak giriş. */
+@keyframes st-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes st-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes st-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.animate-pop {
+  animation: st-pop 0.16s ease-out;
+}
+.animate-fade {
+  animation: st-fade 0.16s ease-out;
+}
+.animate-slide-up {
+  animation: st-slide-up 0.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop,
+  .animate-fade,
+  .animate-slide-up {
+    animation: none;
+  }
+  .btn {
+    transition: none;
+  }
+}
+
+/* Yükleniyor iskeleti. */
+.skeleton {
+  @apply animate-pulse rounded-lg bg-slate-200 dark:bg-slate-700;
+}
+
+/* Yazdırırken menüler ve şeritler çıkmaz. */
+@media print {
+  aside,
+  nav,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
   }
 }
 
@@ -71,7 +251,7 @@
   color: #94a3b8;
 }
 .dark .text-slate-400 {
-  color: #64748b;
+  color: #8494ab;
 }
 .dark .hover\:text-slate-900:hover {
   color: #e2e8f0;

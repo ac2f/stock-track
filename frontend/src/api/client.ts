@@ -10,6 +10,7 @@ import { getNetState, patchNetState } from '../offline/network';
 import { enqueue, listOps, type OutboxOp } from '../offline/outbox';
 import { pathOf, queueRule } from '../offline/policy';
 import { getSessionUser } from '../offline/session';
+import { announceFailure, announceSuccess } from './feedback';
 
 /**
  * API taban adresi.
@@ -86,6 +87,7 @@ api.interceptors.response.use(
     }
     markReachable();
     rememberResponse(response);
+    announceSuccess(response);
     return response;
   },
   async (error: AxiosError) => {
@@ -107,9 +109,15 @@ api.interceptors.response.use(
     if (original && isOfflineError(error) && !original._replay) {
       patchNetState({ online: false });
       const fallback = await offlineFallback(original);
-      if (fallback) return fallback;
-      return Promise.reject(offlineError(original));
+      if (fallback) {
+        announceSuccess(fallback);
+        return fallback;
+      }
+      const offline = offlineError(original);
+      announceFailure(offline, original);
+      return Promise.reject(offline);
     }
+    if (!original?._replay) announceFailure(error, original);
     return Promise.reject(error);
   },
 );
