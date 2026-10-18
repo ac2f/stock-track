@@ -643,6 +643,7 @@ gerekmez).
 | GET | `/corel/quotes?customerId=&limit=` | 🔑 | Müşterinin son teklifleri (yeniden eskiye) |
 | GET | `/corel/quotes/:id/usage` | 🔑 | Teklifin tabaka kalemleri ve kullanılan ölçü |
 | GET | `/corel/pricing` | 🔑 | Kesim fiyatlandırması (süre ve m² modülleri) |
+| GET | `/corel/jobs?since=&limit=` | 🔑 | İşe dönüştürülmüş teklifler, dönüşüm sırasıyla (`since` dahil). **JSON** döner: dükkân bilgisayarındaki [stock-track-runner](https://github.com/ac2f/stock-track-runner) bunları okuyup müşteri ve takım yolu klasörlerini açar |
 
 **Yanıt biçimi:** `text/plain`, sekmeyle ayrılmış, tamamen ASCII (Türkçe
 harfler katlanır: `Öztürk` → `Ozturk`). İlk satır sürüm başlığıdır
@@ -660,6 +661,7 @@ id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen 
 3bb3…  B  pleksi  2800  akpolimer  dokme  beyaz  1220  2440  3  Pleksi 2.8mm Akpolimer Dokme Beyaz 1220x2440 x3
 ```
 
+- **`/corel/jobs`**: `{ id, quoteNo, createdAt, convertedAt, customerFolder, customerLabel, sheets: [{ kind, thicknessUm, brand, variant, color, sheetWidthMm, sheetHeightMm, usedWidthMm, usedHeightMm, quantity, label }] }` dizisi. `sheetWidthMm/HeightMm` tabakanın dönüşümden önceki ölçüsüdür.
 - **Klasör adı:** firma adı varsa o, yoksa kişi adı; küçük harf ve
   boşluksuz, harf/rakam dışı her dizi tek `-` (`ozturk-reklam-ltd-sti`).
 - **Jetonlar** (tür, marka, varyant, renk): küçük harf, harf/rakam dışı her

@@ -85,6 +85,27 @@ export class QuoteItem extends ShopScopedEntity {
   })
   heightMm?: number | null;
 
+  // Teklif işe dönüştürüldüğü andaki tabaka ölçüsü (kesimden ÖNCE). Dönüşüm
+  // plakanın kalan ölçüsünü düşürdüğü için o an kaydedilir; dükkândaki runner
+  // takım yolu klasörüne plakanın tam ölçüsünü bununla yazar.
+  @Column({
+    name: 'sheet_width_mm',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  sheetWidthMm?: number | null;
+
+  @Column({
+    name: 'sheet_height_mm',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+  })
+  sheetHeightMm?: number | null;
+
   @Column({
     name: 'length_meters',
     type: 'numeric',

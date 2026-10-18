@@ -17,6 +17,7 @@ tek bir çatı altında toplar.
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
+- [Otomatik klasörler (runner)](#otomatik-klasörler-runner)
 - [Kurulum](#kurulum)
 - [Cluster & Stateless Mimari](#cluster--stateless-mimari)
 - [Dokümantasyon](#dokümantasyon)
@@ -159,6 +160,15 @@ alınır ve bağlantı gelince bir kez gönderilir (bkz.
   silme gibi işlemler okunaklı bir onay penceresi ister.
 - Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,
   Son 30 gün, Bu yıl*.
+
+## Otomatik klasörler (runner)
+
+Teklif **işe dönüştürülünce** dükkân bilgisayarında gün › müşteri › takım
+yolu klasörleri kendiliğinden açılır. Bunu sunucu değil, dükkân
+bilgisayarında çalışan **[stock-track-runner](https://github.com/ac2f/stock-track-runner)**
+yapar (sunucu uzakta olabilir, bilgisayara yazamaz). Runner dükkânın Corel
+anahtarıyla `/corel/jobs` ucunu okur; klasör adları Corel eklentisiyle
+aynıdır. Kurulum: runner deposundaki `install.bat`.
 
 ## Kurulum
 

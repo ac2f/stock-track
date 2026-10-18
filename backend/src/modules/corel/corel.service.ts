@@ -4,7 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, Repository } from 'typeorm';
+import { In, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
+import { QuoteStatus } from '../../common/enums/quote-status.enum';
 import { MeasurementType } from '../../common/enums/measurement-type.enum';
 import { Customer } from '../customers/entities/customer.entity';
 import { MaterialPlate } from '../materials/entities/material-plate.entity';
@@ -13,9 +14,11 @@ import { Quote } from '../quotes/entities/quote.entity';
 import { QuoteItem } from '../quotes/entities/quote-item.entity';
 import { SettingsService } from '../settings/settings.service';
 import {
+  CorelJob,
   customerFolderName,
   customerHaystack,
   customerLine,
+  jobSheet,
   materialHaystack,
   materialLine,
   matchesTokens,
@@ -31,6 +34,7 @@ import {
 const DEFAULT_CUSTOMERS = 25;
 const DEFAULT_MATERIALS = 40;
 const DEFAULT_QUOTES = 6;
+const DEFAULT_JOBS = 50;
 
 /** Tabakadan parça kullanan teklif kalemi: plakalı ve m² ölçülen. */
 function isSheetItem(item: QuoteItem): boolean {
@@ -197,6 +201,42 @@ export class CorelService {
         quoteLine(q, (q.items ?? []).filter(isSheetItem).length),
       ),
     );
+  }
+
+  /**
+   * İşe dönüştürülmüş teklifler, dönüşüm sırasıyla (eskiden yeniye). Dükkân
+   * bilgisayarındaki runner bunları okuyup müşteri ve takım yolu klasörlerini
+   * açar. `since` dahildir; runner aynı teklifi kimliğinden tanıyıp atlar.
+   */
+  async jobs(since?: string, limit = DEFAULT_JOBS): Promise<CorelJob[]> {
+    const where: Record<string, unknown> = { status: QuoteStatus.CONVERTED };
+    if (since) where.convertedAt = MoreThanOrEqual(new Date(since));
+    const quotes = await this.quotesRepo.find({
+      where,
+      order: { convertedAt: 'ASC', id: 'ASC' },
+      take: limit,
+    });
+    return quotes
+      .filter((q) => q.convertedAt)
+      .map((q) => {
+        const c = q.buyerCustomer;
+        const label = customerLine({
+          id: q.buyerCustomerId,
+          name: c?.name ?? '',
+          companyName: c?.companyName,
+          phone: null,
+        }).split('\t')[2];
+        return {
+          id: q.id,
+          quoteNo: q.quoteNo,
+          createdAt: q.createdAt.toISOString(),
+          convertedAt: q.convertedAt!.toISOString(),
+          customerId: q.buyerCustomerId,
+          customerFolder: customerFolderName(c?.name, c?.companyName),
+          customerLabel: label,
+          sheets: (q.items ?? []).filter(isSheetItem).map(jobSheet),
+        };
+      });
   }
 
   /** Bir teklifin tabaka kalemleri ve her birinden kullanılan ölçü. */

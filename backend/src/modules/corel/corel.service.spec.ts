@@ -159,6 +159,63 @@ describe('CorelService', () => {
     expect(used[0].split('\t').slice(7, 9)).toEqual(['1220', '900']);
   });
 
+  it('işe dönüşen teklif: tabakanın dönüşümden önceki tam ölçüsü ve klasör adı', async () => {
+    // Dönüşüm plakanın kalan boyunu 2440'tan 1540'a düşürdü; kalemde
+    // kaydedilen tabaka ölçüsü geçer.
+    const cut = { ...pleksi('p1', 'Beyaz', { heightMm: '1540.00' }), measurementType: 'area' };
+    const roll = { ...pleksi('p2', 'Profil'), measurementType: 'length' };
+    const svc = build({
+      quotes: [
+        {
+          id: 'q1',
+          quoteNo: 'TKF-2026-0007',
+          status: 'converted',
+          buyerCustomerId: 'c1',
+          buyerCustomer: { name: 'Ali Veli', companyName: 'Öztürk Reklam' },
+          createdAt: new Date('2026-10-17T10:00:00Z'),
+          convertedAt: new Date('2026-10-18T08:30:00Z'),
+          items: [
+            {
+              id: 'i1',
+              quantity: '2',
+              widthMm: '1220',
+              heightMm: '900',
+              sheetWidthMm: '1220.00',
+              sheetHeightMm: '2440.00',
+              plate: cut,
+            },
+            { id: 'i2', quantity: '3', plate: roll },
+          ],
+        },
+      ],
+    });
+
+    const [job] = await svc.jobs('2026-10-18T00:00:00Z');
+    expect(job).toMatchObject({
+      id: 'q1',
+      quoteNo: 'TKF-2026-0007',
+      convertedAt: '2026-10-18T08:30:00.000Z',
+      customerFolder: 'ozturk-reklam',
+      customerLabel: 'Ozturk Reklam (Ali Veli)',
+    });
+    expect(job.sheets).toEqual([
+      {
+        itemId: 'i1',
+        label: 'Pleksi 2.8mm Akpolimer Dokme Beyaz 1220x2440',
+        kind: 'pleksi',
+        thicknessUm: '2800',
+        brand: 'akpolimer',
+        variant: 'dokme',
+        color: 'beyaz',
+        sheetWidthMm: 1220,
+        sheetHeightMm: 2440,
+        usedWidthMm: 1220,
+        usedHeightMm: 900,
+        quantity: 2,
+      },
+    ]);
+  });
+
   it('teklif listesi müşteri ister', async () => {
     await expect(build({}).quotes(undefined)).rejects.toThrow('customerId');
   });

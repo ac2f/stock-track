@@ -373,7 +373,7 @@ current_balance = opening_balance
 | Tablo / Kolon | Açıklama |
 | ------------- | -------- |
 | `quotes` | Teklif (proforma): `quote_no` (TKF-YYYY-NNNN, unique), `buyer_customer_id`, `owner_customer_id?`, `warehouse_id?`, `status` (draft/sent/accepted/rejected/expired/converted), `valid_until?`, `currency`+`exchange_rate`, `subtotal`/`total`/`base_total`, `converted_sale_id?`, `converted_at?`, `note?`. Cari/stok hareketi YOK. |
-| `quote_items` | Teklif kalemi: `quote_id` (CASCADE), `line_kind` (sale/processing), `plate_id`, `description?`, `quantity`, `unit_price`, `line_total`; işleme alanları (`billing_unit?`, `width_mm?`, `height_mm?`, `length_meters?`); satış alanları (`stock_source?`, `owner_settlement?`, `commission_percent?`, `owner_amount?`). |
+| `quote_items` | Teklif kalemi: `quote_id` (CASCADE), `line_kind` (sale/processing), `plate_id`, `description?`, `quantity`, `unit_price`, `line_total`; işleme alanları (`billing_unit?`, `width_mm?`, `height_mm?`, `length_meters?`); dönüşüm anındaki tabaka ölçüsü (`sheet_width_mm?`, `sheet_height_mm?` — dönüşüm plakanın kalan boyunu düşürdüğü için, dükkân runner'ı klasör adına tam ölçüyü bununla yazar); satış alanları (`stock_source?`, `owner_settlement?`, `commission_percent?`, `owner_amount?`). |
 | `machines` | Üretim makinesi: `name`, `code` (unique), `default_measurement_type`, `is_active`. |
 | `processing_jobs` (+kolonlar) | `status` (pending/in_progress/completed/cancelled), `machine_id?`, `bill_on_completion`, `completed_at?`, `stock_consumed`. Ertelemeli işte stok+borç COMPLETED'da uygulanır (idempotent); CANCELLED iade eder. |
 | `customers` (+kolon) | `portal_token?` (unique, NULL=erişim yok) — müşteri self-servis portalı için tahmin edilemez salt-okunur token. |

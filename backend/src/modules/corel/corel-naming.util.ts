@@ -319,6 +319,87 @@ export function usageLine(item: CorelQuoteItemLike): string {
   ]);
 }
 
+// ── İşe dönüşen teklifler (dükkân runner'ı) ─────────────────────────────
+
+/** Runner'ın klasör açmak için okuduğu tabaka kalemi. */
+export interface CorelJobSheet {
+  itemId: string;
+  label: string;
+  kind: string;
+  thicknessUm: string;
+  brand: string;
+  variant: string;
+  color: string;
+  /** Tabakanın dönüşüm anındaki (kesimden önceki) ölçüsü. */
+  sheetWidthMm: number | null;
+  sheetHeightMm: number | null;
+  /** Kalemde kullanılan ölçü; girilmemişse tabakanınki. */
+  usedWidthMm: number | null;
+  usedHeightMm: number | null;
+  quantity: number;
+}
+
+export interface CorelJob {
+  id: string;
+  quoteNo: string;
+  createdAt: string;
+  convertedAt: string;
+  customerId: string;
+  customerFolder: string;
+  customerLabel: string;
+  sheets: CorelJobSheet[];
+}
+
+/** Satır üretmek için gereken, dönüşmüş teklif kalemi alanları. */
+export interface CorelJobItemLike extends CorelQuoteItemLike {
+  sheetWidthMm?: number | string | null;
+  sheetHeightMm?: number | string | null;
+}
+
+const mmNum = (v: number | string | null | undefined): number | null => {
+  const t = mmText(v);
+  return t ? Number(t) : null;
+};
+
+/**
+ * Bir tabaka kalemi, eklentinin takım yolu klasörü adıyla aynı parçalarla:
+ * tür, kalınlık µm, marka, varyant, renk jetonları ve tabakanın tam ölçüsü.
+ * Dönüşümden önce kaydedilmiş ölçü yoksa (eski teklif) plakanın şimdiki
+ * ölçüsü geçer.
+ */
+export function jobSheet(item: CorelJobItemLike): CorelJobSheet {
+  const p = item.plate!;
+  const sw = mmNum(item.sheetWidthMm ?? p.widthMm);
+  const sh = mmNum(item.sheetHeightMm ?? p.heightMm);
+  const uw = mmNum(item.widthMm) ?? sw;
+  const uh = mmNum(item.heightMm) ?? sh;
+  const thick = Number(p.thicknessMm);
+  const label = [
+    p.template?.category?.name || p.template?.name || p.name,
+    thick > 0 ? `${Math.round(thick * 100) / 100}mm` : '',
+    p.brand,
+    p.variant,
+    p.color,
+    sw && sh ? `${sw}x${sh}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return {
+    itemId: item.id,
+    label: asciiFold(label),
+    kind: plateKind(p),
+    thicknessUm: thicknessMicrons(p.thicknessMm),
+    brand: nameToken(p.brand),
+    variant: nameToken(p.variant),
+    color: nameToken(p.color),
+    sheetWidthMm: sw,
+    sheetHeightMm: sh,
+    usedWidthMm: uw,
+    usedHeightMm: uh,
+    quantity: Math.round(Number(item.quantity) * 100) / 100 || 0,
+  };
+}
+
 // ── Kesim fiyatlandırması ──────────────────────────────────────────────
 
 /** Satır üretmek için gereken fiyat ayarları. */

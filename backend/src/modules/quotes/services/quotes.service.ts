@@ -247,6 +247,16 @@ export class QuotesService {
     const events: { name: string; payload: unknown }[] = [];
 
     const outcome = await this.dataSource.transaction(async (manager) => {
+      // Tabakanın kesimden önceki ölçüsü: satış/işleme aşağıda plakanın kalan
+      // ölçüsünü düşürür, runner klasör adına tam ölçüyü yazar.
+      for (const it of quote.items) {
+        if (!it.plate) continue;
+        await manager.update(QuoteItem, it.id, {
+          sheetWidthMm: it.plate.widthMm ?? null,
+          sheetHeightMm: it.plate.heightMm ?? null,
+        });
+      }
+
       let saleId: string | undefined;
       if (saleLines.length > 0) {
         // Kaleme özel tarih verilmişse (ilk verilen) satışın tarihine yansır.

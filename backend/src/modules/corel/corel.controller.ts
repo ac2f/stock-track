@@ -12,7 +12,8 @@ import { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { CorelKeyGuard } from './corel-key.guard';
 import { CorelService } from './corel.service';
-import { QueryCorelDto } from './dto/query-corel.dto';
+import { QueryCorelDto, QueryCorelJobsDto } from './dto/query-corel.dto';
+import { CorelJob } from './corel-naming.util';
 
 const TEXT = 'text/plain; charset=utf-8';
 
@@ -88,6 +89,15 @@ export class CorelController {
   ): Promise<string> {
     res.set({ 'Content-Type': TEXT });
     return this.corel.quotes(query.customerId, query.limit);
+  }
+
+  /**
+   * İşe dönüştürülmüş teklifler (dönüşüm sırasıyla), dükkândaki runner için.
+   * Diğer uçların aksine JSON döner; runner Python'dur, eklenti bunu okumaz.
+   */
+  @Get('jobs')
+  jobs(@Query() query: QueryCorelJobsDto): Promise<CorelJob[]> {
+    return this.corel.jobs(query.since, query.limit);
   }
 
   /**
