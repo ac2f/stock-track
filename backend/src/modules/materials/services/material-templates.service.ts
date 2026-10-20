@@ -80,9 +80,30 @@ export class MaterialTemplatesService {
     }
   }
 
+  /**
+   * Markaya bağlı bir renk (kodu o markanın) başka markanın türünde
+   * seçilemez; genel renkler (markasız) her markada seçilebilir.
+   */
+  private async validateColorBrand(
+    colorId: string | null | undefined,
+    brandId: string | null | undefined,
+  ): Promise<void> {
+    if (!colorId || !brandId) return;
+    const color = await this.colorsService.findOne(colorId);
+    if (color.brandId && color.brandId !== brandId) {
+      const brand = await this.brandsService.findOne(color.brandId).catch(() => null);
+      throw new BadRequestException(
+        `Seçilen renk (${color.name}${color.code ? ` ${color.code}` : ''}) ${
+          brand?.name ?? 'başka bir'
+        } markasına ait; bu türün markasıyla aynı markanın rengini seçin.`,
+      );
+    }
+  }
+
   async create(dto: CreateMaterialTemplateDto): Promise<MaterialTemplate> {
     await this.categoriesService.findOne(dto.categoryId);
     await this.validateCatalogRefs(dto.categoryId, dto);
+    await this.validateColorBrand(dto.defaultColorId, dto.defaultBrandId);
     await this.assertUnique(dto);
     return this.templatesRepo.save(
       this.templatesRepo.create({
@@ -124,6 +145,10 @@ export class MaterialTemplatesService {
       await this.categoriesService.findOne(dto.categoryId);
     }
     await this.validateCatalogRefs(categoryId, dto);
+    await this.validateColorBrand(
+      dto.defaultColorId !== undefined ? dto.defaultColorId : template.defaultColorId,
+      dto.defaultBrandId !== undefined ? dto.defaultBrandId : template.defaultBrandId,
+    );
     await this.assertUnique(
       {
         categoryId,

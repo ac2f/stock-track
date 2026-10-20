@@ -10,6 +10,7 @@ import { cleanName, normalizeName } from '../catalog-key.util';
 import { MaterialBrand } from '../entities/material-brand.entity';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialPlate } from '../entities/material-plate.entity';
+import { MaterialColor } from '../entities/material-color.entity';
 import { CreateMaterialBrandDto } from '../dto/create-material-brand.dto';
 import { UpdateMaterialBrandDto } from '../dto/update-material-brand.dto';
 
@@ -22,6 +23,8 @@ export class MaterialBrandsService {
     private readonly templatesRepo: Repository<MaterialTemplate>,
     @InjectRepository(MaterialPlate)
     private readonly platesRepo: Repository<MaterialPlate>,
+    @InjectRepository(MaterialColor)
+    private readonly colorsRepo: Repository<MaterialColor>,
   ) {}
 
   /**
@@ -83,6 +86,8 @@ export class MaterialBrandsService {
         'Bu markayı kullanan şablon veya stok kalemi var; önce onları taşıyın veya silin.',
       );
     }
+    // Bu markaya bağlı renkler genel renk olur (kodları korunur).
+    await this.colorsRepo.update({ brandId: id }, { brandId: null });
     await this.brandsRepo.softRemove(brand);
   }
 }

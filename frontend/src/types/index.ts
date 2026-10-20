@@ -200,6 +200,8 @@ export interface MaterialColor {
   name: string;
   code?: string;
   categoryId: string;
+  /** Rengin markası (kod o markanın); boşsa bütün markalarda geçerli. */
+  brandId?: string | null;
   isActive: boolean;
 }
 

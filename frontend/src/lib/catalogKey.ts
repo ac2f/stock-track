@@ -56,7 +56,12 @@ export const TEMPLATE_FACETS: Facet<MaterialTemplate>[] = [
     value: (t) =>
       t.defaultSize ? `${Number(t.defaultSize.widthMm)}×${Number(t.defaultSize.heightMm)}` : null,
   },
-  { key: 'color', label: 'Renk', value: (t) => t.defaultColor?.name },
+  {
+    key: 'color',
+    label: 'Renk',
+    value: (t) =>
+      t.defaultColor ? (t.defaultColor.code ? `${t.defaultColor.name} ${t.defaultColor.code}` : t.defaultColor.name) : null,
+  },
   { key: 'variant', label: 'Alt tür', value: (t) => t.defaultVariant?.trim() || null },
 ];
 
@@ -93,6 +98,10 @@ export const PLATE_FACETS: Facet<Plate>[] = [
       return s ? `${Number(s.widthMm)}×${Number(s.heightMm)}` : null;
     },
   },
-  { key: 'color', label: 'Renk', value: (p) => p.color?.trim() || null },
+  {
+    key: 'color',
+    label: 'Renk',
+    value: (p) => (p.color?.trim() ? (p.colorCode ? `${p.color.trim()} ${p.colorCode}` : p.color.trim()) : null),
+  },
   { key: 'variant', label: 'Alt tür', value: (p) => p.variant?.trim() || null },
 ];

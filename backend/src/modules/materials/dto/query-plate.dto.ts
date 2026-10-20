@@ -39,6 +39,11 @@ export class QueryPlateDto extends PaginationDto {
   @IsNumber()
   thicknessMm?: number;
 
+  /** Renk kaydı (ad + kod); aynı adlı farklı kodlar ayrı süzülür. */
+  @IsOptional()
+  @IsUUID()
+  colorId?: string;
+
   /** Standart tabaka ebadı (kalemin ebadı ya da ürün türünün varsayılanı). */
   @IsOptional()
   @IsUUID()

@@ -133,6 +133,27 @@ describe('Corel isimlendirme', () => {
     ]);
   });
 
+  it('renk kodu renk jetonuna ve ada girer (Beyaz 1001 ≠ Beyaz 2002)', () => {
+    const base = {
+      id: 'p1',
+      name: 'Pleksi',
+      brand: 'Akpolimer',
+      thicknessMm: '2.80',
+      widthMm: '1220.00',
+      heightMm: '2440.00',
+      template: { category: { name: 'Pleksi' } },
+    };
+    const a = materialLine({ ...base, color: 'Beyaz', colorCode: '1001' }, 'B', 1).split('\t');
+    const b = materialLine({ ...base, color: 'Beyaz', colorCode: '2002' }, 'B', 1).split('\t');
+    expect(a[6]).toBe('beyaz-1001');
+    expect(b[6]).toBe('beyaz-2002');
+    expect(a[10]).toContain('Beyaz 1001');
+    // kod zaten adın içindeyse tekrarlanmaz
+    expect(materialLine({ ...base, color: 'Beyaz 1001', colorCode: '1001' }, 'B', 1).split('\t')[6]).toBe(
+      'beyaz-1001',
+    );
+  });
+
   it('kategori yoksa tür şablon adından gelir', () => {
     expect(
       plateKind({ id: 'p', name: 'X', template: { name: 'Dekota' } }),

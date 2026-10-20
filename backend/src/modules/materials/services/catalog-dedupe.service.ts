@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager, IsNull, Not } from 'typeorm';
-import { normalizeName, sizeKey, normalizeNumber, templateKey } from '../catalog-key.util';
+import { colorKey, normalizeName, sizeKey, normalizeNumber, templateKey } from '../catalog-key.util';
 import { MaterialBrand } from '../entities/material-brand.entity';
 import { MaterialCategoryEntity } from '../entities/material-category.entity';
 import { MaterialColor } from '../entities/material-color.entity';
@@ -110,10 +110,11 @@ export class CatalogDedupeService {
         (b) => `${b.categoryId}|${normalizeName(b.name)}`,
         (b) => b.name,
       ),
+      // Aynı ad farklı kodla (ya da farklı markada) ayrı renktir.
       colors: this.group(
         colors,
-        (c) => `${c.categoryId}|${normalizeName(c.name)}`,
-        (c) => c.name,
+        (c) => `${c.categoryId}|${colorKey(c)}`,
+        (c) => (c.code ? `${c.name} ${c.code}` : c.name),
       ),
       sizes: this.group(
         sizes,
@@ -161,6 +162,7 @@ export class CatalogDedupeService {
       await m.update(MaterialTemplate, { defaultBrandId: id }, { defaultBrandId: g.keepId });
       await m.update(MaterialPlate, { brandId: id }, { brandId: g.keepId });
       await m.update(PriceRule, { brandId: id }, { brandId: g.keepId });
+      await m.update(MaterialColor, { brandId: id }, { brandId: g.keepId });
     }
     await this.softDelete(m, MaterialBrand, g.mergeIds);
     return g.mergeIds.length;

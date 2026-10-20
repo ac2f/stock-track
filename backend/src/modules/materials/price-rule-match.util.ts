@@ -13,7 +13,7 @@ export interface RuleScope {
   thicknessId?: string | null;
   thickness?: { valueMm: number | string } | null;
   colorId?: string | null;
-  color?: { name: string } | null;
+  color?: { name: string; code?: string | null } | null;
   sizeId?: string | null;
   size?: { widthMm: number | string; heightMm: number | string } | null;
   variant?: string | null;
@@ -27,6 +27,7 @@ export interface PlateFacts {
   thicknessId: string | null;
   thicknessKey: string;
   colorId: string | null;
+  /** Renk adı + kod ("beyaz|1001"); aynı adlı farklı kodlar ayrıdır. */
   colorName: string;
   sizeId: string | null;
   /** Standart tabaka ebadının anahtarı ("1220.00x2440.00"), bilinmiyorsa boş. */
@@ -42,6 +43,7 @@ export interface PlateLike {
   thicknessMm?: number | string | null;
   colorId?: string | null;
   color?: string | null;
+  colorCode?: string | null;
   sizeId?: string | null;
   variant?: string | null;
   template?: {
@@ -51,7 +53,7 @@ export interface PlateLike {
     defaultThicknessId?: string | null;
     defaultThickness?: { valueMm: number | string } | null;
     defaultColorId?: string | null;
-    defaultColor?: { name: string } | null;
+    defaultColor?: { name: string; code?: string | null } | null;
     defaultSizeId?: string | null;
     defaultSize?: { widthMm: number | string; heightMm: number | string } | null;
     defaultVariant?: string | null;
@@ -78,11 +80,21 @@ export function plateFacts(plate: PlateLike): PlateFacts | null {
     thicknessId: plate.thicknessId ?? t.defaultThicknessId ?? null,
     thicknessKey: thickness == null ? '' : normalizeNumber(thickness),
     colorId: plate.colorId ?? t.defaultColorId ?? null,
-    colorName: normalizeName(plate.color ?? t.defaultColor?.name),
+    colorName: plate.color
+      ? colorText(plate.color, plate.colorCode)
+      : t.defaultColor
+        ? colorText(t.defaultColor.name, t.defaultColor.code)
+        : '',
     sizeId,
     sizeKey: std,
     variant: normalizeName(plate.variant ?? t.defaultVariant),
   };
+}
+
+/** Renk eşleşme metni: ad + kod (Beyaz 1001 ≠ Beyaz 2002). */
+function colorText(name: string | null | undefined, code: string | null | undefined): string {
+  const n = normalizeName(name);
+  return n ? `${n}|${normalizeName(code)}` : '';
 }
 
 /** Kimlik ya da (kopya katalog kayıtlarına karşı) normalize değer tutuyor mu. */
@@ -112,7 +124,10 @@ export function ruleMatches(rule: RuleScope, f: PlateFacts): boolean {
   ) {
     return false;
   }
-  if (rule.colorId && !same(rule.colorId, normalizeName(rule.color?.name), f.colorId, f.colorName)) {
+  if (
+    rule.colorId &&
+    !same(rule.colorId, rule.color ? colorText(rule.color.name, rule.color.code) : '', f.colorId, f.colorName)
+  ) {
     return false;
   }
   if (
@@ -193,7 +208,7 @@ export function ruleLabel(rule: RuleScope & { category?: { name: string } | null
     rule.brand?.name,
     rule.variant?.trim() || null,
     rule.thickness ? `${Number(rule.thickness.valueMm)} mm` : null,
-    rule.color?.name,
+    rule.color ? (rule.color.code ? `${rule.color.name} ${rule.color.code}` : rule.color.name) : null,
     rule.size ? `${Number(rule.size.widthMm)}×${Number(rule.size.heightMm)}` : null,
   ].filter((p): p is string => !!p);
   return parts.length ? [cat, ...parts].join(' · ') : `Tüm ${cat}`;

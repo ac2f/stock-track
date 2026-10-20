@@ -139,6 +139,7 @@ export class PlateIntakeService {
               category.id,
               item.colorName!,
               item.colorCode,
+              brand?.id ?? null,
             ),
           (c) => c.name,
         )

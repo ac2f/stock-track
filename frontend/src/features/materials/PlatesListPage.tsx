@@ -244,6 +244,7 @@ function CatalogFilterChips({
     queryKey: ['material-colors', categoryId],
     queryFn: () => fetchMaterialColors(categoryId),
   });
+  const brandId = brands?.find((b) => b.name === filters.brand)?.id;
   const chip = (on: boolean) =>
     `shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${
       on
@@ -257,7 +258,14 @@ function CatalogFilterChips({
         key: b.id,
         text: b.name,
         on: filters.brand === b.name,
-        pick: () => onChange({ brand: filters.brand === b.name ? undefined : b.name }),
+        pick: () => {
+          const next = filters.brand === b.name ? undefined : b.name;
+          const colorBrand = colors?.find((c) => c.id === filters.colorId)?.brandId;
+          onChange({
+            brand: next,
+            ...(colorBrand && next && colorBrand !== b.id ? { colorId: undefined } : {}),
+          });
+        },
       })),
     },
     {
@@ -284,13 +292,17 @@ function CatalogFilterChips({
       })),
     },
     {
+      // Renk kaydına (ad + kod) göre: Beyaz 1001 ile Beyaz 2002 ayrı süzülür.
+      // Marka seçiliyse yalnız o markanın ve genel renkler.
       label: 'Renk',
-      items: (colors ?? []).map((c) => ({
-        key: c.id,
-        text: c.code ? `${c.name} ${c.code}` : c.name,
-        on: filters.color === c.name,
-        pick: () => onChange({ color: filters.color === c.name ? undefined : c.name }),
-      })),
+      items: (colors ?? [])
+        .filter((c) => !brandId || !c.brandId || c.brandId === brandId)
+        .map((c) => ({
+          key: c.id,
+          text: c.code ? `${c.name} ${c.code}` : c.name,
+          on: filters.colorId === c.id,
+          pick: () => onChange({ colorId: filters.colorId === c.id ? undefined : c.id, color: undefined }),
+        })),
     },
   ].filter((r) => r.items.length > 0);
   if (!rows.length) return null;
@@ -2043,6 +2055,7 @@ export function PlatesListPage() {
     filters.color,
     filters.thicknessMm,
     filters.sizeId,
+    filters.colorId,
     filters.owner || filters.ownerCustomerId,
     filters.inStock,
     filters.from || filters.to,
@@ -2054,6 +2067,7 @@ export function PlatesListPage() {
       color: undefined,
       thicknessMm: undefined,
       sizeId: undefined,
+      colorId: undefined,
       owner: undefined,
       ownerCustomerId: undefined,
       inStock: undefined,
@@ -2126,6 +2140,7 @@ export function PlatesListPage() {
                   color: undefined,
                   thicknessMm: undefined,
                   sizeId: undefined,
+                  colorId: undefined,
                 })
               }
             >

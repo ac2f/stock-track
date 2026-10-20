@@ -176,6 +176,17 @@ export interface CorelPlateLike {
   } | null;
 }
 
+/**
+ * Renk adı ve kodu ("Beyaz 1001"): aynı adlı farklı kodlar farklı
+ * malzemedir, klasör adında da ayrı görünür (`beyaz-1001`).
+ */
+export function colorText(p: { color?: string | null; colorCode?: string | null }): string {
+  const c = (p.color ?? '').trim();
+  const code = (p.colorCode ?? '').trim();
+  if (!c) return code;
+  return code && !c.toLocaleLowerCase('tr').includes(code.toLocaleLowerCase('tr')) ? `${c} ${code}` : c;
+}
+
 /** Malzeme türü jetonu ("Pleksi" → "pleksi"); kategori yoksa şablon adı. */
 export function plateKind(p: CorelPlateLike): string {
   return (
@@ -209,7 +220,7 @@ export function materialLine(
     thick > 0 ? `${Math.round(thick * 100) / 100}mm` : '',
     p.brand,
     p.variant,
-    p.color,
+    colorText(p),
     w && h ? `${w}x${h}` : '',
     `x${qtyText(qty)}`,
     owner === 'C' ? '[musterinin]' : '',
@@ -223,7 +234,7 @@ export function materialLine(
     thicknessMicrons(p.thicknessMm),
     nameToken(p.brand),
     nameToken(p.variant),
-    nameToken(p.color),
+    nameToken(colorText(p)),
     w,
     h,
     qtyText(qty),
@@ -298,7 +309,7 @@ export function usageLine(item: CorelQuoteItemLike): string {
     thick > 0 ? `${Math.round(thick * 100) / 100}mm` : '',
     p.brand,
     p.variant,
-    p.color,
+    colorText(p),
     w && h ? `${w}x${h}` : '',
     `x${qtyText(Number(item.quantity))}`,
   ]
@@ -311,7 +322,7 @@ export function usageLine(item: CorelQuoteItemLike): string {
     thicknessMicrons(p.thicknessMm),
     nameToken(p.brand),
     nameToken(p.variant),
-    nameToken(p.color),
+    nameToken(colorText(p)),
     w,
     h,
     qtyText(Number(item.quantity)),
@@ -379,7 +390,7 @@ export function jobSheet(item: CorelJobItemLike): CorelJobSheet {
     thick > 0 ? `${Math.round(thick * 100) / 100}mm` : '',
     p.brand,
     p.variant,
-    p.color,
+    colorText(p),
     sw && sh ? `${sw}x${sh}` : '',
   ]
     .filter(Boolean)
@@ -391,7 +402,7 @@ export function jobSheet(item: CorelJobItemLike): CorelJobSheet {
     thicknessUm: thicknessMicrons(p.thicknessMm),
     brand: nameToken(p.brand),
     variant: nameToken(p.variant),
-    color: nameToken(p.color),
+    color: nameToken(colorText(p)),
     sheetWidthMm: sw,
     sheetHeightMm: sh,
     usedWidthMm: uw,

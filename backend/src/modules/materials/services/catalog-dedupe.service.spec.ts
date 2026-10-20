@@ -181,6 +181,18 @@ describe('CatalogDedupeService', () => {
     expect(report.templates).toEqual([]);
   });
 
+  it('aynı adlı renkleri kodları farklıysa BİRLEŞTİRMEZ', async () => {
+    const { service } = buildService({
+      colors: [
+        { id: 'c1', categoryId: 'p', name: 'Beyaz', code: '1001', createdAt: at(1) },
+        { id: 'c2', categoryId: 'p', name: 'beyaz', code: '2002', createdAt: at(2) },
+        { id: 'c3', categoryId: 'p', name: 'Beyaz ', code: '1001', createdAt: at(3) },
+      ],
+    });
+    const report = await service.preview();
+    expect(report.colors).toEqual([{ label: 'Beyaz 1001', keepId: 'c1', mergeIds: ['c3'] }]);
+  });
+
   it('kopya yoksa hiçbir şey yapmaz', async () => {
     const { service, updates, deletes } = buildService({
       categories: [{ id: 'a', name: 'Dekota', createdAt: at(1) }],

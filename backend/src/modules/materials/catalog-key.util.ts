@@ -73,3 +73,15 @@ export function templateKey(t: TemplateKeyFields): string {
     hasAttrs ? '' : normalizeName(t.name),
   ].join('|');
 }
+
+/**
+ * Renk anahtarı: aynı ad + aynı kod + aynı marka aynı renktir. Beyaz 1001
+ * ile Beyaz 2002 farklıdır; kodsuz "Beyaz" da ayrı bir kayıttır.
+ */
+export function colorKey(c: {
+  name?: string | null;
+  code?: string | null;
+  brandId?: string | null;
+}): string {
+  return [normalizeName(c.name), normalizeName(c.code), c.brandId ?? ''].join('|');
+}

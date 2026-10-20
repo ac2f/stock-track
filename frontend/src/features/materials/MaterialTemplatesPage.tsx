@@ -35,6 +35,7 @@ import {
 } from '../../lib/catalogKey';
 import { matchesSearch } from '../../lib/search';
 import { GroupSection } from '../../components/GroupSection';
+import { ColorPicker } from '../../components/ColorPicker';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingBlock } from '../../components/ui/Loading';
@@ -150,6 +151,7 @@ export function MaterialTemplatesPage() {
   const [newBrandName, setNewBrandName] = useState('');
   const [newColorName, setNewColorName] = useState('');
   const [newColorCode, setNewColorCode] = useState('');
+  const [newColorBrand, setNewColorBrand] = useState('');
   const [newSizeWidth, setNewSizeWidth] = useState('');
   const [newSizeHeight, setNewSizeHeight] = useState('');
   const [newThicknessValue, setNewThicknessValue] = useState('');
@@ -191,16 +193,28 @@ export function MaterialTemplatesPage() {
   });
 
   /** Marka/renk/ebat/kalınlık seçimlerini forma uygular; isim elle değiştirilmediyse otomatik üretir. */
-  const patchCatalog = (patch: Partial<MaterialTemplateInput>) => {
+  // `known`: az önce eklenen kayıt (liste henüz tazelenmediği için ad
+  // üretiminde ondan okunur; yoksa ad "—" ile kalıyordu).
+  const patchCatalog = (
+    patch: Partial<MaterialTemplateInput>,
+    known: {
+      brand?: { id: string; name: string };
+      color?: { id: string; name: string; code?: string };
+      size?: { id: string; widthMm: number; heightMm: number };
+      thickness?: { id: string; valueMm: number };
+    } = {},
+  ) => {
     setForm((f) => {
       if (!f) return f;
       const next = { ...f, ...patch };
       if (nameTouched) return next;
+      const pick = <T extends { id: string }>(k: T | undefined, list: T[] | undefined, id?: string | null) =>
+        k && k.id === id ? k : list?.find((x) => x.id === id);
       const cat = categories?.find((c) => c.id === next.categoryId);
-      const brand = brands?.find((b) => b.id === next.defaultBrandId);
-      const color = colors?.find((c) => c.id === next.defaultColorId);
-      const size = sizes?.find((s) => s.id === next.defaultSizeId);
-      const thickness = thicknesses?.find((t) => t.id === next.defaultThicknessId);
+      const brand = pick(known.brand, brands, next.defaultBrandId);
+      const color = pick(known.color, colors, next.defaultColorId);
+      const size = pick(known.size, sizes, next.defaultSizeId);
+      const thickness = pick(known.thickness, thicknesses, next.defaultThicknessId);
       return {
         ...next,
         name: buildCatalogName(cat?.name, brand, color, size, thickness),
@@ -235,7 +249,7 @@ export function MaterialTemplatesPage() {
     mutationFn: createMaterialBrand,
     onSuccess: (brand) => {
       qc.invalidateQueries({ queryKey: ['material-brands', categoryId] });
-      setForm((f) => (f ? { ...f, defaultBrandId: brand.id } : f));
+      patchCatalog({ defaultBrandId: brand.id }, { brand });
       setNewBrandName('');
     },
   });
@@ -243,7 +257,7 @@ export function MaterialTemplatesPage() {
     mutationFn: createMaterialColor,
     onSuccess: (color) => {
       qc.invalidateQueries({ queryKey: ['material-colors', categoryId] });
-      setForm((f) => (f ? { ...f, defaultColorId: color.id } : f));
+      patchCatalog({ defaultColorId: color.id }, { color });
       setNewColorName('');
       setNewColorCode('');
     },
@@ -252,7 +266,7 @@ export function MaterialTemplatesPage() {
     mutationFn: createMaterialSize,
     onSuccess: (size) => {
       qc.invalidateQueries({ queryKey: ['material-sizes', categoryId] });
-      setForm((f) => (f ? { ...f, defaultSizeId: size.id } : f));
+      patchCatalog({ defaultSizeId: size.id }, { size });
       setNewSizeWidth('');
       setNewSizeHeight('');
     },
@@ -261,7 +275,7 @@ export function MaterialTemplatesPage() {
     mutationFn: createMaterialThickness,
     onSuccess: (thickness) => {
       qc.invalidateQueries({ queryKey: ['material-thicknesses', categoryId] });
-      setForm((f) => (f ? { ...f, defaultThicknessId: thickness.id } : f));
+      patchCatalog({ defaultThicknessId: thickness.id }, { thickness });
       setNewThicknessValue('');
     },
   });
@@ -284,8 +298,17 @@ export function MaterialTemplatesPage() {
     },
   });
   const updateColorMut = useMutation({
-    mutationFn: ({ id, name, code }: { id: string; name: string; code?: string }) =>
-      updateMaterialColor(id, { name, code }),
+    mutationFn: ({
+      id,
+      name,
+      code,
+      brandId,
+    }: {
+      id: string;
+      name: string;
+      code?: string;
+      brandId?: string | null;
+    }) => updateMaterialColor(id, { name, code, brandId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['material-colors', categoryId] });
       setEditingColorId(null);
@@ -540,7 +563,14 @@ export function MaterialTemplatesPage() {
                     aria-label="Marka"
                     value={form.defaultBrandId ?? ''}
                     onChange={(e) =>
-                      patchCatalog({ defaultBrandId: e.target.value || null })
+                      patchCatalog({
+                        defaultBrandId: e.target.value || null,
+                        // Seçili renk kodu başka markanınsa seçim kalkar.
+                        ...(colors?.find((c) => c.id === form.defaultColorId)?.brandId &&
+                        colors?.find((c) => c.id === form.defaultColorId)?.brandId !== (e.target.value || null)
+                          ? { defaultColorId: null }
+                          : {}),
+                      })
                     }
                   >
                     <option value="">Marka seç…</option>
@@ -618,88 +648,90 @@ export function MaterialTemplatesPage() {
                 </div>
               </CatalogBlock>
 
-              <CatalogBlock title="Renk">
-                <div className="flex gap-2">
-                  <select
-                    className="input min-w-0 flex-1"
-                    aria-label="Renk"
-                    value={form.defaultColorId ?? ''}
-                    onChange={(e) =>
-                      patchCatalog({ defaultColorId: e.target.value || null })
-                    }
-                  >
-                    <option value="">Renk seç…</option>
-                    {colors?.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                        {c.code ? ` (${c.code})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className={iconBtn}
-                    title="Seçili rengi düzenle"
-                    aria-label="Seçili rengi düzenle"
-                    disabled={!form.defaultColorId}
-                    onClick={() => {
-                      const c = colors?.find((x) => x.id === form.defaultColorId);
-                      if (!c) return;
-                      setEditingColorId(c.id);
-                      setNewColorName(c.name);
-                      setNewColorCode(c.code ?? '');
-                    }}
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    className={iconDangerBtn}
-                    title="Seçili rengi sil"
-                    aria-label="Seçili rengi sil"
-                    disabled={!form.defaultColorId || deleteColorMut.isPending}
-                    onClick={async () => {
-                      const c = colors?.find((x) => x.id === form.defaultColorId);
-                      if (c && (await confirmDelete(`"${c.name}" rengi silinsin mi?`))) {
-                        deleteColorMut.mutate(c.id);
+              <CatalogBlock title="Renk ve kod">
+                {/* Aynı renkte birden çok kod olabilir (Beyaz 1001 / 2002); markaya
+                    bağlı kodlar o markanın türünde önce gelir. */}
+                <ColorPicker
+                  colors={colors}
+                  brands={brands}
+                  brandId={form.defaultBrandId}
+                  value={form.defaultColorId}
+                  onChange={(id) => patchCatalog({ defaultColorId: id })}
+                  onCreate={(input) => createColorMut.mutateAsync({ ...input, categoryId: form.categoryId })}
+                  creating={createColorMut.isPending}
+                />
+                {form.defaultColorId && !editingColorId && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="btn-secondary btn-sm"
+                      onClick={() => {
+                        const c = colors?.find((x) => x.id === form.defaultColorId);
+                        if (!c) return;
+                        setEditingColorId(c.id);
+                        setNewColorName(c.name);
+                        setNewColorCode(c.code ?? '');
+                        setNewColorBrand(c.brandId ?? '');
+                      }}
+                    >
+                      ✏️ Seçili rengi düzenle
+                    </button>
+                    <button
+                      className="btn-danger-soft btn-sm"
+                      disabled={deleteColorMut.isPending}
+                      onClick={async () => {
+                        const c = colors?.find((x) => x.id === form.defaultColorId);
+                        if (c && (await confirmDelete(`"${c.name}${c.code ? ` ${c.code}` : ''}" rengi silinsin mi?`))) {
+                          deleteColorMut.mutate(c.id);
+                        }
+                      }}
+                    >
+                      🗑️ Sil
+                    </button>
+                  </div>
+                )}
+                {editingColorId && (
+                  <div className="flex flex-wrap gap-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-800/60">
+                    <input
+                      className="input min-w-0 flex-1 basis-36"
+                      placeholder="Renk adı"
+                      aria-label="Renk adını düzenle"
+                      value={newColorName}
+                      onChange={(e) => setNewColorName(e.target.value)}
+                    />
+                    <input
+                      className="input w-28 shrink-0 font-mono"
+                      placeholder="Kod"
+                      aria-label="Renk kodu"
+                      value={newColorCode}
+                      onChange={(e) => setNewColorCode(e.target.value)}
+                    />
+                    <select
+                      className="input w-auto min-w-0"
+                      aria-label="Rengin markası"
+                      value={newColorBrand}
+                      onChange={(e) => setNewColorBrand(e.target.value)}
+                    >
+                      <option value="">Bütün markalar</option>
+                      {brands?.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          Yalnız {b.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className={iconBtn}
+                      disabled={!newColorName.trim() || updateColorMut.isPending}
+                      onClick={() =>
+                        updateColorMut.mutate({
+                          id: editingColorId,
+                          name: newColorName.trim(),
+                          code: newColorCode.trim(),
+                          brandId: newColorBrand || null,
+                        })
                       }
-                    }}
-                  >
-                    🗑️
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    className="input min-w-0 flex-1 basis-36"
-                    placeholder={editingColorId ? 'Renk adını düzenle' : '+ Yeni renk adı'}
-                    value={newColorName}
-                    onChange={(e) => setNewColorName(e.target.value)}
-                  />
-                  <input
-                    className="input w-24 shrink-0"
-                    placeholder="Kod"
-                    aria-label="Renk kodu"
-                    value={newColorCode}
-                    onChange={(e) => setNewColorCode(e.target.value)}
-                  />
-                  <button
-                    className={iconBtn}
-                    disabled={!newColorName.trim()}
-                    onClick={() =>
-                      editingColorId
-                        ? updateColorMut.mutate({
-                            id: editingColorId,
-                            name: newColorName.trim(),
-                            code: newColorCode.trim() || undefined,
-                          })
-                        : createColorMut.mutate({
-                            name: newColorName.trim(),
-                            code: newColorCode.trim() || undefined,
-                            categoryId: form.categoryId,
-                          })
-                    }
-                  >
-                    {editingColorId ? 'Güncelle' : 'Ekle'}
-                  </button>
-                  {editingColorId && (
+                    >
+                      Güncelle
+                    </button>
                     <button
                       className="btn-ghost shrink-0 px-3"
                       onClick={() => {
@@ -710,8 +742,8 @@ export function MaterialTemplatesPage() {
                     >
                       Vazgeç
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </CatalogBlock>
 
               <CatalogBlock title="Ebat (standart tabaka)">

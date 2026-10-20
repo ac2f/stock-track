@@ -12,6 +12,11 @@ export class CreateMaterialColorDto {
   @IsUUID()
   categoryId: string;
 
+  /** Rengin markası (kod o markanınsa); boş = bütün markalarda geçerli. */
+  @IsOptional()
+  @IsUUID()
+  brandId?: string | null;
+
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;

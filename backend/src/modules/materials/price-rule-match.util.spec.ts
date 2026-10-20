@@ -39,6 +39,22 @@ describe('price-rule-match', () => {
     expect(ruleMatches({ categoryId: 'pleksi', colorId: 'c2', color: { name: 'Siyah' } }, facts)).toBe(false);
   });
 
+  it('aynı adlı renkte kod farklıysa eşleşmez', () => {
+    const coded = plateFacts({
+      ...plate,
+      template: { ...plate.template, defaultColor: { name: 'Beyaz', code: '1001' } },
+    })!;
+    expect(
+      ruleMatches({ categoryId: 'pleksi', colorId: 'c9', color: { name: 'Beyaz', code: '1001' } }, coded),
+    ).toBe(true);
+    expect(
+      ruleMatches({ categoryId: 'pleksi', colorId: 'c8', color: { name: 'Beyaz', code: '2002' } }, coded),
+    ).toBe(false);
+    expect(
+      ruleLabel({ categoryId: 'p', category: { name: 'Pleksi' }, color: { name: 'Beyaz', code: '1001' } }),
+    ).toBe('Pleksi · Beyaz 1001');
+  });
+
   it('kopya katalog kaydında (farklı kimlik, aynı değer) de eşleşir', () => {
     expect(
       ruleMatches({ categoryId: 'pleksi', brandId: 'b9', brand: { name: ' akpolimer' } }, facts),

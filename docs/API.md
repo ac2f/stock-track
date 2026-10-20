@@ -144,9 +144,9 @@ kullanılamaz (şablon/plaka oluşturulurken `categoryId` eşleşmesi sunucuda d
 | GET | `/material-brands` | 👥 | `?categoryId=` |
 | PATCH | `/material-brands/:id` | 👔 | |
 | DELETE | `/material-brands/:id` | 👔 | Kullanan şablon/plaka varsa `409` |
-| POST | `/material-colors` | 👔 | `{ name, code?, categoryId, isActive? }` — renk kodu seçilen kayıtla birlikte gelir |
-| GET | `/material-colors` | 👥 | `?categoryId=` |
-| PATCH | `/material-colors/:id` | 👔 | |
+| POST | `/material-colors` | 👔 | `{ name, code?, categoryId, brandId?, isActive? }` — aynı ad farklı kodla (ya da farklı markada) ayrı renktir; aynı ad + kod + marka varsa mevcut kayıt döner |
+| GET | `/material-colors` | 👥 | `?categoryId=` — her renk `brandId` taşır (boş = bütün markalar) |
+| PATCH | `/material-colors/:id` | 👔 | Başka bir rengin aynısı (ad + kod + marka) olursa `409`; kalemlerdeki ad/kod da güncellenir |
 | DELETE | `/material-colors/:id` | 👔 | Kullanan şablon/plaka varsa `409` |
 | POST | `/material-sizes` | 👔 | `{ widthMm, heightMm, categoryId, isActive? }` |
 | GET | `/material-sizes` | 👥 | `?categoryId=` |
@@ -176,7 +176,7 @@ verilmeden adlarla) aynı özellikli tür varsa o kullanılır.
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | POST | `/plates` | 🧑‍🔧 | Şablondan plaka üret — `{ templateId, name?, sku?, variant?, widthMm?, heightMm?, ownerCustomerId?, addedAt?, processedAt?, quantityInStock?, warehouseId? }`. Marka/renk/ebat/kalınlık şablonun `default*Id` değerlerinden miras alınır. `widthMm/heightMm` bu fiziksel parçanın **kalan (kesilmiş) ebadıdır**; verilmezse standart tabaka ebadından alınır, verilirse standart ebadı **aşamaz** (`400`). `sku` boşsa `tür+marka+renk+kalınlık+tabaka ebatı`'ndan otomatik üretilir (gerekirse `-N` ekiyle benzersizleştirilir). `ownerCustomerId` verilirse açılış stoğu o müşterinin **konsinye** stoğu olarak yazılır; `addedAt` verilmezse bugün |
-| GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&thicknessMm=&sizeId=&search=&inStock=true&page=&limit=` — `search` sözcüklere bölünür, her sözcük ad/stok kodu/renk kodu/marka/renk/alt türden birinde geçmeli (sıra fark etmez; `2,8` = `2.8`, `1220x2440` iki sözcük). `sizeId` kalemin ya da ürün türünün standart tabakası. |
+| GET | `/plates` | 👥 | Gelişmiş filtre: `?categoryId=&brand=&color=&colorId=&thicknessMm=&sizeId=&search=&inStock=true&page=&limit=` — `search` sözcüklere bölünür, her sözcük ad/stok kodu/renk kodu/marka/renk/alt türden birinde geçmeli (sıra fark etmez; `2,8` = `2.8`, `1220x2440` iki sözcük). `sizeId` kalemin ya da ürün türünün standart tabakası. |
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
 | PATCH | `/plates/:id` | 🧑‍🔧 | Kalan ebat, tarihler (`addedAt/processedAt`), ad, `sku`, `variant` güncellenir; kalan ebat türün standart tabaka ebadını aşamaz |
 | POST | `/plates/:id/transfer-ownership` | 👔 | Sahipliği taraflar arasında serbestçe aktarır (işletme↔müşteri, müşteri↔müşteri) — `{ fromOwnerCustomerId?, toOwnerCustomerId?, warehouseId?, quantity? }`. Boş taraf işletmedir; miktar verilmezse kaynaktaki tümü |
@@ -726,6 +726,8 @@ id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen 
   değil). Teklif yanıtındaki `foldersCreatedAt`, `foldersPath`, `foldersHost`,
   `foldersNote` runner'ın bildirdiği sonucu, `foldersRequestedAt` son yeniden
   isteği taşır.
+- **Renk jetonu** renk adı ve kodudur (`beyaz-1001`): aynı markada aynı adlı
+  farklı kodlar ayrı takım yolu klasörüne gider.
 - **Klasör adı:** firma adı varsa o, yoksa kişi adı; küçük harf ve
   boşluksuz, harf/rakam dışı her dizi tek `-` (`ozturk-reklam-ltd-sti`).
 - **Jetonlar** (tür, marka, varyant, renk): küçük harf, harf/rakam dışı her

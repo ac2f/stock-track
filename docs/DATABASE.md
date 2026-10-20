@@ -124,7 +124,13 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | name | varchar | "Beyaz" |
 | code | varchar (nullable) | RAL / üretici kodu — seçilince renk adıyla birlikte gelir |
 | category_id | uuid (FK → material_categories) | |
+| brand_id | uuid (nullable) | Kod hangi markanınsa; boşsa bütün markalarda seçilebilir |
 | is_active | boolean | |
+
+Aynı adda birden çok kod olabilir: kimlik **kategori + marka + ad + kod**
+(Beyaz 1001, Beyaz 2002, Plexiglas'ın Beyaz WH02'si ayrı kayıtlardır).
+Markaya bağlı renk başka markanın şablonunda seçilemez. Marka silinince
+renkleri genel renk olur.
 
 **`material_sizes`**
 

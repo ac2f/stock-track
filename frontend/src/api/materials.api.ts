@@ -22,6 +22,8 @@ export interface PlateFilters {
   thicknessMm?: number;
   /** Standart tabaka ebadı (katalog kaydı). */
   sizeId?: string;
+  /** Renk kaydı (ad + kod). */
+  colorId?: string;
   inStock?: boolean;
   ownerCustomerId?: string;
   excludeOwnerCustomerId?: string; // alıcının kendi malzemelerini hariç tut
@@ -116,6 +118,8 @@ export interface MaterialColorInput {
   name: string;
   code?: string;
   categoryId: string;
+  /** Rengin markası; boş/null = bütün markalarda geçerli. */
+  brandId?: string | null;
   isActive?: boolean;
 }
 

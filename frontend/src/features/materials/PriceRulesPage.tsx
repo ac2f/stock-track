@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Can } from '../../components/Can';
 import { GroupSection, groupChipClass } from '../../components/GroupSection';
+import { ColorPicker } from '../../components/ColorPicker';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingBlock } from '../../components/ui/Loading';
@@ -458,8 +459,28 @@ function RuleForm({
         <>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <ChipRow label="Kalınlık" items={thicknesses} value={form.thicknessId} onChange={(id) => set({ thicknessId: id })} render={(t) => `${formatNumber(t.valueMm)} mm`} />
-            <ChipRow label="Marka" items={brands} value={form.brandId} onChange={(id) => set({ brandId: id })} render={(b) => b.name} />
-            <ChipRow label="Renk" items={colors} value={form.colorId} onChange={(id) => set({ colorId: id })} render={(c) => (c.code ? `${c.name} ${c.code}` : c.name)} />
+            <ChipRow
+              label="Marka"
+              items={brands}
+              value={form.brandId}
+              onChange={(id) => {
+                // Seçili renk kodu başka markanınsa renk seçimi kalkar.
+                const colorBrand = colors?.find((c) => c.id === form.colorId)?.brandId;
+                set({ brandId: id, ...(colorBrand && colorBrand !== id ? { colorId: null } : {}) });
+              }}
+              render={(b) => b.name}
+            />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Renk ve kod</p>
+              <ColorPicker
+                colors={colors}
+                brands={brands}
+                brandId={form.brandId}
+                value={form.colorId}
+                onChange={(id) => set({ colorId: id })}
+                noneLabel="Hepsi"
+              />
+            </div>
             {category?.defaultMeasurementType === 'area' && (
               <ChipRow
                 label="Ebat (standart tabaka)"

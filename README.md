@@ -178,6 +178,11 @@ Teklifte stok kaleminin satış fiyatı şuradan önerilir (öncelik sırasıyla
 Kalem başına malzemeci fiyatları (*Stok › kalem › Tedarikçi fiyatları*)
 yalnız piyasa karşılaştırması içindir.
 
+**Renkler** ad + kodla tutulur: aynı renkte birden çok kod (Beyaz 1001,
+Beyaz 2002) ve markaya özel kodlar olabilir. Ürün türünde renk, ad satırı ve
+yanındaki kod çipleriyle seçilir; seçili markanın kodları önce gelir, başka
+markanın kodları seçilemez, yeni kod aynı yerden eklenir.
+
 **Ürün türleri** aynı özelliklerle (tür + marka + renk + ebat + kalınlık +
 alt tür) ikinci kez açılamaz; eski kopyalar *Ürün Türleri* ekranında tek
 dokunuşla birleştirilir. Stok girişinde, teklifin malzeme seçicisinde, ürün

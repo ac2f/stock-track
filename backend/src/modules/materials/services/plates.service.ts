@@ -263,6 +263,12 @@ export class PlatesService {
         thk: query.thicknessMm,
       });
     }
+    if (query.colorId) {
+      qb.andWhere(
+        '(plate.color_id = :colorId OR (plate.color_id IS NULL AND template.default_color_id = :colorId))',
+        { colorId: query.colorId },
+      );
+    }
     if (query.sizeId) {
       qb.andWhere(
         '(plate.size_id = :sizeId OR (plate.size_id IS NULL AND template.default_size_id = :sizeId))',
