@@ -226,6 +226,7 @@ function PlatePicker({
         options={options}
         filterLocally={false}
         loading={isFetching}
+        stale={term.trim() !== search || isFetching}
         onSearchChange={setTerm}
         onOpenChange={setOpen}
         onChange={(id) => onPick(id, merged.find((p) => p.id === id))}
@@ -769,20 +770,25 @@ export function QuotesPage() {
   // canlı ölçü/tutar önizlemesi için tam teklifi ister. Çevrimdışıysa ve
   // kayıtlı kopya yoksa listedeki haliyle açılır.
   const [openingEdit, setOpeningEdit] = useState<string | null>(null);
+  // Arka arkaya iki teklif açılırsa geç gelen ilk yanıt ikincinin yerine
+  // geçmesin: yalnız en son istenen teklif forma girer.
+  const lastEditRequest = useRef<string | null>(null);
   const startEdit = async (q: Quote) => {
+    lastEditRequest.current = q.id;
     setOpeningEdit(q.id);
+    let full: Quote = q;
     try {
-      const full = await qc.fetchQuery({
+      full = await qc.fetchQuery({
         queryKey: ['quotes', 'detail', q.id],
         queryFn: () => fetchQuote(q.id),
         staleTime: 0,
       });
-      setEditingQuote(full);
     } catch {
-      setEditingQuote(q);
-    } finally {
-      setOpeningEdit(null);
+      // ulaşılamadı: listedeki hâliyle açılır
     }
+    if (lastEditRequest.current !== q.id) return;
+    setEditingQuote(full);
+    setOpeningEdit(null);
   };
 
   // Form açılınca (özellikle listedeki "Düzenle"den) ekranı forma kaydır.

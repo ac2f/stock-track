@@ -56,7 +56,10 @@ export function queueRule(method: string | undefined, url: string | undefined): 
  */
 const NO_CACHE: RegExp[] = [
   /^\/health$/,
-  /\/pricing$/,
+  // toplu fiyat (görünen satırlar): her satır kümesi ayrı kayıt olurdu.
+  // Tek kalemin fiyatı (/plates/:id/pricing) ve fiyat ayarları SAKLANIR:
+  // çevrimdışı teklifte önerilen fiyat ve konsinye komisyonu oradan gelir.
+  /^\/plates\/pricing$/,
   /\/costs$/,
   /\/retail-suggestions$/,
   /\/prices\/compare$/,

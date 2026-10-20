@@ -6,6 +6,8 @@ import { useDensity } from '../context/DensityContext';
 import { useBusinessSettings } from '../hooks/useReferenceData';
 import { fetchQueueCount } from '../api/processing.api';
 import { PageFallback } from '../components/ui/Loading';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { preloadPages } from '../lib/lazyPage';
 import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
 import { applyFontScale, FONT_SCALES, getFontScale, type FontScale } from '../lib/fontScale';
 import { getBrand, setBrand } from '../lib/brand';
@@ -80,6 +82,8 @@ export function ResponsiveLayout() {
 
   // Sayfa değişince telefondaki menü kapanır.
   useEffect(() => setMenuOpen(false), [location.pathname]);
+  // Boşta kalınca bütün ekranlar insin: sonra sunucuya ulaşılamasa da açılır.
+  useEffect(() => preloadPages(), []);
 
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -192,9 +196,11 @@ export function ResponsiveLayout() {
           <main className="flex-1 overflow-y-auto p-3 pb-28 sm:p-4 md:p-6 md:pb-6">
             <div className="mx-auto max-w-7xl">
               {/* Ekran parçası yüklenirken menü/başlık yerinde kalır. */}
-              <Suspense fallback={<PageFallback />}>
-                <Outlet />
-              </Suspense>
+              <ErrorBoundary resetKey={location.pathname}>
+                <Suspense fallback={<PageFallback />}>
+                  <Outlet />
+                </Suspense>
+              </ErrorBoundary>
             </div>
           </main>
         </div>

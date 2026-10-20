@@ -280,20 +280,27 @@ export class PlatesService {
     // birinde geçmeli (sıra fark etmez: "beyaz 2,8", "ahmet pleksi"). Seçiciler
     // aramayı sunucuya bıraktığı için arayüzdeki eski yerel aramanın
     // kapsadığı tür/sahip adı da burada aranır.
+    // Türkçe harf fark etmez: iki taraf da katlanır ("seffaf" → "Şeffaf"), ve
+    // "işletme" yazmak işletmenin kendi stoğunu bulur (eski yerel aramadaki gibi).
     searchTokens(query.search).forEach((token, i) => {
       const param = `s${i}`;
+      const folded = foldTr(token);
       qb.andWhere(
         new Brackets((w) => {
           for (const col of ['name', 'sku', 'color_code', 'brand', 'color', 'variant']) {
-            w.orWhere(`plate.${col} ILIKE :${param}`, { [param]: `%${token}%` });
+            w.orWhere(`${sqlFold(`plate.${col}`)} LIKE :${param}`, { [param]: `%${folded}%` });
           }
-          w.orWhere(`category.name ILIKE :${param}`);
+          w.orWhere(`${sqlFold('category.name')} LIKE :${param}`);
           w.orWhere(
             `EXISTS (SELECT 1 FROM stock_levels so
                        JOIN customers co ON co.id = so.owner_customer_id
                       WHERE so.plate_id = plate.id AND so.quantity > 0
-                        AND so.deleted_at IS NULL AND co.name ILIKE :${param})`,
+                        AND so.deleted_at IS NULL AND ${sqlFold('co.name')} LIKE :${param})`,
           );
+          if (folded.length >= 3 && 'isletme'.startsWith(folded)) {
+            // işletmenin kendi stoğu kalemin üzerinde tutulur (sahip rozetiyle aynı)
+            w.orWhere('plate.quantity_in_stock > 0');
+          }
         }),
       );
     });
@@ -896,6 +903,23 @@ export class PlatesService {
     }
     return record;
   }
+}
+
+const TR_FOLD: Record<string, string> = {
+  Ç: 'C', Ğ: 'G', İ: 'I', I: 'I', Ö: 'O', Ş: 'S', Ü: 'U', Â: 'A', Î: 'I', Û: 'U',
+  ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u', â: 'a', î: 'i', û: 'u',
+};
+const TR_FROM = Object.keys(TR_FOLD).join('');
+const TR_TO = Object.values(TR_FOLD).join('');
+
+/** Türkçe harfsiz küçük harf: "Şeffaf" → "seffaf", "İŞLETME" → "isletme". */
+export function foldTr(s: string): string {
+  return s.replace(/[ÇĞİIÖŞÜÂÎÛçğıöşüâîû]/g, (c) => TR_FOLD[c] ?? c).toLowerCase();
+}
+
+/** foldTr'nin SQL karşılığı (bir sütun ifadesi için). */
+function sqlFold(expr: string): string {
+  return `lower(translate(coalesce(${expr}, ''), '${TR_FROM}', '${TR_TO}'))`;
 }
 
 /**

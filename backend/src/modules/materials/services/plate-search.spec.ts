@@ -1,4 +1,4 @@
-import { searchTokens } from './plates.service';
+import { foldTr, searchTokens } from './plates.service';
 
 describe('stok araması sözcükleri', () => {
   it('sıra, ondalık virgül, ebat ve birimden bağımsız', () => {
@@ -10,5 +10,12 @@ describe('stok araması sözcükleri', () => {
 
   it('LIKE joker karakterlerini kaçırır', () => {
     expect(searchTokens('100%')).toEqual(['100\\%']);
+  });
+});
+
+describe('foldTr', () => {
+  it('Türkçe harfleri katlar ve küçültür', () => {
+    expect(foldTr('Şeffaf İŞLETME Çığ')).toBe('seffaf isletme cig');
+    expect(foldTr('DÖKME ÜÇ')).toBe('dokme uc');
   });
 });

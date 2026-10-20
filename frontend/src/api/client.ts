@@ -155,6 +155,14 @@ function rememberResponse(response: AxiosResponse): void {
   if (config.responseType && config.responseType !== 'json') return;
   const shopId = (config.headers['X-Shop-Id'] as string | undefined) ?? null;
   const path = pathOf(config.url);
+  if (path === '/plates/pricing' && response.data && typeof response.data === 'object') {
+    // Toplu fiyat kalem kalem saklanır: çevrimdışı teklifte tek kalemin
+    // fiyatı (önerilen fiyat, konsinye komisyonu) /plates/:id/pricing'ten okunur.
+    for (const [id, pricing] of Object.entries(response.data as Record<string, unknown>)) {
+      void cachePut(cacheKey(user, shopId, `/plates/${id}/pricing`), pricing);
+    }
+    return;
+  }
   const policy = cachePolicy(path, config.params);
   if (policy === 'skip') return;
   if (policy === 'merge') {

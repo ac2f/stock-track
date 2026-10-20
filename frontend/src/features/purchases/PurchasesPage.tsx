@@ -129,6 +129,7 @@ function PurchasePlatePicker({
       }))}
       filterLocally={false}
       loading={isFetching}
+      stale={term.trim() !== search || isFetching}
       onSearchChange={setTerm}
       onOpenChange={setOpen}
       onChange={(id) => onPick(id, list.find((p) => p.id === id))}

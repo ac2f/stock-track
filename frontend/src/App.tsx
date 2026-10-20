@@ -1,38 +1,11 @@
-import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Protected, ResponsiveLayout } from './layouts/ResponsiveLayout';
 import { LoginPage } from './features/auth/LoginPage';
 import { Can, NoAccess } from './components/Can';
 import { useAuth } from './context/AuthContext';
 import { PageFallback } from './components/ui/Loading';
-
-/**
- * Ekranlar ayrı parçalar (chunk) halinde, açıldıklarında yüklenir: ilk açılış
- * yalnız kabuğu (menü, oturum) indirir. Yeni sürüm yayınlandıktan sonra eski
- * parça sunucuda yoksa sayfa bir kez yenilenir (yeni sürüm gelir).
- * Çevrimdışı: service worker derlemedeki bütün parçaları saklar (public/sw.js).
- */
-function lazyPage<K extends string>(
-  load: () => Promise<Record<K, ComponentType>>,
-  name: K,
-) {
-  return lazy(async () => {
-    const RELOADED = 'st_chunk_reload';
-    try {
-      const mod = await load();
-      sessionStorage.removeItem(RELOADED);
-      return { default: mod[name] };
-    } catch (err) {
-      if (navigator.onLine && !sessionStorage.getItem(RELOADED)) {
-        sessionStorage.setItem(RELOADED, '1');
-        window.location.reload();
-        // Yenilenene kadar boş kalsın.
-        return { default: (() => null) as ComponentType };
-      }
-      throw err;
-    }
-  });
-}
+import { lazyPage } from './lib/lazyPage';
 
 const PlatesListPage = lazyPage(() => import('./features/materials/PlatesListPage'), 'PlatesListPage');
 const MaterialCategoriesPage = lazyPage(

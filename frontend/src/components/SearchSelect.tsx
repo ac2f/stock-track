@@ -35,6 +35,7 @@ export function SearchSelect({
   onOpenChange,
   filterLocally = true,
   loading = false,
+  stale = false,
 }: {
   options: SearchOption[];
   value: string;
@@ -49,6 +50,12 @@ export function SearchSelect({
   filterLocally?: boolean;
   /** Sonuçlar yükleniyor (sunucu araması). */
   loading?: boolean;
+  /**
+   * Görünen sonuçlar yazılan aramaya ait değil (yazma bitmedi ya da yeni
+   * sonuç yolda): Enter seçim yapmaz, yoksa önceki aramanın ilk kalemi
+   * seçilirdi.
+   */
+  stale?: boolean;
 }) {
   const [term, setTermState] = useState('');
   const [open, setOpenState] = useState(false);
@@ -135,6 +142,7 @@ export function SearchSelect({
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (stale) return;
       const o = filtered[active];
       if (o) choose(o);
     } else if (e.key === 'Escape') {
