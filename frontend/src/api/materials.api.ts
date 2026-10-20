@@ -471,6 +471,34 @@ export interface PlatePricing {
   discountPercent: number | null;
   /** Konsinye satışta varsayılan komisyon yüzdesi. */
   commissionPercent: number;
+  /** Satın almalardan alış maliyeti (alış kaydı yoksa null). */
+  cost: PlateCost | null;
+  /** Önerilen fiyatta alışa göre kâr yüzdesi. */
+  marginPercent: number | null;
+}
+
+/** Bir malzemenin alış maliyeti (son satın alma). */
+export interface PlateCost {
+  plateId: string;
+  /** Ölçü birimi başına maliyet (baz para biriminde): m² / metre / adet / kg. */
+  unitCost: number | null;
+  unit: MeasurementType;
+  /** Satın almadaki birim fiyat (tabaka / metre / adet başına). */
+  purchaseUnitPrice: number;
+  currency: string;
+  purchaseDate: string;
+  supplierName: string | null;
+  /** 'plate': kalemin kendi alışı; 'template': aynı ürün türünün son alışı. */
+  source: 'plate' | 'template';
+}
+
+/** Birden çok kalemin alış maliyeti (teklif kartında kâr için). */
+export async function fetchPlateCosts(ids: string[]): Promise<Record<string, PlateCost>> {
+  if (!ids.length) return {};
+  const { data } = await api.get<Record<string, PlateCost>>('/plates/costs', {
+    params: { ids: ids.join(',') },
+  });
+  return data;
 }
 
 /** Kaleme uyan fiyat çatısı ve referans fiyatı. */

@@ -23,6 +23,8 @@ describe('PricingService', () => {
     rate?: number;
     /** Etkin fiyat çatıları (girdileriyle). */
     rules?: Record<string, unknown>[];
+    /** Satın almalardan alış maliyeti (m² başına). */
+    unitCost?: number;
   }) {
     const plate = {
       id: 'p1',
@@ -60,12 +62,20 @@ describe('PricingService', () => {
       {} as never,
       currency as never,
     );
+    const costs = {
+      forPlates: jest.fn(async () =>
+        opts.unitCost != null
+          ? { p1: { plateId: 'p1', unitCost: opts.unitCost, purchaseUnitPrice: 0, currency: 'TRY', source: 'plate' } }
+          : {},
+      ),
+    };
     return new PricingService(
       platesRepo as never,
       pricesRepo as never,
       settings as never,
       currency as never,
       rules,
+      costs as never,
     );
   }
 
@@ -378,5 +388,14 @@ describe('PricingService', () => {
       expect(p.rule).toBeNull();
       expect(p.suggestedUnitPrice).toBeNull();
     });
+  });
+
+  it('alış maliyeti varsa önerilen fiyattaki kârı verir', async () => {
+    const withCost = await buildService({ plate: { retailPrice: 130 }, unitCost: 100 }).forPlate('p1');
+    const noCost = await buildService({ plate: { retailPrice: 130 } }).forPlate('p1');
+    expect(withCost.cost?.unitCost).toBe(100);
+    expect(withCost.marginPercent).toBe(30);
+    expect(noCost.cost).toBeNull();
+    expect(noCost.marginPercent).toBeNull();
   });
 });

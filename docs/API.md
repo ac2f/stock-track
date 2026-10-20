@@ -547,6 +547,7 @@ her zaman rol ve süre denetiminden geçer.
 | PUT | `/plates/:id/retail-price` | 🧑‍🔧 | `{ retailPrice, currency?, markupPercent? }` — perakende fiyatı girer/günceller |
 | DELETE | `/plates/:id/retail-price` | 🧑‍🔧 | Kalemin kendi fiyatını (ve kâr yüzdesini) kaldırır; öneri varsa fiyat çatısından gelir |
 | GET | `/plates/:id/retail-suggestions` | 👥 | Aynı türdeki (marka/renk farklı) fiyatı tanımlı malzemeler |
+| GET | `/plates/costs?ids=a,b,…` | 👥 | Kalemlerin alış maliyeti (en çok 200 kimlik; geçersizler yok sayılır) → `{ [plateId]: PlateCost }` |
 
 Perakende fiyat **TRY (varsayılan), USD veya EUR** girilebilir; `retailCurrency`
 plakada saklanır. Hesaplar baz para biriminde yapılır — döviz, tanımlı kurdan
@@ -571,6 +572,18 @@ girilmişse (`markupPercent`) o, yoksa çatınınki, yoksa ayarlardaki genel ora
 | `priceSource` | `plate` (kalemin kendi fiyatı), `rule` (fiyat çatısı) ya da `null` (fiyat yok, elle girilir) |
 | `basePrice` | Kâr eklenmeden önceki birim fiyat — baz para biriminde, ölçü birimi başına |
 | `rule` | Kaleme uyan en özel çatı (kalem fiyatı öncelikli olsa da gösterilir): `id, label, supplierId, supplierName, price, currency, unit, autoPicked, priceUpdatedAt, unitPriceBase, markupPercent` |
+| `cost` | Alış maliyeti (`PlateCost`, aşağıda) ya da satın alma kaydı yoksa `null` |
+| `marginPercent` | Önerilen fiyattaki kâr yüzdesi: `(önerilen − unitCost) / unitCost × 100`, 1 ondalık; maliyet ya da öneri yoksa `null` |
+
+`PlateCost`: `plateId, unitCost` (ölçü birimi başına, baz para biriminde;
+alan hesaplanamazsa `null`), `unit, purchaseUnitPrice, currency, purchaseDate,
+supplierName, source`. Maliyet kalemin son satın alma satırından gelir
+(`source: "plate"`); yoksa aynı ürün türünün son alışı kullanılır
+(`source: "template"`). Tabaka başına alış, ürün türünün standart tabaka
+alanına (yoksa alınan kalemin ölçüsüne) bölünerek m² maliyetine çevrilir.
+Döviz, alış tarihindeki kurla (o tarihte kur yoksa son kurla) çevrilir.
+Satılıp tükenmiş kalemlerin maliyeti de döner. Teklif ekranı satış
+kalemindeki kârı `birim fiyat − unitCost` üzerinden hesaplar.
 
 Malzemeci (tedarikçi) fiyatlarıyla karşılaştırma yapılırken tabaka başına
 girilen fiyatlar standart tabaka alanına bölünerek m² fiyatına çevrilir;

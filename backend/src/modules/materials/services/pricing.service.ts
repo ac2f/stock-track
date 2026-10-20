@@ -10,6 +10,7 @@ import { MaterialPlate } from '../entities/material-plate.entity';
 import { SupplierMaterialPrice } from '../entities/supplier-material-price.entity';
 import { PriceRule } from '../entities/price-rule.entity';
 import { PriceRulesService } from './price-rules.service';
+import { PlateCost, PlateCostService } from './plate-cost.service';
 import { ruleLabel } from '../price-rule-match.util';
 
 /** Kaleme uyan fiyat çatısı ve referans fiyatı. */
@@ -74,6 +75,10 @@ export interface PlatePricing {
   discountPercent: number | null;
   /** Konsinye (başkasının malzemesi) satışında varsayılan komisyon yüzdesi. */
   commissionPercent: number;
+  /** Satın almalardan alış maliyeti (alış kaydı yoksa null). */
+  cost: PlateCost | null;
+  /** Önerilen fiyatta alışa göre kâr yüzdesi (maliyet bilinmiyorsa null). */
+  marginPercent: number | null;
 }
 
 /**
@@ -120,6 +125,7 @@ export class PricingService {
     private readonly settings: SettingsService,
     private readonly currency: CurrencyService,
     private readonly rules: PriceRulesService,
+    private readonly costs: PlateCostService,
   ) {}
 
   async forPlate(plateId: string): Promise<PlatePricing> {
@@ -130,18 +136,19 @@ export class PricingService {
     if (!plate) {
       return this.empty(plateId);
     }
-    const [prices, settings, rules] = await Promise.all([
+    const [prices, settings, rules, costs] = await Promise.all([
       this.pricesRepo.find({ where: { plateId } }),
       this.settings.getPricing(),
       this.rules.activeRules(),
+      this.costs.forPlates([plateId]),
     ]);
-    return this.compute(plate, prices, settings, rules);
+    return this.compute(plate, prices, settings, rules, costs[plateId] ?? null);
   }
 
   /** Birden çok plaka için tek turda fiyatlandırma (teklif ekranı listesi). */
   async forPlates(plateIds: string[]): Promise<Record<string, PlatePricing>> {
     if (!plateIds.length) return {};
-    const [plates, prices, settings, rules] = await Promise.all([
+    const [plates, prices, settings, rules, costs] = await Promise.all([
       this.platesRepo.find({
         where: plateIds.map((id) => ({ id })),
         relations: { template: { defaultSize: true } },
@@ -152,6 +159,7 @@ export class PricingService {
         .getMany(),
       this.settings.getPricing(),
       this.rules.activeRules(),
+      this.costs.forPlates(plateIds),
     ]);
     const byPlate = new Map<string, SupplierMaterialPrice[]>();
     for (const row of prices) {
@@ -166,6 +174,7 @@ export class PricingService {
         byPlate.get(plate.id) ?? [],
         settings,
         rules,
+        costs[plate.id] ?? null,
       );
     }
     return result;
@@ -271,6 +280,7 @@ export class PricingService {
     prices: SupplierMaterialPrice[],
     settings: { saleMarkupPercent: number; consignmentCommissionPercent: number },
     rules: PriceRule[],
+    cost: PlateCost | null = null,
   ): Promise<PlatePricing> {
     const unit = (plate.measurementType ?? MeasurementType.AREA) as MeasurementType;
     const retailPrice =
@@ -370,6 +380,11 @@ export class PricingService {
       marketAverage,
       discountPercent,
       commissionPercent: Number(settings.consignmentCommissionPercent ?? 0),
+      cost,
+      marginPercent:
+        suggestedUnitPrice != null && cost?.unitCost
+          ? Math.round(((suggestedUnitPrice - cost.unitCost) / cost.unitCost) * 1000) / 10
+          : null,
     };
   }
 
@@ -442,6 +457,8 @@ export class PricingService {
       marketAverage: null,
       discountPercent: null,
       commissionPercent: 0,
+      cost: null,
+      marginPercent: null,
     };
   }
 }

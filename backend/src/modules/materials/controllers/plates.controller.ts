@@ -19,6 +19,7 @@ import { TransferOwnershipDto } from '../dto/transfer-ownership.dto';
 import { UpsertSupplierPriceDto } from '../dto/upsert-supplier-price.dto';
 import { PlatesService } from '../services/plates.service';
 import { PricingService } from '../services/pricing.service';
+import { PlateCostService } from '../services/plate-cost.service';
 import { PlateIntakeService } from '../services/plate-intake.service';
 import { SetRetailPriceDto } from '../dto/set-retail-price.dto';
 import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
@@ -34,6 +35,7 @@ export class PlatesController {
     private readonly platesService: PlatesService,
     private readonly supplierPricesService: SupplierPricesService,
     private readonly pricingService: PricingService,
+    private readonly plateCostService: PlateCostService,
     private readonly intakeService: PlateIntakeService,
   ) {}
 
@@ -56,6 +58,21 @@ export class PlatesController {
   @Get()
   findAll(@Query() query: QueryPlateDto) {
     return this.platesService.findAll(query);
+  }
+
+  /**
+   * Alış maliyetleri (satın almalardan): `?ids=a,b`. Satış kaleminde ve
+   * teklif kartında kâr bundan hesaplanır.
+   */
+  @Get('costs')
+  costs(@Query('ids') ids?: string) {
+    return this.plateCostService.forPlates(
+      (ids ?? '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter((x) => /^[0-9a-f-]{36}$/i.test(x))
+        .slice(0, 200),
+    );
   }
 
   @Get(':id')

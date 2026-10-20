@@ -37,6 +37,7 @@ import { PricingService } from './services/pricing.service';
 import { PlateIntakeService } from './services/plate-intake.service';
 import { SupplierPricesService } from './services/supplier-prices.service';
 import { PriceRulesService } from './services/price-rules.service';
+import { PlateCostService } from './services/plate-cost.service';
 
 /**
  * Stok & Tedarik çekirdeği:
@@ -91,6 +92,7 @@ import { PriceRulesService } from './services/price-rules.service';
     PlateIntakeService,
     SupplierPricesService,
     PriceRulesService,
+    PlateCostService,
   ],
   // Satın alma & işleme modülleri stok ayarı için PlatesService kullanır.
   exports: [

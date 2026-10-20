@@ -980,6 +980,28 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
       <p className="font-medium text-indigo-800 dark:text-indigo-300">
         💰 Perakende (satış) fiyatı — {unitLabel} başına
       </p>
+      {/* Satın almalardan alış maliyeti: önerilen fiyattaki kâr. */}
+      {data?.cost?.unitCost != null && (
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          💹 <span className="font-semibold">Son alış:</span>{' '}
+          {formatMoney(data.cost.purchaseUnitPrice, data.cost.currency)}/
+          {plate.measurementType === 'area' ? 'tabaka' : unitLabel} ({formatDate(data.cost.purchaseDate)}
+          {data.cost.supplierName ? `, ${data.cost.supplierName}` : ''}
+          {data.cost.source === 'template' ? ', aynı ürün türü' : ''}) ≈{' '}
+          {formatMoney(data.cost.unitCost, data.baseCurrency)}/{unitLabel}
+          {data.marginPercent != null && (
+            <span
+              className={`ml-2 rounded-full px-2 py-0.5 font-semibold ${
+                data.marginPercent < 0
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+              }`}
+            >
+              önerilen fiyatta {data.marginPercent < 0 ? 'zarar' : 'kâr'} %{formatNumber(Math.abs(data.marginPercent), 1)}
+            </span>
+          )}
+        </p>
+      )}
       {/* Kaleme uyan fiyat çatısı: kalemin kendi fiyatı yoksa öneri buradan. */}
       {rule && (
         <div className="space-y-1 rounded-md bg-white/70 p-2 text-xs dark:bg-slate-900/40">

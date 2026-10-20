@@ -17,10 +17,12 @@ import {
   comparePrices,
   fetchMaterialCategories,
   fetchPlatePricing,
+  fetchPlateCosts,
   fetchPlates,
   fetchRetailSuggestions,
   setPlateRetailPrice,
   RETAIL_CURRENCIES,
+  type PlateCost,
   type PlatePricing,
   type RetailCurrency,
 } from '../../api/materials.api';
@@ -46,7 +48,7 @@ import { Filters } from '../../components/ui/Filters';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { DATE_PRESETS, DateRangeFilter } from '../../components/ui/DateRangeFilter';
 import { useUrlParam } from '../../hooks/useUrlParam';
-import { formatDate, formatMoney, relativeDay } from '../../lib/format';
+import { formatDate, formatMoney, formatNumber, relativeDay } from '../../lib/format';
 import { RULE_UNIT_LABEL } from '../../api/price-rules.api';
 import { matchesSearch } from '../../lib/search';
 import { FacetChips, useFacets } from '../../components/ui/FacetChips';
@@ -445,6 +447,38 @@ function SalePlatePicker({
   );
 }
 
+/** İşletmenin kendi stoğundan satış (konsinye / üçüncü kişi malı değil). */
+function isOwnStock(it: QuoteItemInput): boolean {
+  return !it.stockSource || it.stockSource === 'business';
+}
+
+/**
+ * Teklifin satın alınmış malzeme kalemlerindeki kâr: satır tutarı − alış
+ * maliyeti × miktar (miktar = satır tutarı ÷ birim fiyat). Alış kaydı olan
+ * kalem yoksa null.
+ */
+function quoteProfit(
+  q: Quote,
+  costs: Record<string, PlateCost> | undefined,
+): { profit: number; revenue: number; cost: number; lines: number } | null {
+  if (!costs) return null;
+  let revenue = 0;
+  let cost = 0;
+  let lines = 0;
+  for (const it of q.items) {
+    if (it.lineKind !== 'sale' || !it.plateId || !isOwnStock(it)) continue;
+    const c = costs[it.plateId];
+    const price = Number(it.unitPrice);
+    const total = Number(it.lineTotal);
+    if (!c?.unitCost || !(price > 0)) continue;
+    revenue += total;
+    cost += c.unitCost * (total / price);
+    lines++;
+  }
+  if (!lines) return null;
+  return { profit: Math.round((revenue - cost) * 100) / 100, revenue, cost: Math.round(cost * 100) / 100, lines };
+}
+
 /** Seçim listesinde malzemenin satış fiyatı rozeti (varsa). */
 function PlatePriceBadge({ plateId }: { plateId: string }) {
   const { data } = useQuery({
@@ -470,6 +504,14 @@ function PlatePriceBadge({ plateId }: { plateId: string }) {
         {data.priceSource === 'rule' && (
           <span className="ml-1 text-indigo-500" title={data.rule?.label}>
             çatı
+          </span>
+        )}
+        {data.marginPercent != null && (
+          <span
+            className={`ml-1 font-semibold ${data.marginPercent < 0 ? 'text-red-600' : 'text-emerald-600'}`}
+            title="Önerilen fiyatta alışa göre kâr"
+          >
+            kâr %{formatNumber(data.marginPercent, 1)}
           </span>
         )}
         {data.discountPercent != null && (
@@ -573,6 +615,20 @@ export function QuotesPage() {
     // kendiliğinden görünsün.
     refetchInterval: (query) =>
       query.state.data?.items.some((q) => folderPending(q)) ? 8_000 : false,
+  });
+  // Listedeki satış kalemlerinin alış maliyeti: kartta kâr gösterilir.
+  const costIds = [
+    ...new Set(
+      (data?.items ?? []).flatMap((q) =>
+        q.items.filter((it) => it.lineKind === 'sale' && it.plateId && isOwnStock(it)).map((it) => it.plateId!),
+      ),
+    ),
+  ].sort();
+  const { data: costs } = useQuery({
+    queryKey: ['plate-costs', costIds.join(',')],
+    queryFn: () => fetchPlateCosts(costIds),
+    enabled: costIds.length > 0,
+    staleTime: 60_000,
   });
   // Filtre açılır listeleri için müşteri ve tür (kategori) listeleri.
   const { data: customers } = useQuery({
@@ -959,6 +1015,19 @@ export function QuotesPage() {
                     <p className={`font-bold text-slate-900 ${mini ? 'text-base' : 'text-lg'}`}>
                       {money.format(q.total)}
                     </p>
+                    {(() => {
+                      const pr = quoteProfit(q, costs);
+                      if (!pr) return null;
+                      return (
+                        <p
+                          className={`text-xs font-semibold ${pr.profit < 0 ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-400'}`}
+                          title={`Alış kaydı olan ${pr.lines} satış kaleminde: satış ${money.format(pr.revenue)} − alış ${money.format(pr.cost)}`}
+                        >
+                          {pr.profit < 0 ? 'Zarar' : 'Kâr'} {pr.profit < 0 ? '−' : '+'}
+                          {money.format(Math.abs(pr.profit))}
+                        </p>
+                      );
+                    })()}
                     {!mini && (
                       <p className="text-xs text-slate-500">{relativeDay(q.createdAt)}</p>
                     )}
@@ -1348,6 +1417,63 @@ function SalePricingNote({
       >
         fiyatı düzenle
       </button>
+    </div>
+  );
+}
+
+/**
+ * Satın alınmış malzemede alış maliyeti ve bu satıştaki kâr: son alış
+ * (yoksa aynı ürün türünün son alışı) ölçü birimine çevrilir, girilen
+ * fiyat ve miktarla kâr hesaplanır. Alış kaydı yoksa hiçbir şey gösterilmez.
+ */
+function ProfitNote({
+  plateId,
+  unitPrice,
+  measure,
+}: {
+  plateId: string;
+  unitPrice: number;
+  measure: number | null;
+}) {
+  const { data } = useQuery({
+    queryKey: ['plate-pricing', plateId],
+    queryFn: () => fetchPlatePricing(plateId),
+    enabled: !!plateId,
+  });
+  const cost = data?.cost;
+  if (!cost?.unitCost) return null;
+  const unit = UNIT_LABEL[data!.unit];
+  const perUnitProfit = unitPrice - cost.unitCost;
+  const pct = cost.unitCost > 0 ? Math.round((perUnitProfit / cost.unitCost) * 1000) / 10 : null;
+  const total = measure != null && unitPrice > 0 ? perUnitProfit * measure : null;
+  const loss = perUnitProfit < 0;
+  const purchase =
+    data!.unit === 'area'
+      ? `${formatMoney(cost.purchaseUnitPrice, cost.currency)}/tabaka`
+      : `${formatMoney(cost.purchaseUnitPrice, cost.currency)}/${unit}`;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+      <span title={cost.source === 'template' ? 'Bu kalemin alış kaydı yok; aynı ürün türünün son alışı kullanıldı.' : undefined}>
+        Alış ≈ <b className="text-slate-700 dark:text-slate-200">{money.format(cost.unitCost)}</b>/{unit}
+        <span className="text-slate-400">
+          {' '}
+          ({purchase} · {formatDate(cost.purchaseDate)}
+          {cost.supplierName ? ` · ${cost.supplierName}` : ''}
+          {cost.source === 'template' ? ' · aynı ürün türü' : ''})
+        </span>
+      </span>
+      {unitPrice > 0 && (
+        <span
+          className={`rounded-full px-2 py-0.5 font-semibold ${
+            loss
+              ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+          }`}
+        >
+          {loss ? 'Zarar' : 'Kâr'} {total != null ? `${loss ? '−' : '+'}${money.format(Math.abs(total))}` : ''}
+          {pct != null && ` · %${formatNumber(Math.abs(pct), 1)}`}
+        </span>
+      )}
     </div>
   );
 }
@@ -2541,6 +2667,14 @@ function NewQuoteForm({
                 unitPrice={Number(item.unitPrice) || 0}
                 onPriceSuggested={(p) => patch(i, { unitPrice: p })}
               />
+              {/* Satın alınan (işletmenin) malzemede alışa göre kâr. */}
+              {!item.ownerCustomerId && isOwnStock(item) && (
+                <ProfitNote
+                  plateId={item.plateId}
+                  unitPrice={Number(item.unitPrice) || 0}
+                  measure={preview.measure}
+                />
+              )}
               <AveragePriceNote plateId={item.plateId} />
             </div>
           )}

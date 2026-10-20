@@ -398,7 +398,12 @@ function RuleForm({
     queryKey: ['price-rule-preview', scope],
     queryFn: () => previewPriceRule(scope),
     enabled: !!form.categoryId,
-    placeholderData: (prev) => prev,
+    // Aynı türde alan değişirken eski sonuç kalsın (titreme olmasın); tür
+    // değişince önceki türün sonucu gösterilmesin.
+    placeholderData: (prev, prevQuery) =>
+      (prevQuery?.queryKey[1] as { categoryId?: string } | undefined)?.categoryId === form.categoryId
+        ? prev
+        : undefined,
   });
 
   const saveMut = useMutation({

@@ -178,6 +178,15 @@ Teklifte stok kaleminin satış fiyatı şuradan önerilir (öncelik sırasıyla
 Kalem başına malzemeci fiyatları (*Stok › kalem › Tedarikçi fiyatları*)
 yalnız piyasa karşılaştırması içindir.
 
+**Kâr (satın alınan malzemede):** dükkânın kendi stoğundaki malzeme teklife
+satış kalemi olarak eklenince, satış fiyatının altında alış maliyeti ve kâr
+(ya da zarar) tutarıyla yüzdesi görünür; teklif kartında da toplam kâr yazar.
+Maliyet o kalemin son *Satın Alma* kaydından alınır; kalemin kendi alışı
+yoksa (kesilip kalan parça gibi) aynı ürün türünün son alışı kullanılır.
+Tabaka başına alış standart tabaka alanına bölünüp m² maliyetine çevrilir;
+dövizli alış, alış tarihindeki kurla TL'ye çevrilir. Satın alma kaydı
+olmayan malzemede ve müşterinin/konsinye malzemesinde kâr gösterilmez.
+
 **Renkler** ad + kodla tutulur: aynı renkte birden çok kod (Beyaz 1001,
 Beyaz 2002) ve markaya özel kodlar olabilir. Ürün türünde renk, ad satırı ve
 yanındaki kod çipleriyle seçilir; seçili markanın kodları önce gelir, başka
