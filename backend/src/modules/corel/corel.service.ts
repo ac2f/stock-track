@@ -36,6 +36,14 @@ const DEFAULT_MATERIALS = 40;
 const DEFAULT_QUOTES = 6;
 const DEFAULT_JOBS = 50;
 
+/**
+ * Teklif sorgularında satılıp tükenen (soft-delete olan) plakalar da yüklensin:
+ * tam tabaka satışında plaka stoktan silinir, ama teklif kalemi o tabakayı
+ * kullanmıştır (klasörü açılmalı, ölçüsü bilinmeli). Silinmiş teklifler yine
+ * de dışarıda kalır (sorgularda `deletedAt: IsNull()`).
+ */
+const WITH_SOLD_PLATES = { withDeleted: true } as const;
+
 /** Tabakadan parça kullanan teklif kalemi: plakalı ve m² ölçülen. */
 function isSheetItem(item: QuoteItem): boolean {
   return !!item.plate && item.plate.measurementType === MeasurementType.AREA;
@@ -192,9 +200,10 @@ export class CorelService {
       throw new BadRequestException('customerId gerekli.');
     }
     const quotes = await this.quotesRepo.find({
-      where: { buyerCustomerId: customerId },
+      where: { buyerCustomerId: customerId, deletedAt: IsNull() },
       order: { createdAt: 'DESC' },
       take: limit,
+      ...WITH_SOLD_PLATES,
     });
     return tsvBody(
       quotes.map((q) =>
@@ -209,12 +218,13 @@ export class CorelService {
    * açar. `since` dahildir; runner aynı teklifi kimliğinden tanıyıp atlar.
    */
   async jobs(since?: string, limit = DEFAULT_JOBS): Promise<CorelJob[]> {
-    const where: Record<string, unknown> = { status: QuoteStatus.CONVERTED };
+    const where: Record<string, unknown> = { status: QuoteStatus.CONVERTED, deletedAt: IsNull() };
     if (since) where.convertedAt = MoreThanOrEqual(new Date(since));
     const quotes = await this.quotesRepo.find({
       where,
       order: { convertedAt: 'ASC', id: 'ASC' },
       take: limit,
+      ...WITH_SOLD_PLATES,
     });
     return quotes.filter((q) => q.convertedAt).map((q) => this.toJob(q));
   }
@@ -225,9 +235,10 @@ export class CorelService {
    */
   async requestedJobs(limit = DEFAULT_JOBS): Promise<CorelJob[]> {
     const quotes = await this.quotesRepo.find({
-      where: { status: QuoteStatus.CONVERTED, foldersRequestedAt: Not(IsNull()) },
+      where: { status: QuoteStatus.CONVERTED, foldersRequestedAt: Not(IsNull()), deletedAt: IsNull() },
       order: { foldersRequestedAt: 'ASC' },
       take: 200,
+      ...WITH_SOLD_PLATES,
     });
     return quotes
       .filter(
@@ -261,7 +272,7 @@ export class CorelService {
 
   /** Bir teklifin tabaka kalemleri ve her birinden kullanılan ölçü. */
   async quoteUsage(id: string): Promise<string> {
-    const quote = await this.quotesRepo.findOne({ where: { id } });
+    const quote = await this.quotesRepo.findOne({ where: { id, deletedAt: IsNull() }, ...WITH_SOLD_PLATES });
     if (!quote) throw new NotFoundException('Teklif bulunamadı.');
     return tsvBody((quote.items ?? []).filter(isSheetItem).map(usageLine));
   }

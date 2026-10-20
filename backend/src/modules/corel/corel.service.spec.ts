@@ -191,6 +191,11 @@ describe('CorelService', () => {
     });
 
     const [job] = await svc.jobs('2026-10-18T00:00:00Z');
+    // Tam tabaka satışında plaka stoktan silinir (soft-delete): yine de
+    // yüklenmeli, silinmiş teklifler ise dışarıda kalmalı.
+    const findArgs = (svc as unknown as { quotesRepo: { find: jest.Mock } }).quotesRepo.find.mock.calls.at(-1)[0];
+    expect(findArgs.withDeleted).toBe(true);
+    expect(findArgs.where.deletedAt).toBeDefined();
     expect(job).toMatchObject({
       id: 'q1',
       quoteNo: 'TKF-2026-0007',
