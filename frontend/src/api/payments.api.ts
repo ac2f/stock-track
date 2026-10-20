@@ -1,6 +1,7 @@
 import { api } from './client';
 import type {
   LegacyDebtClose,
+  Paginated,
   Payment,
   PaymentDirection,
   PaymentMethod,
@@ -20,9 +21,22 @@ export interface CreatePaymentInput {
   closeDebt?: boolean; // tahsilattan sonra kalan borcu indirimle kapat
 }
 
-export async function fetchPayments(customerId: string): Promise<Payment[]> {
-  const { data } = await api.get<Payment[]>(
+export interface CustomerPaymentFilters {
+  method?: PaymentMethod;
+  from?: string; // YYYY-MM-DD (dahil)
+  to?: string; // YYYY-MM-DD (günün tamamı dahil)
+  page?: number;
+  limit?: number;
+}
+
+/** Müşterinin ödeme geçmişi — yöntem/tarih süzgeci ve sayfalama sunucuda. */
+export async function fetchPayments(
+  customerId: string,
+  filters: CustomerPaymentFilters = {},
+): Promise<Paginated<Payment>> {
+  const { data } = await api.get<Paginated<Payment>>(
     `/customers/${customerId}/payments`,
+    { params: { page: 1, limit: 20, ...filters } },
   );
   return data;
 }

@@ -23,6 +23,15 @@ export async function fetchQuotes(
   return data;
 }
 
+/**
+ * Tek teklif, kalemlerin malzeme ayrıntılarıyla (liste yanıtı hafiftir:
+ * kalemlerin plaka/şablon bilgisi yoktur). Düzenleme formu bunu kullanır.
+ */
+export async function fetchQuote(id: string): Promise<Quote> {
+  const { data } = await api.get<Quote>(`/quotes/${id}`);
+  return data;
+}
+
 export interface CreateQuoteInput {
   buyerCustomerId: string;
   ownerCustomerId?: string;

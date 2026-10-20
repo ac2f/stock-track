@@ -32,6 +32,12 @@ export class SalesController {
     return this.salesService.findAll(query);
   }
 
+  /** Aralığın özeti: `{ count, saleTotal, businessMargin }` (sayfaya bağlı değil). */
+  @Get('summary')
+  summary(@Query() query: QuerySaleDto) {
+    return this.salesService.summary(query);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.salesService.findOne(id);

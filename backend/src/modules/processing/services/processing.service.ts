@@ -581,6 +581,35 @@ export class ProcessingService {
     return Array.from(groups.values());
   }
 
+  /**
+   * Kuyruktaki (PENDING/IN_PROGRESS) iş sayısı — menüdeki rozet tüm kuyruğu
+   * indirmeden sayıyı alır.
+   */
+  async queueCount(): Promise<{ count: number }> {
+    const count = await this.jobsRepo
+      .createQueryBuilder('j')
+      .where('j.status IN (:...statuses)', {
+        statuses: [ProcessingStatus.PENDING, ProcessingStatus.IN_PROGRESS],
+      })
+      .getCount();
+    return { count };
+  }
+
+  /**
+   * Kuyruktaki işlerin plaka kimlikleri (tekrarsız) — teklif formu "bu
+   * malzeme zaten kuyrukta" uyarısı için yalnız bunu ister.
+   */
+  async queuePlateIds(): Promise<string[]> {
+    const rows = await this.jobsRepo
+      .createQueryBuilder('j')
+      .select('DISTINCT j.plate_id', 'plateId')
+      .where('j.status IN (:...statuses)', {
+        statuses: [ProcessingStatus.PENDING, ProcessingStatus.IN_PROGRESS],
+      })
+      .getRawMany<{ plateId: string }>();
+    return rows.map((r) => r.plateId);
+  }
+
   async findOne(id: string): Promise<ProcessingJob> {
     const job = await this.jobsRepo.findOne({
       where: { id },

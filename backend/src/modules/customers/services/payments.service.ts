@@ -7,7 +7,20 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  IsNull,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
+import {
+  buildPaginatedResult,
+  PaginatedResult,
+} from '../../../common/dto/paginated-result';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
@@ -22,6 +35,7 @@ import { CustomerLedgerEntry } from '../entities/customer-ledger-entry.entity';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { ConvertLegacyDebtCloseDto } from '../dto/convert-legacy-debt-close.dto';
+import { QueryCustomerPaymentsDto } from '../dto/query-payment.dto';
 import { CustomerAccountService } from './customer-account.service';
 
 export interface PaymentResult {
@@ -172,11 +186,36 @@ export class PaymentsService {
     return result;
   }
 
-  list(customerId: string): Promise<Payment[]> {
-    return this.paymentsRepo.find({
-      where: { customerId },
-      order: { paymentDate: 'DESC' },
+  /**
+   * Müşterinin ödemeleri (yeni→eski). Yöntem ve tarih süzgeci sunucuda
+   * uygulanır; `page`/`limit` verilirse sayfalı döner, verilmezse tüm liste.
+   * Tarih sınırları YEREL gün başı/sonudur (`to` günün tamamını kapsar).
+   */
+  async list(
+    customerId: string,
+    query: QueryCustomerPaymentsDto = {},
+  ): Promise<Payment[] | PaginatedResult<Payment>> {
+    const where: FindOptionsWhere<Payment> = { customerId };
+    if (query.method) where.method = query.method;
+    const from = query.from ? new Date(`${query.from.slice(0, 10)}T00:00:00`) : null;
+    const to = query.to ? new Date(`${query.to.slice(0, 10)}T23:59:59.999`) : null;
+    if (from && to) where.paymentDate = Between(from, to);
+    else if (from) where.paymentDate = MoreThanOrEqual(from);
+    else if (to) where.paymentDate = LessThanOrEqual(to);
+
+    if (query.page == null && query.limit == null) {
+      return this.paymentsRepo.find({ where, order: { paymentDate: 'DESC' } });
+    }
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [items, total] = await this.paymentsRepo.findAndCount({
+      where,
+      // Aynı gündeki ödemeler sayfalar arasında kaymasın: ikincil sıra kimlik.
+      order: { paymentDate: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return buildPaginatedResult(items, total, page, limit);
   }
 
   /**

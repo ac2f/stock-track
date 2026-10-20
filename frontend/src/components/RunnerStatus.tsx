@@ -12,14 +12,15 @@ export function agoText(seconds: number): string {
   return `${Math.floor(seconds / 86400)} gün önce`;
 }
 
-/** Runner durumu; 15 sn'de bir tazelenir (sekme açıkken). */
-export function useRunners() {
+/** Runner durumu; 15 sn'de bir tazelenir (sekme açıkken). `enabled: false` → hiç istenmez. */
+export function useRunners(enabled = true) {
   return useQuery({
     queryKey: ['corel-runners'],
     queryFn: fetchCorelRunners,
     refetchInterval: 15_000,
     staleTime: 10_000,
     retry: false,
+    enabled,
   });
 }
 
@@ -73,9 +74,10 @@ export function RunnerBadge() {
 }
 
 /** Ayarlar › Corel entegrasyonu: her bilgisayarın ayrıntılı durumu. */
-export function RunnerPanel({ canManage }: { canManage: boolean }) {
+export function RunnerPanel({ canManage, active = true }: { canManage: boolean; active?: boolean }) {
   const qc = useQueryClient();
-  const { data, isLoading, isError } = useRunners();
+  // Kart ekranda değilken 15 sn'lik yoklama yapılmaz.
+  const { data, isPending: isLoading, isError } = useRunners(active);
   const del = useMutation({
     mutationFn: deleteCorelRunner,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['corel-runners'] }),

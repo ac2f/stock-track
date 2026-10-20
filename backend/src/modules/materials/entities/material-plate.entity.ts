@@ -24,6 +24,7 @@ import { SupplierMaterialPrice } from './supplier-material-price.entity';
  */
 @Entity('material_plates')
 @Index(['brand', 'color'])
+@Index(['templateId'])
 @Index(['shopId', 'sku'], { unique: true, where: '"sku" IS NOT NULL' })
 export class MaterialPlate extends ShopScopedEntity {
   @ManyToOne(() => MaterialTemplate, (template) => template.plates, {

@@ -13,6 +13,8 @@ import { MaterialPlate } from './material-plate.entity';
 @Entity('stock_levels')
 @Unique(['plateId', 'warehouseId', 'ownerCustomerId'])
 @Index(['plateId'])
+// Konsinye sahibine göre stok (sahip süzgeci, GET /plates/owners).
+@Index(['ownerCustomerId'])
 export class StockLevel extends ShopScopedEntity {
   @ManyToOne(() => MaterialPlate, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'plate_id' })

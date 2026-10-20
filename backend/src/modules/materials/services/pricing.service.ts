@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { PriceUnit } from '../../../common/enums/price-unit.enum';
 import { roundMoney } from '../../../common/utils/area.util';
@@ -150,7 +150,7 @@ export class PricingService {
     if (!plateIds.length) return {};
     const [plates, prices, settings, rules, costs] = await Promise.all([
       this.platesRepo.find({
-        where: plateIds.map((id) => ({ id })),
+        where: { id: In(plateIds) },
         relations: { template: { defaultSize: true } },
       }),
       this.pricesRepo

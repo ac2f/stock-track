@@ -13,6 +13,8 @@ import { SaleItem } from './sale-item.entity';
  */
 @Entity('sales')
 @Index(['buyerCustomerId', 'saleDate'])
+// Satış listesi/özeti tarih aralığına göre.
+@Index(['shopId', 'saleDate'])
 export class Sale extends ShopScopedEntity {
   @ManyToOne(() => Customer, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'buyer_customer_id' })

@@ -10,17 +10,22 @@ import { Filters } from '../../components/ui/Filters';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { useUrlParam } from '../../hooks/useUrlParam';
+import { useDebounced } from '../../hooks/useDebounced';
+import {
+  REFERENCE_STALE_MS,
+  useMaterialCategories,
+  useSuppliers,
+} from '../../hooks/useReferenceData';
 import { useAuth } from '../../context/AuthContext';
 import {
   fetchMaterialBrands,
-  fetchMaterialCategories,
   fetchMaterialColors,
   fetchMaterialSizes,
   fetchMaterialThicknesses,
   RETAIL_CURRENCIES,
   type SupplierPriceUnit,
 } from '../../api/materials.api';
-import { createSupplier, fetchSuppliers } from '../../api/suppliers.api';
+import { createSupplier } from '../../api/suppliers.api';
 import { fetchPricingSettings } from '../../api/settings.api';
 import {
   createPriceRule,
@@ -128,10 +133,7 @@ export function PriceRulesPage() {
   const [focusRuleId, setFocusRuleId] = useState<string | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
+  const { data: categories } = useMaterialCategories();
   const { data: rules, isLoading } = useQuery({
     queryKey: ['price-rules'],
     queryFn: () => fetchPriceRules(),
@@ -139,6 +141,7 @@ export function PriceRulesPage() {
   const { data: pricing } = useQuery({
     queryKey: ['settings', 'pricing'],
     queryFn: fetchPricingSettings,
+    staleTime: REFERENCE_STALE_MS,
     retry: false,
   });
 
@@ -360,7 +363,7 @@ function RuleForm({
   const [markup, setMarkup] = useState(initial.markupPercent != null ? String(initial.markupPercent) : '');
   const categoryId = form.categoryId || undefined;
 
-  const { data: categories } = useQuery({ queryKey: ['material-categories'], queryFn: fetchMaterialCategories });
+  const { data: categories } = useMaterialCategories();
   const { data: brands } = useQuery({
     queryKey: ['material-brands', categoryId],
     queryFn: () => fetchMaterialBrands(categoryId),
@@ -394,9 +397,17 @@ function RuleForm({
     variant: form.variant?.trim() || null,
     excludeId: editingId ?? undefined,
   };
+  // Ek ad (variant) yazılırken her harfte istek gitmesin: kapsam yazma
+  // bitince (~300 ms) önizlenir. Karşılaştırma için metne çevrilir (her
+  // çizimde yeni nesne oluşur).
+  // Tür değişince beklenmez: yoksa 300 ms boyunca önceki türün önizlemesi
+  // görünür.
+  const scopeKey = useDebounced(JSON.stringify(scope), 300);
+  const debouncedScope = useMemo(() => JSON.parse(scopeKey) as typeof scope, [scopeKey]);
+  const liveScope = debouncedScope.categoryId === scope.categoryId ? debouncedScope : scope;
   const { data: preview, isFetching: previewing } = useQuery({
-    queryKey: ['price-rule-preview', scope],
-    queryFn: () => previewPriceRule(scope),
+    queryKey: ['price-rule-preview', liveScope],
+    queryFn: () => previewPriceRule(liveScope),
     enabled: !!form.categoryId,
     // Aynı türde alan değişirken eski sonuç kalsın (titreme olmasın); tür
     // değişince önceki türün sonucu gösterilmesin.
@@ -657,11 +668,7 @@ function RuleCard({
   const [currency, setCurrency] = useState<string>('TRY');
   const [newSupplier, setNewSupplier] = useState('');
 
-  const { data: suppliers } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchSuppliers(),
-    enabled: canWrite,
-  });
+  const { data: suppliers } = useSuppliers({ enabled: canWrite });
 
   useEffect(() => {
     if (!focus) return;

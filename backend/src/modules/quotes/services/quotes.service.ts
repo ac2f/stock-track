@@ -176,10 +176,18 @@ export class QuotesService {
     const [rows, total] = await qb.getManyAndCount();
 
     // items eager olsa da QueryBuilder otomatik yüklemez; sırayı koruyarak ekle.
+    // Liste yalnız alıcı adını ve kalemlerin kendi alanlarını (tür, tutar,
+    // stok kaynağı) gösterir: kalem → plaka → şablon → kategori/marka/renk/
+    // ebat/kalınlık zinciri burada YÜKLENMEZ (liste klasör beklerken 8 sn'de
+    // bir tazelenir). Düzenleme/yazdırma tam teklifi GET /quotes/:id ile alır.
     const ids = rows.map((r) => r.id);
     const full = ids.length
-      ? // Tükenip soft-delete olmuş plakanın adı listede de görünsün.
-        await this.quotesRepo.find({ where: { id: In(ids) }, withDeleted: true })
+      ? await this.quotesRepo.find({
+          where: { id: In(ids) },
+          relations: { buyerCustomer: true, items: true },
+          loadEagerRelations: false,
+          withDeleted: true,
+        })
       : [];
     const byId = new Map(full.map((q) => [q.id, q]));
     const ordered = rows.map((r) => byId.get(r.id) ?? r);

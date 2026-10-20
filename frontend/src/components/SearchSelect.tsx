@@ -31,15 +31,35 @@ export function SearchSelect({
   onChange,
   placeholder = 'Ara / seç…',
   emptyText = 'Sonuç yok.',
+  onSearchChange,
+  onOpenChange,
+  filterLocally = true,
+  loading = false,
 }: {
   options: SearchOption[];
   value: string;
   onChange: (id: string, opt?: SearchOption) => void;
   placeholder?: string;
   emptyText?: string;
+  /** Yazılan arama (sunucuda arayan seçiciler için). */
+  onSearchChange?: (term: string) => void;
+  /** Liste açıldı/kapandı (veri yalnız açıkken istensin diye). */
+  onOpenChange?: (open: boolean) => void;
+  /** false → seçenekler zaten sunucuda süzülmüş; burada yeniden süzülmez. */
+  filterLocally?: boolean;
+  /** Sonuçlar yükleniyor (sunucu araması). */
+  loading?: boolean;
 }) {
-  const [term, setTerm] = useState('');
-  const [open, setOpen] = useState(false);
+  const [term, setTermState] = useState('');
+  const [open, setOpenState] = useState(false);
+  const setTerm = (t: string) => {
+    setTermState(t);
+    onSearchChange?.(t);
+  };
+  const setOpen = (o: boolean) => {
+    setOpenState(o);
+    onOpenChange?.(o);
+  };
   const [active, setActive] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -48,11 +68,11 @@ export function SearchSelect({
 
   // Sözcük sırası, Türkçe harf ve ondalık yazımı fark etmez ("beyaz 2,8").
   const filtered = useMemo(() => {
-    if (!term.trim()) return options;
+    if (!filterLocally || !term.trim()) return options;
     return options.filter((o) =>
       matchesSearch(`${o.label} ${o.sublabel ?? ''} ${o.group ?? ''} ${o.subgroup ?? ''}`, term),
     );
-  }, [options, term]);
+  }, [options, term, filterLocally]);
 
   // Gruplara ve alt gruplara ayır (sıra korunur); klavye için düz index eşlemesi
   // aşağıda render sırasında yapılır.
@@ -212,7 +232,9 @@ export function SearchSelect({
             </li>
           ))}
           {filtered.length === 0 && (
-            <li className="px-3 py-2 text-sm text-slate-400">{emptyText}</li>
+            <li className="px-3 py-2 text-sm text-slate-400">
+              {loading ? 'Aranıyor…' : emptyText}
+            </li>
           )}
         </ul>
       )}

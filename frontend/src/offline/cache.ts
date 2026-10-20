@@ -15,7 +15,14 @@ interface CacheEntry extends Record<string, unknown> {
 
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 400;
+/** Çöp temizliği en erken bu kadar yazmada ve bu kadar sürede bir yapılır. */
+const PRUNE_EVERY_WRITES = 50;
+const PRUNE_MIN_INTERVAL_MS = 5 * 60_000;
+/** Bir yolun arama havuzunda en çok bu kadar kayıt tutulur. */
+const SEARCH_POOL_MAX = 200;
+const SEARCH_POOL = '~search';
 let writesSincePrune = 0;
+let lastPruneAt = Date.now();
 
 export function cacheKey(
   userId: string,
@@ -36,10 +43,43 @@ export function cacheKey(
 export async function cachePut(key: string, data: unknown): Promise<void> {
   const [userId, shopId] = key.split('|');
   await idbPut<CacheEntry>('cache', { key, userId, shopId, at: Date.now(), data });
-  if (++writesSincePrune >= 50) {
+  // Temizlik bütün kayıtları okur: sık yazmada (ör. arama) her seferinde değil,
+  // yeterince yazma birikince ve en erken birkaç dakikada bir yapılır.
+  if (++writesSincePrune >= PRUNE_EVERY_WRITES && Date.now() - lastPruneAt >= PRUNE_MIN_INTERVAL_MS) {
     writesSincePrune = 0;
+    lastPruneAt = Date.now();
     void pruneCache();
   }
+}
+
+/**
+ * Arama yanıtı: her arama terimi için ayrı kayıt açılmaz; kayıtlar yolun tek
+ * "arama havuzuna" katılır (en yeniler önde, sınırlı sayıda). Çevrimdışı
+ * arama (cacheSearch) bu havuzu da tarar.
+ */
+export async function cacheMergeSearch(
+  userId: string,
+  shopId: string | null,
+  path: string,
+  data: unknown,
+): Promise<void> {
+  const incoming = itemsOf(data);
+  if (!incoming) return;
+  const key = `${userId}|${shopId ?? '-'}|${path}|${SEARCH_POOL}`;
+  const prev = await idbGet<CacheEntry>('cache', key);
+  const prevItems = prev ? itemsOf(prev.data)?.items ?? [] : [];
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const item of [...incoming.items, ...prevItems]) {
+    const id = String(item.id ?? JSON.stringify(item));
+    if (!byId.has(id)) byId.set(id, item);
+    if (byId.size >= SEARCH_POOL_MAX) break;
+  }
+  const items = [...byId.values()];
+  const merged =
+    incoming.shape === 'array'
+      ? items
+      : { items, meta: { total: items.length, page: 1, limit: items.length, pageCount: 1 } };
+  await cachePut(key, merged);
 }
 
 export async function cacheGet(key: string): Promise<{ data: unknown; at: number } | undefined> {

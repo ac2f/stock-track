@@ -276,7 +276,10 @@ export class PlatesService {
       );
     }
     // Arama sözcüklere bölünür; her sözcük ad, stok kodu, renk kodu, marka,
-    // renk ya da alt türden birinde geçmeli (sıra fark etmez: "beyaz 2,8").
+    // renk, alt tür, ürün türü (kategori) ya da konsinye sahibinin adından
+    // birinde geçmeli (sıra fark etmez: "beyaz 2,8", "ahmet pleksi"). Seçiciler
+    // aramayı sunucuya bıraktığı için arayüzdeki eski yerel aramanın
+    // kapsadığı tür/sahip adı da burada aranır.
     searchTokens(query.search).forEach((token, i) => {
       const param = `s${i}`;
       qb.andWhere(
@@ -284,6 +287,13 @@ export class PlatesService {
           for (const col of ['name', 'sku', 'color_code', 'brand', 'color', 'variant']) {
             w.orWhere(`plate.${col} ILIKE :${param}`, { [param]: `%${token}%` });
           }
+          w.orWhere(`category.name ILIKE :${param}`);
+          w.orWhere(
+            `EXISTS (SELECT 1 FROM stock_levels so
+                       JOIN customers co ON co.id = so.owner_customer_id
+                      WHERE so.plate_id = plate.id AND so.quantity > 0
+                        AND so.deleted_at IS NULL AND co.name ILIKE :${param})`,
+          );
         }),
       );
     });
@@ -331,10 +341,35 @@ export class PlatesService {
       const decorated = plate as MaterialPlate & {
         owners?: string[];
         ownerCustomerIds?: string[];
+        ownerCustomers?: { id: string; name: string }[];
       };
       decorated.owners = owners;
       decorated.ownerCustomerIds = consign.map((c) => c.id);
+      // Kimlik + ad birlikte: düzenleme formu sahip adını müşteri listesi
+      // çekmeden gösterebilsin.
+      decorated.ownerCustomers = consign;
     }
+  }
+
+  /**
+   * Dükkânda şu an stoğu (miktarı > 0) bulunan konsinye sahipleri — stok
+   * listesindeki "sahip" süzgeci yalnız bunları önerir (tüm müşteri listesini
+   * çekmek yerine).
+   */
+  async stockOwners(): Promise<{ id: string; name: string }[]> {
+    const rows: { id: string; name: string }[] = await this.dataSource.query(
+      `SELECT DISTINCT c.id, c.name
+         FROM stock_levels sl
+         JOIN customers c ON c.id = sl.owner_customer_id AND c.deleted_at IS NULL
+         JOIN material_plates p ON p.id = sl.plate_id AND p.deleted_at IS NULL
+        WHERE sl.shop_id = $1
+          AND sl.owner_customer_id IS NOT NULL
+          AND sl.quantity > 0
+          AND sl.deleted_at IS NULL
+        ORDER BY c.name`,
+      [ShopContext.requireShopId()],
+    );
+    return rows.map((r) => ({ id: r.id, name: r.name }));
   }
 
   /**

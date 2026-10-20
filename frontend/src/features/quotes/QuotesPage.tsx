@@ -1,22 +1,22 @@
 import { Can } from '../../components/Can';
 import { useAuth } from '../../context/AuthContext';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   convertQuote,
   createQuote,
   deleteQuote,
+  fetchQuote,
   fetchQuotes,
   setQuoteStatus,
   type CreateQuoteInput,
   type QuoteFilters,
 } from '../../api/quotes.api';
-import { fetchCustomers } from '../../api/customers.api';
 import {
   comparePrices,
-  fetchMaterialCategories,
   fetchPlatePricing,
+  fetchPlatesPricing,
   fetchPlateCosts,
   fetchPlates,
   fetchRetailSuggestions,
@@ -27,7 +27,7 @@ import {
   type RetailCurrency,
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
-import { fetchQueue } from '../../api/processing.api';
+import { fetchQueuePlateIds } from '../../api/processing.api';
 import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
 import { groupPlates, plateCategory } from '../../lib/plateGrouping';
 import { SearchSelect } from '../../components/SearchSelect';
@@ -39,7 +39,9 @@ import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { requestQuoteFolders, updateQuote } from '../../api/quotes.api';
 import { QuoteFolders, RunnerBadge, folderPending, runnerSummary, useRunners } from '../../components/RunnerStatus';
-import { fetchCutPricing } from '../../api/settings.api';
+import { useCutPricing, useMaterialCategories } from '../../hooks/useReferenceData';
+import { useDebounced } from '../../hooks/useDebounced';
+import { keepWhileSearching } from '../../lib/placeholder';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -50,7 +52,6 @@ import { DATE_PRESETS, DateRangeFilter } from '../../components/ui/DateRangeFilt
 import { useUrlParam } from '../../hooks/useUrlParam';
 import { formatDate, formatMoney, formatNumber, relativeDay } from '../../lib/format';
 import { RULE_UNIT_LABEL } from '../../api/price-rules.api';
-import { matchesSearch } from '../../lib/search';
 import { FacetChips, useFacets } from '../../components/ui/FacetChips';
 import { PLATE_FACETS } from '../../lib/catalogKey';
 import type {
@@ -141,27 +142,36 @@ function PlatePicker({
 }) {
   // Ürün türü (kategori) filtresi — varsayılan: tümü.
   const [categoryId, setCategoryId] = useState('');
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
-  const { data } = useQuery({
-    queryKey: [
-      'plates',
-      'pick',
-      businessOnly ? 'business' : ownerCustomerId ?? 'all',
-      excludeOwnerCustomerId ?? '',
-      categoryId,
-    ],
+  const { data: categories } = useMaterialCategories();
+  // Arama sunucuda yapılır (yazma bitince): ilk 100 kalemle sınırlı kalmaz.
+  // Liste yalnız açıkken istenir; yeni sonuç gelene kadar öncekiler kalır.
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const search = useDebounced(term.trim());
+  const pickKey = [
+    'plates',
+    'pick',
+    businessOnly ? 'business' : ownerCustomerId ?? 'all',
+    excludeOwnerCustomerId ?? '',
+    categoryId,
+    search,
+  ];
+  const { data, isFetching } = useQuery({
+    queryKey: pickKey,
     queryFn: () =>
       fetchPlates({
         ownerCustomerId: businessOnly ? undefined : ownerCustomerId || undefined,
         owner: businessOnly ? 'business' : undefined,
         excludeOwnerCustomerId: excludeOwnerCustomerId || undefined,
         categoryId: categoryId || undefined,
+        search: search || undefined,
         page: 1,
         limit: 100,
       }),
+    enabled: open,
+    // Yalnız arama değişirken önceki sonuçlar kalır; kaynak/tür değişince
+    // eski (başka süzgecin) kalemleri seçilemesin.
+    placeholderData: keepWhileSearching(pickKey),
   });
   const items = data?.items ?? [];
   // Seçili plaka listede yoksa (ör. düzenlemede farklı filtre) başa eklenir.
@@ -214,6 +224,10 @@ function PlatePicker({
         }
         emptyText="Uygun malzeme yok."
         options={options}
+        filterLocally={false}
+        loading={isFetching}
+        onSearchChange={setTerm}
+        onOpenChange={setOpen}
         onChange={(id) => onPick(id, merged.find((p) => p.id === id))}
       />
     </div>
@@ -247,49 +261,54 @@ function SalePlatePicker({
   highlightIds?: Set<string>;
   onPick: (plateId: string, plate?: Plate) => void;
 }) {
+  const qc = useQueryClient();
   const [open, setOpen] = useState(!value);
   const [categoryId, setCategoryId] = useState('');
   const [term, setTerm] = useState('');
+  // Arama sunucuda (sözcük sırası/ondalık yazımı fark etmez: "beyaz 2,8
+  // akpolimer"); yazma bitince istenir, ilk 100 kalemle sınırlı kalmaz.
+  const search = useDebounced(term.trim());
 
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
+  const { data: categories } = useMaterialCategories();
+  const pickKey = [
+    'plates',
+    'sale-pick',
+    businessOnly ? 'business' : ownerCustomerId ?? 'all',
+    excludeOwnerCustomerId ?? '',
+    categoryId,
+    search,
+  ];
   const { data, isFetching } = useQuery({
-    queryKey: [
-      'plates',
-      'sale-pick',
-      businessOnly ? 'business' : ownerCustomerId ?? 'all',
-      excludeOwnerCustomerId ?? '',
-      categoryId,
-    ],
+    queryKey: pickKey,
     queryFn: () =>
       fetchPlates({
         ownerCustomerId: businessOnly ? undefined : ownerCustomerId || undefined,
         owner: businessOnly ? 'business' : undefined,
         excludeOwnerCustomerId: excludeOwnerCustomerId || undefined,
         categoryId: categoryId || undefined,
+        search: search || undefined,
         page: 1,
         limit: 100,
       }),
     enabled: open,
+    // Yalnız arama değişirken önceki sonuçlar kalır; kaynak/tür değişince
+    // eski (başka süzgecin) kalemleri seçilemesin.
+    placeholderData: keepWhileSearching(pickKey),
   });
 
   const all = data?.items ?? [];
-  // Sözcük sırası/Türkçe harf/ondalık yazımı fark etmez ("beyaz 2,8 akpolimer").
-  const searched = term.trim()
-    ? all.filter((p) =>
-        matchesSearch(
-          `${p.name} ${p.brand ?? ''} ${p.color ?? ''} ${p.colorCode ?? ''} ${p.variant ?? ''} ${
-            p.thicknessMm ? `${p.thicknessMm} mm` : ''
-          } ${plateCategory(p)} ${plateOwnerLabel(p)}`,
-          term,
-        ),
-      )
-    : all;
   // Tür içinde marka / kalınlık / ebat / renk çipleriyle daraltma.
-  const facets = useFacets(searched, PLATE_FACETS);
+  const facets = useFacets(all, PLATE_FACETS);
   const groups = groupPlates(facets.filtered);
+  // Görünen satırların fiyatları TEK istekte (satır başına ayrı istek değil).
+  const priceIds = [...new Set(facets.filtered.map((p) => p.id))].sort().slice(0, 100);
+  const { data: prices } = useQuery({
+    queryKey: ['plate-pricing', 'batch', priceIds.join(',')],
+    queryFn: () => fetchPlatesPricing(priceIds),
+    enabled: open && priceIds.length > 0,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
 
   // Seçili malzeme: kart olarak özetlenir.
   if (!open && selectedPlate) {
@@ -409,6 +428,10 @@ function SalePlatePicker({
                             : 'border-slate-200 dark:border-slate-700'
                         }`}
                         onClick={() => {
+                          // Seçilen kalemin fiyatı zaten elde: kalem notları
+                          // ayrıca istemesin.
+                          const pr = prices?.[p.id];
+                          if (pr) qc.setQueryData(['plate-pricing', p.id], pr);
                           onPick(p.id, p);
                           setOpen(false);
                         }}
@@ -428,7 +451,7 @@ function SalePlatePicker({
                             {platePickSublabel(p)}
                           </span>
                         </span>
-                        <PlatePriceBadge plateId={p.id} />
+                        <PlatePriceBadge pricing={prices?.[p.id]} />
                       </button>
                     ))}
                   </div>
@@ -479,13 +502,11 @@ function quoteProfit(
   return { profit: Math.round((revenue - cost) * 100) / 100, revenue, cost: Math.round(cost * 100) / 100, lines };
 }
 
-/** Seçim listesinde malzemenin satış fiyatı rozeti (varsa). */
-function PlatePriceBadge({ plateId }: { plateId: string }) {
-  const { data } = useQuery({
-    queryKey: ['plate-pricing', plateId],
-    queryFn: () => fetchPlatePricing(plateId),
-    staleTime: 60_000,
-  });
+/**
+ * Seçim listesinde malzemenin satış fiyatı rozeti (varsa). Fiyat, listenin
+ * toplu isteğinden gelir (GET /plates/pricing?ids=…).
+ */
+function PlatePriceBadge({ pricing: data }: { pricing?: PlatePricing }) {
   if (!data) return null;
   if (data.suggestedUnitPrice == null) {
     return (
@@ -630,15 +651,11 @@ export function QuotesPage() {
     enabled: costIds.length > 0,
     staleTime: 60_000,
   });
-  // Filtre açılır listeleri için müşteri ve tür (kategori) listeleri.
-  const { data: customers } = useQuery({
-    queryKey: ['customers', 'all'],
-    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
-  });
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
+  // Filtre için tür (kategori) listesi. Müşteri süzgeci aranarak seçilir
+  // (CustomerPicker): tüm müşteri listesi çekilmez, 100'den sonrası da seçilir.
+  const { data: categories } = useMaterialCategories();
+  // Seçici, filtreler temizlenince sıfırlansın diye yeniden kurulur (key).
+  const [customerFilterKey, setCustomerFilterKey] = useState(0);
 
   const setFilter = (patch: Partial<QuoteFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
@@ -661,6 +678,7 @@ export function QuotesPage() {
   const clearFilters = () => {
     setSearchText('');
     setFilters({ page: 1, limit: pageSize });
+    setCustomerFilterKey((k) => k + 1);
   };
   // Boş listede tek dokunuşla daha geniş aralık: son 30 gün.
   const showLast30Days = () => {
@@ -746,6 +764,26 @@ export function QuotesPage() {
       });
     },
   });
+
+  // Liste hafif gelir (kalemlerin malzeme ayrıntısı yok): düzenleme formu
+  // canlı ölçü/tutar önizlemesi için tam teklifi ister. Çevrimdışıysa ve
+  // kayıtlı kopya yoksa listedeki haliyle açılır.
+  const [openingEdit, setOpeningEdit] = useState<string | null>(null);
+  const startEdit = async (q: Quote) => {
+    setOpeningEdit(q.id);
+    try {
+      const full = await qc.fetchQuery({
+        queryKey: ['quotes', 'detail', q.id],
+        queryFn: () => fetchQuote(q.id),
+        staleTime: 0,
+      });
+      setEditingQuote(full);
+    } catch {
+      setEditingQuote(q);
+    } finally {
+      setOpeningEdit(null);
+    }
+  };
 
   // Form açılınca (özellikle listedeki "Düzenle"den) ekranı forma kaydır.
   const newFormRef = useRef<HTMLDivElement>(null);
@@ -894,21 +932,15 @@ export function QuotesPage() {
               ))}
             </select>
           </label>
-          <label className="block min-w-0">
+          {/* <label> değil <div>: seçiliyken ada tıklamak "değiştir"i tetiklemesin. */}
+          <div className="block min-w-0">
             <span className="label">Müşteri</span>
-            <select
-              className="input"
-              value={filters.buyerCustomerId ?? ''}
-              onChange={(e) => setFilter({ buyerCustomerId: e.target.value || undefined })}
-            >
-              <option value="">Tümü</option>
-              {customers?.items.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <CustomerPicker
+              key={customerFilterKey}
+              placeholder="Tümü — müşteri ara…"
+              onChange={(id) => setFilter({ buyerCustomerId: id || undefined })}
+            />
+          </div>
           <label className="block min-w-0">
             <span className="label">Malzeme türü</span>
             <select
@@ -1109,8 +1141,10 @@ export function QuotesPage() {
                     <button
                       className={editing ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
                       aria-pressed={editing}
-                      onClick={() => setEditingQuote(editing ? null : q)}
+                      disabled={openingEdit === q.id}
+                      onClick={() => (editing ? setEditingQuote(null) : void startEdit(q))}
                     >
+                      {openingEdit === q.id && <Spinner />}
                       {editing ? 'Düzenlemeyi kapat' : 'Düzenle'}
                     </button>
                   )}
@@ -1183,8 +1217,10 @@ function RetailPriceEditor({
     mutationFn: (input: { retailPrice: number; currency: RetailCurrency }) =>
       setPlateRetailPrice(plateId, input),
     onSuccess: (pricing) => {
-      qc.invalidateQueries({ queryKey: ['plate-pricing', plateId] });
+      // Seçicilerin toplu fiyat listeleri de bu kalemi içerebilir.
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
       qc.invalidateQueries({ queryKey: ['retail-suggestions'] });
+      qc.invalidateQueries({ queryKey: ['price-rules'] });
       onSaved(pricing);
       onClose();
     },
@@ -1589,10 +1625,7 @@ function NewQuoteForm({
   // Satış kaleminde malzeme seçilince "işleme kalemi olarak da ekleyelim mi?" sorusu.
   const [askFor, setAskFor] = useState<{ index: number; plateId: string } | null>(null);
   // Süreyle/m² ile işleme: varsayılan saatlik ve m² ücreti, asgari süre.
-  const { data: cutPricing } = useQuery({
-    queryKey: ['settings', 'cut-pricing'],
-    queryFn: fetchCutPricing,
-  });
+  const { data: cutPricing } = useCutPricing();
   const minMinutes = cutPricing?.minMinutes ?? 0;
   // #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygulama.
   const [applyPrice, setApplyPrice] = useState('');
@@ -1605,13 +1638,13 @@ function NewQuoteForm({
 
   // Halihazırda üretim kuyruğunda (PENDING/IN_PROGRESS — başlatılmamış olsa bile)
   // olan plakaların id'leri: kaleme eklenince sarı uyarı gösterilir (engellenmez).
-  const { data: queueGroups } = useQuery({
-    queryKey: ['queue'],
-    queryFn: () => fetchQueue(),
+  // Yalnız plaka kimlikleri istenir (bütün kuyruk değil); ['queue', ...]
+  // altında olduğundan kuyruğu değiştiren işlemler bunu da tazeler.
+  const { data: queuePlateIds } = useQuery({
+    queryKey: ['queue', 'plate-ids'],
+    queryFn: fetchQueuePlateIds,
   });
-  const queuedPlateIds = new Set(
-    (queueGroups ?? []).flatMap((g) => g.jobs).map((j) => j.plateId),
-  );
+  const queuedPlateIds = new Set(queuePlateIds ?? []);
 
   // Teklife toplu işleme eklemek için stok kaynağı:
   //  - 'owner'    → yalnızca ALICI müşteriye ait (konsinye) stok (varsayılan),
@@ -1619,23 +1652,31 @@ function NewQuoteForm({
   // Not: bir malzemenin "müşteri adına" görünmesi için stoğa MÜŞTERİYE AİT olarak
   // girilmiş olması gerekir (Stok ekleme → Sahiplik: Müşteriye ait).
   const [stockSource, setStockSource] = useState<'owner' | 'business'>('owner');
+  const [stockSearch, setStockSearch] = useState('');
+  // Arama sunucuda (yazma bitince): ilk 100 kalemin dışındakiler de bulunur.
+  const stockTerm = useDebounced(stockSearch.trim());
+  const stockKey = ['plates', 'quote-stock', stockSource, buyerCustomerId, stockTerm];
   const { data: buyerPlatesData } = useQuery({
-    queryKey: ['plates', 'quote-stock', stockSource, buyerCustomerId],
+    queryKey: stockKey,
     enabled: !!buyerCustomerId,
     queryFn: () =>
       // NOT: limit backend'de en fazla 100'dür (Max(100)); 200 istenirse uç 400
       // döndürüp paneli boş bırakıyordu ("müşterinin malzemeleri görünmüyor").
       stockSource === 'owner'
-        ? fetchPlates({ ownerCustomerId: buyerCustomerId, page: 1, limit: 100 })
-        : fetchPlates({ owner: 'business', page: 1, limit: 100 }),
+        ? fetchPlates({
+            ownerCustomerId: buyerCustomerId,
+            search: stockTerm || undefined,
+            page: 1,
+            limit: 100,
+          })
+        : fetchPlates({ owner: 'business', search: stockTerm || undefined, page: 1, limit: 100 }),
+    // Yalnız arama değişirken önceki liste kalır (başka alıcının/kaynağın
+    // malzemeleri seçilemesin).
+    placeholderData: keepWhileSearching(stockKey),
   });
   const [selStock, setSelStock] = useState<Set<string>>(new Set());
-  const [stockSearch, setStockSearch] = useState('');
   const ownerStockAll = buyerPlatesData?.items ?? [];
-  const ownerStock = ownerStockAll.filter((p) => {
-    const q = stockSearch.trim().toLocaleLowerCase('tr');
-    return !q || p.name.toLocaleLowerCase('tr').includes(q);
-  });
+  const ownerStock = ownerStockAll;
   // İki seviyeli gruplama: ÜRÜN TÜRÜ → AYNI MALZEME → parçalar. Aynı malzemenin
   // onlarca parçası tek başlık altında toplanır, liste okunabilir kalır.
   const stockGroups = groupPlates(ownerStock);
@@ -1949,7 +1990,7 @@ function NewQuoteForm({
         <div className="space-y-2 rounded-xl border border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-              📦 Stoktan işleme ekle — parça + tam ({ownerStockAll.length})
+              📦 Stoktan işleme ekle — parça + tam ({buyerPlatesData?.meta?.total ?? ownerStockAll.length})
             </p>
             <button
               type="button"
@@ -1985,10 +2026,15 @@ function NewQuoteForm({
           </div>
 
           <SearchInput
-            placeholder="Malzeme adına göre ara…"
+            placeholder="Malzeme ara (ad, marka, renk)…"
             value={stockSearch}
             onChange={setStockSearch}
           />
+          {(buyerPlatesData?.meta?.total ?? 0) > ownerStockAll.length && (
+            <p className="text-xs text-slate-500">
+              İlk {ownerStockAll.length} malzeme gösteriliyor; daraltmak için arayın.
+            </p>
+          )}
           {selectableStock.length > 0 && (
             <label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
               <input

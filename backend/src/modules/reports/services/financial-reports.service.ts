@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import { roundMoney } from '../../../common/utils/area.util';
+import { ShopContext } from '../../../common/shop/shop-context';
 import { Customer } from '../../customers/entities/customer.entity';
 import { CustomerLedgerEntry } from '../../customers/entities/customer-ledger-entry.entity';
 import { ProcessingJob } from '../../processing/entities/processing-job.entity';
@@ -57,43 +58,80 @@ export class FinancialReportsService {
   /**
    * Cari yaşlandırma — FIFO: alacaklar (CREDIT) en eski borçlara (DEBIT) mahsup
    * edilir; kalan borçlar yaşlarına göre kovalanır.
+   *
+   * Tek sorgu: her müşterinin toplam alacağı, borç kalemlerinin tarih sırasıyla
+   * birikimli toplamından düşülür; birikimli toplamı alacağı aşan kalemler
+   * (aşan kadarıyla) açıktır. Bu, hareketleri tek tek dolaşan FIFO ile aynıdır
+   * — tek fark: borçtan ÖNCE gelen alacak (avans) da sonraki borçlara mahsup
+   * edilir (eskiden boşa düşüyor, yaşlandırma toplamı bakiyeyi aşabiliyordu).
+   * Ham SQL dükkân süzgecinden geçmez; koşul elle yazılır.
    */
   async aging(customerId?: string, asOf = new Date()): Promise<CustomerAging[]> {
-    const customers = customerId
-      ? await this.customersRepo.find({ where: { id: customerId } })
-      : await this.customersRepo.find({ where: { currentBalance: MoreThan(0) } });
+    const params: unknown[] = [ShopContext.requireShopId()];
+    let customerCond = 'c.current_balance > 0';
+    if (customerId) {
+      params.push(customerId);
+      customerCond = 'c.id = $2';
+    }
+    const rows: {
+      customer_id: string;
+      customer_name: string;
+      occurred_at: Date | string;
+      remaining: string;
+    }[] = await this.ledgerRepo.query(
+      `WITH cust AS (
+         SELECT c.id, c.name
+           FROM customers c
+          WHERE c.shop_id = $1 AND c.deleted_at IS NULL AND ${customerCond}
+       ),
+       l AS (
+         SELECT e.id, e.customer_id, e.entry_type, e.amount, e.occurred_at
+           FROM customer_ledger_entries e
+           JOIN cust ON cust.id = e.customer_id
+          WHERE e.shop_id = $1 AND e.deleted_at IS NULL
+       ),
+       credit AS (
+         SELECT customer_id, SUM(amount) AS total
+           FROM l WHERE entry_type = '${LedgerEntryType.CREDIT}'
+          GROUP BY customer_id
+       ),
+       debit AS (
+         SELECT customer_id, amount, occurred_at,
+                SUM(amount) OVER (
+                  PARTITION BY customer_id ORDER BY occurred_at, id
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                ) AS running
+           FROM l WHERE entry_type = '${LedgerEntryType.DEBIT}'
+       )
+       SELECT d.customer_id, cust.name AS customer_name, d.occurred_at,
+              LEAST(d.amount, d.running - COALESCE(cr.total, 0)) AS remaining
+         FROM debit d
+         JOIN cust ON cust.id = d.customer_id
+         LEFT JOIN credit cr ON cr.customer_id = d.customer_id
+        WHERE d.running - COALESCE(cr.total, 0) > 0
+        ORDER BY d.customer_id, d.occurred_at`,
+      params,
+    );
+
+    // Müşteri başına açık borç kalemleri.
+    const byCustomer = new Map<
+      string,
+      { name: string; open: { remaining: number; date: Date }[] }
+    >();
+    for (const r of rows) {
+      let entry = byCustomer.get(r.customer_id);
+      if (!entry) {
+        entry = { name: r.customer_name, open: [] };
+        byCustomer.set(r.customer_id, entry);
+      }
+      entry.open.push({ remaining: Number(r.remaining), date: new Date(r.occurred_at) });
+    }
 
     const result: CustomerAging[] = [];
-    for (const customer of customers) {
-      const entries = await this.ledgerRepo.find({
-        where: { customerId: customer.id },
-        order: { occurredAt: 'ASC' },
-      });
-
-      // FIFO kuyruğu: açık borç kalemleri.
-      const open: { remaining: number; date: Date }[] = [];
-      for (const e of entries) {
-        if (e.entryType === LedgerEntryType.DEBIT) {
-          open.push({ remaining: Number(e.amount), date: e.occurredAt });
-        } else {
-          let credit = Number(e.amount);
-          while (credit > 0 && open.length > 0) {
-            const head = open[0];
-            const applied = Math.min(head.remaining, credit);
-            head.remaining -= applied;
-            credit -= applied;
-            if (head.remaining <= 0.000001) open.shift();
-          }
-        }
-      }
-
+    for (const [id, { name, open }] of byCustomer) {
       const buckets = this.bucketize(open, asOf);
       if (buckets.total > 0.009) {
-        result.push({
-          customerId: customer.id,
-          customerName: customer.name,
-          ...buckets,
-        });
+        result.push({ customerId: id, customerName: name, ...buckets });
       }
     }
     return result.sort((a, b) => b.total - a.total);

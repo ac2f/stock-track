@@ -491,9 +491,52 @@ export class SalesService {
       order: { saleDate: 'DESC' },
       skip: query.skip,
       take: query.limit,
+      // Liste alıcı adını ve kalemleri (plaka adı + ölçü birimi) gösterir;
+      // satıcı ve plaka → şablon → katalog zinciri yüklenmez. Fiş/PDF tam
+      // kaydı findOne ile alır.
+      relations: { buyerCustomer: true, items: { plate: true } },
+      loadEagerRelations: false,
       withDeleted: true, // tükenmiş plakaların adı satış listesinde görünsün
     });
     return buildPaginatedResult(items, total, query.page, query.limit);
+  }
+
+  /**
+   * Aralıktaki satışların özeti (adet, ciro, işletme kârı) — listedeki ilk
+   * sayfayla sınırlı kalmadan sunucuda toplanır. Tarih kuralı findAll ile
+   * aynıdır (`to` gün sonunu kapsar).
+   */
+  async summary(query: {
+    from?: string;
+    to?: string;
+    buyerCustomerId?: string;
+  }): Promise<{ count: number; saleTotal: number; businessMargin: number }> {
+    const qb = this.salesRepo
+      .createQueryBuilder('s')
+      .select('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(s.sale_total), 0)', 'saleTotal')
+      .addSelect('COALESCE(SUM(s.business_margin), 0)', 'businessMargin');
+    if (query.buyerCustomerId) {
+      qb.andWhere('s.buyer_customer_id = :buyer', { buyer: query.buyerCustomerId });
+    }
+    if (query.from && query.to) {
+      const toEnd = new Date(query.to);
+      toEnd.setHours(23, 59, 59, 999);
+      qb.andWhere('s.sale_date BETWEEN :from AND :to', {
+        from: new Date(query.from),
+        to: toEnd,
+      });
+    }
+    const row = await qb.getRawOne<{
+      count: string;
+      saleTotal: string;
+      businessMargin: string;
+    }>();
+    return {
+      count: Number(row?.count ?? 0),
+      saleTotal: roundMoney(Number(row?.saleTotal ?? 0)),
+      businessMargin: roundMoney(Number(row?.businessMargin ?? 0)),
+    };
   }
 
   async findOne(id: string): Promise<Sale> {

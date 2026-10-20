@@ -103,9 +103,14 @@ export class PurchasesService {
 
     const [items, total] = await this.ordersRepo.findAndCount({
       where,
-      order: { purchaseDate: 'DESC' },
+      // Aynı tarihli alımlar sayfalar arasında kaymasın: ikincil sıra kimlik.
+      order: { purchaseDate: 'DESC', id: 'DESC' },
       skip: query.skip,
       take: query.limit,
+      // Liste tedarikçi adını ve kalemleri (plaka adı + ölçü birimi) gösterir;
+      // kullanıcı/araç/depo ve plaka → şablon → katalog zinciri yüklenmez.
+      relations: { supplier: true, items: { plate: true } },
+      loadEagerRelations: false,
     });
     return buildPaginatedResult(items, total, query.page, query.limit);
   }

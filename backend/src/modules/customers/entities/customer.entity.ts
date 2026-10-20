@@ -56,8 +56,10 @@ export class Customer extends ShopScopedEntity {
   telegramChatId?: string;
 
   // Müşteri self-servis portalı için tahmin edilemez, salt-okunur erişim token'ı.
+  // `select: false`: listelerde, seçicilerde, teklif/iş ilişkilerinde yanıta
+  // sızmasın; gereken yer (portal araması, borç hatırlatma) açıkça seçer.
   @Index({ unique: true })
-  @Column({ name: 'portal_token', type: 'varchar', nullable: true })
+  @Column({ name: 'portal_token', type: 'varchar', nullable: true, select: false })
   portalToken?: string | null;
 
   @OneToMany(() => CustomerLedgerEntry, (entry) => entry.customer)

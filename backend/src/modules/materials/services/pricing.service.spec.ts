@@ -399,3 +399,70 @@ describe('PricingService', () => {
     expect(noCost.marginPercent).toBeNull();
   });
 });
+
+/**
+ * Toplu fiyatlandırma (GET /plates/pricing?ids=): seçici listesi satır başına
+ * istek atmak yerine görünen kalemlerin fiyatını tek seferde alır. Sonuç tek
+ * tek hesapla (forPlate) aynı olmalı.
+ */
+describe('PricingService.forPlates (toplu)', () => {
+  const plates = [
+    { id: 'a', measurementType: MeasurementType.AREA, retailPrice: 100, template: { defaultSize: { widthMm: 1000, heightMm: 1000 } } },
+    { id: 'b', measurementType: MeasurementType.AREA, retailPrice: 10, retailCurrency: 'USD', markupPercent: 10, template: { defaultSize: null } },
+  ];
+  const prices = [{ id: 'x', plateId: 'a', price: 300, unit: PriceUnit.PER_PLATE, currency: 'TRY' }];
+
+  function build() {
+    const platesRepo = {
+      find: jest.fn(async () => plates),
+      findOne: jest.fn(async ({ where }: { where: { id: string } }) => plates.find((p) => p.id === where.id) ?? null),
+    };
+    const qb = { where: jest.fn().mockReturnThis(), getMany: jest.fn(async () => prices) };
+    const pricesRepo = {
+      find: jest.fn(async ({ where }: { where: { plateId: string } }) => prices.filter((p) => p.plateId === where.plateId)),
+      createQueryBuilder: jest.fn(() => qb),
+    };
+    const settings = {
+      getPricing: jest.fn(async () => ({ saleMarkupPercent: 20, consignmentCommissionPercent: 5 })),
+    };
+    const currency = { baseCurrency: 'TRY', toBase: jest.fn(async (amount: number) => amount * 30) };
+    const rules = { activeRules: jest.fn(async () => []), ruleFor: jest.fn(() => null), referenceOf: jest.fn() };
+    const costs = { forPlates: jest.fn(async () => ({})) };
+    const service = new PricingService(
+      platesRepo as never,
+      pricesRepo as never,
+      settings as never,
+      currency as never,
+      rules as never,
+      costs as never,
+    );
+    return { service, platesRepo, pricesRepo, settings, rules, costs };
+  }
+
+  it('her kalem için tek tek hesapla aynı sonucu verir', async () => {
+    const { service } = build();
+    const batch = await service.forPlates(['a', 'b']);
+    expect(Object.keys(batch).sort()).toEqual(['a', 'b']);
+    expect(batch.a).toEqual(await service.forPlate('a'));
+    expect(batch.b).toEqual(await service.forPlate('b'));
+    expect(batch.a.suggestedUnitPrice).toBe(120);
+    expect(batch.a.marketCheapest).toBe(300);
+    // 10 USD × 30 = 300 TL, kaleme özel %10 kâr → 330
+    expect(batch.b.suggestedUnitPrice).toBe(330);
+  });
+
+  it('ayar, çatı ve maliyeti kalem başına değil bir kez okur', async () => {
+    const { service, platesRepo, settings, rules, costs } = build();
+    await service.forPlates(['a', 'b']);
+    expect(platesRepo.find).toHaveBeenCalledTimes(1);
+    expect(settings.getPricing).toHaveBeenCalledTimes(1);
+    expect(rules.activeRules).toHaveBeenCalledTimes(1);
+    expect(costs.forPlates).toHaveBeenCalledWith(['a', 'b']);
+  });
+
+  it('boş listede sorgu atmaz', async () => {
+    const { service, platesRepo } = build();
+    expect(await service.forPlates([])).toEqual({});
+    expect(platesRepo.find).not.toHaveBeenCalled();
+  });
+});

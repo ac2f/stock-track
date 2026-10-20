@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { fetchCustomers } from '../api/customers.api';
 import { formatMoney } from '../lib/format';
+import { useDebounced } from '../hooks/useDebounced';
 
 /**
  * Arama tabanlı müşteri seçici. Veritabanı büyüdüğünde tüm listeyi getirmek
@@ -25,14 +26,20 @@ export function CustomerPicker({
   );
   const listRef = useRef<HTMLUListElement>(null);
 
-  const { data, isFetching } = useQuery({
-    queryKey: ['customer-search', term],
-    queryFn: () =>
-      fetchCustomers({ search: term || undefined, page: 1, limit: 20, sort: 'name' }),
-    enabled: !picked && term.trim().length >= 1,
+  // Yazma bitince (~300 ms) aranır; yeni sonuç gelene kadar öncekiler kalır
+  // (liste her harfte boşalıp dolmasın).
+  const search = useDebounced(term.trim());
+  const { data, isFetching, isPlaceholderData } = useQuery({
+    queryKey: ['customer-search', search],
+    queryFn: () => fetchCustomers({ search, page: 1, limit: 20, sort: 'name' }),
+    enabled: !picked && search.length >= 1,
+    placeholderData: keepPreviousData,
   });
 
   const results = data?.items ?? [];
+  // Gösterilen sonuçlar henüz yazılan terime ait değil (bekleme/yükleme sürüyor):
+  // Enter yanlış (önceki aramadaki) müşteriyi seçmesin.
+  const stale = search !== term.trim() || isPlaceholderData;
   useEffect(() => setActive(0), [term]);
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${active}"]`);
@@ -90,6 +97,7 @@ export function CustomerPicker({
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (stale) return;
       const c = results[active];
       if (c) choose(c);
     } else if (e.key === 'Escape') {

@@ -13,10 +13,22 @@ export interface ConversionResult {
   to: string;
 }
 
+/** Kur önbelleğinde bir kaydın ömrü (ms). */
+const RATE_TTL_MS = 30_000;
+/** Önbellek bu kadar kaydı aşınca süresi geçenler temizlenir. */
+const RATE_CACHE_MAX = 500;
+
 @Injectable()
 export class CurrencyService {
   private readonly logger = new Logger(CurrencyService.name);
   readonly baseCurrency: string;
+  /**
+   * Kısa ömürlü kur önbelleği (para birimi + tarih → kur). Fiyat önerisi,
+   * çatı listesi, maliyet hesabı gibi döngüler her çevrimde ayrı sorgu
+   * atmasın diye. Kur yazılınca (upsert) tamamen boşaltılır; sonuç
+   * önbelleksiz hesapla aynıdır. Kur bulunamaması da (null) saklanır.
+   */
+  private readonly rateCache = new Map<string, { at: number; rate: Promise<number | null> }>();
 
   constructor(
     @InjectRepository(ExchangeRate)
@@ -31,6 +43,7 @@ export class CurrencyService {
 
   /** Manuel kur girişi/güncelleme. */
   upsert(dto: CreateExchangeRateDto, source = 'manual'): Promise<ExchangeRate> {
+    this.rateCache.clear();
     const rate = this.ratesRepo.create({
       baseCurrency: (dto.baseCurrency ?? this.baseCurrency).toUpperCase(),
       quoteCurrency: dto.quoteCurrency.toUpperCase(),
@@ -38,7 +51,7 @@ export class CurrencyService {
       asOf: dto.asOf ? new Date(dto.asOf) : new Date(),
       source,
     });
-    return this.ratesRepo.save(rate);
+    return this.ratesRepo.save(rate).finally(() => this.rateCache.clear());
   }
 
   list(): Promise<ExchangeRate[]> {
@@ -90,20 +103,48 @@ export class CurrencyService {
     if (currency === this.baseCurrency.toUpperCase()) {
       return 1;
     }
-    const rate = await this.ratesRepo.findOne({
-      where: {
-        baseCurrency: this.baseCurrency.toUpperCase(),
-        quoteCurrency: currency,
-        ...(atDate ? { asOf: LessThanOrEqual(atDate) } : {}),
-      },
-      order: { asOf: 'DESC' },
-    });
-    if (!rate) {
+    const rate = await this.cachedRate(currency, atDate);
+    if (rate == null) {
       throw new BadRequestException(
         `${this.baseCurrency}/${currency} için tanımlı bir döviz kuru bulunamadı.`,
       );
     }
-    return Number(rate.rate);
+    return rate;
+  }
+
+  /** `currency` için geçerli kur (önbellekten; yoksa veritabanından). */
+  private cachedRate(currency: string, atDate?: Date): Promise<number | null> {
+    const at = atDate ? new Date(atDate) : undefined;
+    const key = `${currency}|${at ? at.getTime() : 'latest'}`;
+    const now = Date.now();
+    const hit = this.rateCache.get(key);
+    if (hit && now - hit.at <= RATE_TTL_MS) return hit.rate;
+
+    if (this.rateCache.size >= RATE_CACHE_MAX) {
+      for (const [k, v] of this.rateCache) {
+        if (now - v.at > RATE_TTL_MS) this.rateCache.delete(k);
+      }
+      if (this.rateCache.size >= RATE_CACHE_MAX) this.rateCache.clear();
+    }
+    const entry = {
+      at: now,
+      rate: this.ratesRepo
+        .findOne({
+          where: {
+            baseCurrency: this.baseCurrency.toUpperCase(),
+            quoteCurrency: currency,
+            ...(at ? { asOf: LessThanOrEqual(at) } : {}),
+          },
+          order: { asOf: 'DESC' },
+        })
+        .then((row) => (row ? Number(row.rate) : null)),
+    };
+    this.rateCache.set(key, entry);
+    // Sorgu hatası saklanmaz: sonraki çağrı yeniden dener.
+    entry.rate.catch(() => {
+      if (this.rateCache.get(key) === entry) this.rateCache.delete(key);
+    });
+    return entry.rate;
   }
 
   /**

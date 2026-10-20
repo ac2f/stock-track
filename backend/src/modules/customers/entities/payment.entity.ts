@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { PaymentMethod } from '../../../common/enums/payment-method.enum';
 import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
@@ -16,6 +16,9 @@ import { Customer } from './customer.entity';
  *  - OUTGOING → malzeme sahibine ödeme (alacağı azalır).
  */
 @Entity('payments')
+// Müşteri ödeme geçmişi (tarihe göre) ve çalışan kasası (yöntem + tahsil durumu).
+@Index(['customerId', 'paymentDate'])
+@Index(['receivedById', 'method', 'settledAt'])
 export class Payment extends ShopScopedEntity {
   @ManyToOne(() => Customer, (customer) => customer.payments, {
     onDelete: 'CASCADE',

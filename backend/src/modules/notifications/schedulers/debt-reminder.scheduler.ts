@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Customer } from '../../customers/entities/customer.entity';
 import { NotificationType } from '../enums/notification.enums';
 import { NotificationsService } from '../notifications.service';
@@ -43,9 +43,12 @@ export class DebtReminderScheduler {
 
   /** O anki dükkânın borçlularına hatırlatma. */
   private async remindShop(): Promise<void> {
-    const debtors = await this.customersRepo.find({
-      where: { currentBalance: MoreThan(this.threshold) },
-    });
+    // portalToken varsayılan seçimde yok (select: false): bağlantı için açıkça seçilir.
+    const debtors = await this.customersRepo
+      .createQueryBuilder('c')
+      .addSelect('c.portalToken')
+      .where('c.current_balance > :threshold', { threshold: this.threshold })
+      .getMany();
     this.logger.log(`Borç hatırlatma: ${debtors.length} müşteri.`);
 
     for (const customer of debtors) {

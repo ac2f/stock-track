@@ -43,3 +43,17 @@ export async function fetchSales(filters: SaleFilters): Promise<Paginated<Sale>>
   const { data } = await api.get<Paginated<Sale>>('/sales', { params: filters });
   return data;
 }
+
+export interface SalesSummary {
+  count: number;
+  saleTotal: number;
+  businessMargin: number;
+}
+
+/** Aralıktaki satışların özeti (adet, ciro, kâr) — sunucuda toplanır, sayfaya bağlı değil. */
+export async function fetchSalesSummary(
+  filters: Pick<SaleFilters, 'from' | 'to' | 'buyerCustomerId'>,
+): Promise<SalesSummary> {
+  const { data } = await api.get<SalesSummary>('/sales/summary', { params: filters });
+  return data;
+}

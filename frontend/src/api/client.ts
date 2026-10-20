@@ -5,10 +5,17 @@ import axios, {
 } from 'axios';
 import type { ApiEnvelope } from '../types';
 import { getActiveShopId } from '../lib/shop';
-import { cacheGet, cacheKey, cachePut, cacheSearch, withPending } from '../offline/cache';
+import {
+  cacheGet,
+  cacheKey,
+  cacheMergeSearch,
+  cachePut,
+  cacheSearch,
+  withPending,
+} from '../offline/cache';
 import { getNetState, patchNetState } from '../offline/network';
 import { enqueue, listOps, type OutboxOp } from '../offline/outbox';
-import { pathOf, queueRule } from '../offline/policy';
+import { cachePolicy, pathOf, queueRule } from '../offline/policy';
 import { getSessionUser } from '../offline/session';
 import { announceFailure, announceSuccess } from './feedback';
 
@@ -135,7 +142,11 @@ function markReachable(): void {
   if (getNetState().fromCache) patchNetState({ fromCache: false });
 }
 
-/** Başarılı GET yanıtını cihazda saklar (çevrimdışıyken gösterilir). */
+/**
+ * Başarılı GET yanıtını cihazda saklar (çevrimdışıyken gösterilir). Neyin
+ * saklanacağına cachePolicy karar verir: fiyat/maliyet hesapları ve sık
+ * yoklanan sayaçlar saklanmaz, arama yanıtları yolun arama havuzuna katılır.
+ */
 function rememberResponse(response: AxiosResponse): void {
   const config = response.config as StConfig;
   const method = (config.method ?? 'get').toLowerCase();
@@ -143,7 +154,14 @@ function rememberResponse(response: AxiosResponse): void {
   if (method !== 'get' || !user || config._replay) return;
   if (config.responseType && config.responseType !== 'json') return;
   const shopId = (config.headers['X-Shop-Id'] as string | undefined) ?? null;
-  void cachePut(cacheKey(user, shopId, pathOf(config.url), config.params), response.data);
+  const path = pathOf(config.url);
+  const policy = cachePolicy(path, config.params);
+  if (policy === 'skip') return;
+  if (policy === 'merge') {
+    void cacheMergeSearch(user, shopId, path, response.data);
+    return;
+  }
+  void cachePut(cacheKey(user, shopId, path, config.params), response.data);
 }
 
 /**

@@ -8,8 +8,9 @@ import { fetchQuotes } from '../api/quotes.api';
 import { applyTheme, resolveInitialTheme } from '../lib/theme';
 import { applyFontScale, getFontScale } from '../lib/fontScale';
 import type { NavItem } from '../layouts/nav';
-import { SECTIONS as SETTINGS_SECTIONS } from '../features/settings/SettingsPage';
+import { SECTIONS as SETTINGS_SECTIONS } from '../features/settings/sections';
 import type { ShopModule } from '../types';
+import { useDebounced } from '../hooks/useDebounced';
 
 /**
  * Hızlı arama (Ctrl+K): ekrana git, yeni kayıt aç, müşteri ya da plaka bul.
@@ -97,16 +98,6 @@ function pushRecent(shopId: string | undefined, entry: RecentEntry) {
   }
 }
 
-/** Yazmayı kısa süre bekleyip arar (her tuşta sunucuya gitmesin). */
-function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
 const money = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 });
 
 function formatQuoteTotal(total: number, currency: string): string {
@@ -132,7 +123,7 @@ export function CommandPalette({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const term = useDebounced(q.trim());
+  const term = useDebounced(q.trim(), 250);
   const searching = term.length >= 2;
 
   const { data: customers, isFetching: loadingCustomers } = useQuery({

@@ -1,24 +1,66 @@
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Protected, ResponsiveLayout } from './layouts/ResponsiveLayout';
 import { LoginPage } from './features/auth/LoginPage';
-import { PlatesListPage } from './features/materials/PlatesListPage';
-import { MaterialCategoriesPage } from './features/materials/MaterialCategoriesPage';
-import { MaterialTemplatesPage } from './features/materials/MaterialTemplatesPage';
-import { PriceRulesPage } from './features/materials/PriceRulesPage';
-import { CustomersListPage } from './features/customers/CustomersListPage';
-import { DashboardPage } from './features/reports/DashboardPage';
-import { QuotesPage } from './features/quotes/QuotesPage';
-import { ProcessingQueuePage } from './features/processing/ProcessingQueuePage';
-import { PortalPage } from './features/portal/PortalPage';
-import { TeamPage } from './features/team/TeamPage';
 import { Can, NoAccess } from './components/Can';
 import { useAuth } from './context/AuthContext';
-import { PaymentsPage } from './features/payments/PaymentsPage';
-import { BankReconciliationPage } from './features/banking/BankReconciliationPage';
-import { ExpensesPage } from './features/expenses/ExpensesPage';
-import { PurchasesPage } from './features/purchases/PurchasesPage';
-import { SettingsPage } from './features/settings/SettingsPage';
+import { PageFallback } from './components/ui/Loading';
+
+/**
+ * Ekranlar ayrı parçalar (chunk) halinde, açıldıklarında yüklenir: ilk açılış
+ * yalnız kabuğu (menü, oturum) indirir. Yeni sürüm yayınlandıktan sonra eski
+ * parça sunucuda yoksa sayfa bir kez yenilenir (yeni sürüm gelir).
+ * Çevrimdışı: service worker derlemedeki bütün parçaları saklar (public/sw.js).
+ */
+function lazyPage<K extends string>(
+  load: () => Promise<Record<K, ComponentType>>,
+  name: K,
+) {
+  return lazy(async () => {
+    const RELOADED = 'st_chunk_reload';
+    try {
+      const mod = await load();
+      sessionStorage.removeItem(RELOADED);
+      return { default: mod[name] };
+    } catch (err) {
+      if (navigator.onLine && !sessionStorage.getItem(RELOADED)) {
+        sessionStorage.setItem(RELOADED, '1');
+        window.location.reload();
+        // Yenilenene kadar boş kalsın.
+        return { default: (() => null) as ComponentType };
+      }
+      throw err;
+    }
+  });
+}
+
+const PlatesListPage = lazyPage(() => import('./features/materials/PlatesListPage'), 'PlatesListPage');
+const MaterialCategoriesPage = lazyPage(
+  () => import('./features/materials/MaterialCategoriesPage'),
+  'MaterialCategoriesPage',
+);
+const MaterialTemplatesPage = lazyPage(
+  () => import('./features/materials/MaterialTemplatesPage'),
+  'MaterialTemplatesPage',
+);
+const PriceRulesPage = lazyPage(() => import('./features/materials/PriceRulesPage'), 'PriceRulesPage');
+const CustomersListPage = lazyPage(() => import('./features/customers/CustomersListPage'), 'CustomersListPage');
+const DashboardPage = lazyPage(() => import('./features/reports/DashboardPage'), 'DashboardPage');
+const QuotesPage = lazyPage(() => import('./features/quotes/QuotesPage'), 'QuotesPage');
+const ProcessingQueuePage = lazyPage(
+  () => import('./features/processing/ProcessingQueuePage'),
+  'ProcessingQueuePage',
+);
+const PortalPage = lazyPage(() => import('./features/portal/PortalPage'), 'PortalPage');
+const TeamPage = lazyPage(() => import('./features/team/TeamPage'), 'TeamPage');
+const PaymentsPage = lazyPage(() => import('./features/payments/PaymentsPage'), 'PaymentsPage');
+const BankReconciliationPage = lazyPage(
+  () => import('./features/banking/BankReconciliationPage'),
+  'BankReconciliationPage',
+);
+const ExpensesPage = lazyPage(() => import('./features/expenses/ExpensesPage'), 'ExpensesPage');
+const PurchasesPage = lazyPage(() => import('./features/purchases/PurchasesPage'), 'PurchasesPage');
+const SettingsPage = lazyPage(() => import('./features/settings/SettingsPage'), 'SettingsPage');
 
 /** Ekip ekranı: sistem sahibi ve en az bir dükkânın yöneticisi. */
 function TeamGate({ children }: { children: ReactNode }) {
@@ -63,7 +105,14 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
 
       {/* Müşteri portalı — PUBLIC (Protected dışında, giriş gerektirmez). */}
-      <Route path="/portal/:token" element={<PortalPage />} />
+      <Route
+        path="/portal/:token"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <PortalPage />
+          </Suspense>
+        }
+      />
 
       <Route
         element={

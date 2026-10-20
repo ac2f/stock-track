@@ -65,6 +65,7 @@ import { LoadingBlock, Spinner } from '../../components/ui/Loading';
 import { useUrlParam } from '../../hooks/useUrlParam';
 import { toast } from '../../lib/toast';
 import { formatDate, formatDateTime, formatMoney, formatNumber } from '../../lib/format';
+import { SECTIONS, type SectionId, type SectionMeta } from './sections';
 
 /** Etiketli form alanı. */
 function Field({
@@ -100,137 +101,7 @@ function Field({
   );
 }
 
-// ── Bölümler: hızlı geçiş şeridi, arama ve kart başlıkları ──────────────
-
-type SectionId =
-  | 'isletme'
-  | 'gorunum'
-  | 'satis-fiyat'
-  | 'kesim-fiyat'
-  | 'corel'
-  | 'katalog'
-  | 'kilit'
-  | 'telegram'
-  | 'sabah-ozeti'
-  | 'yedek'
-  | 'bakim'
-  | 'bildirimler';
-
-interface SectionMeta {
-  id: SectionId;
-  icon: string;
-  title: string;
-  /** Şeritteki kısa ad. */
-  short: string;
-  /** Başlığın altındaki tek satırlık açıklama. */
-  description: string;
-  /** Aramada eşleşen ek sözcükler. */
-  keywords: string;
-  /** Yalnız sistem sahibine görünür (sayfadaki koşulla aynı). */
-  ownerOnly?: boolean;
-}
-
-/** Sayfadaki sırayla bütün bölümler (hızlı arama da bu listeyi kullanır). */
-export const SECTIONS: SectionMeta[] = [
-  {
-    id: 'isletme',
-    icon: '🏪',
-    title: 'İşletme bilgileri',
-    short: 'İşletme',
-    description: 'Belgelerde ve uygulama başlığında görünen ad, adres ve iletişim bilgileri.',
-    keywords: 'ad isim adres telefon vergi vkn logo portal pdf belge fatura başlık',
-  },
-  {
-    id: 'gorunum',
-    icon: '👁️',
-    title: 'Görünüm',
-    short: 'Görünüm',
-    description: 'Ekranda hangi hassas düğmelerin görüneceği.',
-    keywords: 'geri al ekstre cari düğme gizle göster',
-  },
-  {
-    id: 'satis-fiyat',
-    icon: '💰',
-    title: 'Satış fiyatlandırması',
-    short: 'Satış fiyatı',
-    description: 'Malzeme satışında kâr yüzdesi ve konsinye komisyon oranı.',
-    keywords: 'kâr kar yüzde marj markup konsinye komisyon perakende fiyat',
-  },
-  {
-    id: 'kesim-fiyat',
-    icon: '⏱️',
-    title: 'Kesim fiyatlandırması',
-    short: 'Kesim fiyatı',
-    description: 'Süreyle ve m² ile fiyatlama, asgari tutarlar ve makine hızları.',
-    keywords: 'saatlik ücret dakika m2 metrekare makine hız paso dalma corel süre cnc lazer',
-  },
-  {
-    id: 'corel',
-    icon: '🖌️',
-    title: 'Corel entegrasyonu',
-    short: 'Corel',
-    description: 'CorelDRAW eklentisinin bağlanacağı sunucu adresi ve anahtar.',
-    keywords: 'coreldraw eklenti ac2f anahtar api key dxf',
-  },
-  {
-    id: 'katalog',
-    icon: '🗂️',
-    title: 'Katalog sağlığı',
-    short: 'Katalog',
-    description: 'Farklı yazılmış tür/marka/renk kopyalarını bulur ve birleştirir.',
-    keywords: 'kopya birleştir tekrar mükerrer marka renk ebat kalınlık şablon',
-  },
-  {
-    id: 'kilit',
-    icon: '🔒',
-    title: 'Ekran kilidi',
-    short: 'Ekran kilidi',
-    description: 'İşlem yapılmayınca bu cihazda arayüzü PIN ile kilitler.',
-    keywords: 'pin şifre parola kilitle süre dakika güvenlik',
-  },
-  {
-    id: 'telegram',
-    icon: '📨',
-    title: 'Telegram',
-    short: 'Telegram',
-    description: 'Bildirim, hatırlatma ve yedeklerin gittiği bot ve sohbetler.',
-    keywords: 'bot jeton token sohbet chat id bildirim yetkili kullanıcı test mesaj',
-  },
-  {
-    id: 'sabah-ozeti',
-    icon: '☀️',
-    title: 'Sabah özeti',
-    short: 'Sabah özeti',
-    description: 'Her sabah Telegram’a bekleyen işler, stok ve teklif durumu.',
-    keywords: 'günlük rapor telegram bekleyen iş plaka stok teklif',
-  },
-  {
-    id: 'yedek',
-    icon: '🗄️',
-    title: 'Veritabanı yedekleme',
-    short: 'Yedek',
-    description: 'Yedek indirme, Telegram’a şifreli yedek ve geri yükleme.',
-    keywords: 'backup sql enc şifreli geri yükle indir anahtar',
-    ownerOnly: true,
-  },
-  {
-    id: 'bakim',
-    icon: '🧹',
-    title: 'Bakım — kayıt ve log temizliği',
-    short: 'Bakım',
-    description: 'Biriken bildirim kayıtlarını, eski yedek dosyalarını ve logları temizler.',
-    keywords: 'log temizlik temizle sil docker yedek dosya disk',
-    ownerOnly: true,
-  },
-  {
-    id: 'bildirimler',
-    icon: '🔔',
-    title: 'Bildirim geçmişi',
-    short: 'Bildirimler',
-    description: 'Gönderilen son bildirimler ve sonuçları.',
-    keywords: 'gönderim defteri log telegram hata yedek borç stok',
-  },
-];
+// Bölüm listesi ayrı dosyada: hızlı arama (Ctrl+K) bu sayfayı yüklemeden kullanır.
 
 const SECTION_BY_ID = Object.fromEntries(SECTIONS.map((s) => [s.id, s])) as Record<SectionId, SectionMeta>;
 const SECTION_PREFIX = 'ayar-';
@@ -249,6 +120,36 @@ function sectionMatches(s: SectionMeta, query: string): boolean {
 
 /** Aramayla görünür kalan bölümler; gizlenen kart DOM'da kalır (yazılan form kaybolmaz). */
 const VisibleSections = createContext<Set<SectionId> | null>(null);
+
+/**
+ * Kartın verisi istensin mi? Kart ekrana yaklaşınca (bir kez görününce açık
+ * kalır) ve aramayla gizlenmemişken true. Böylece sayfa açılınca bütün
+ * kartların sorguları (katalog kopya taraması, yedekler, bildirimler …)
+ * aynı anda gitmez; aşağı kaydırdıkça ya da bölüme gidildikçe yüklenir.
+ */
+function useSectionActive(id: SectionId): boolean {
+  const visible = useContext(VisibleSections);
+  const hiddenBySearch = visible ? !visible.has(id) : false;
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (seen || hiddenBySearch) return;
+    const el = document.getElementById(sectionDomId(id));
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      // Ekrana girmeden biraz önce yüklensin (kaydırırken boş görünmesin).
+      { rootMargin: '300px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [id, seen, hiddenBySearch]);
+  return seen && !hiddenBySearch;
+}
 
 /** Bütün ayar kartlarının ortak çerçevesi: simge + başlık + tek satır açıklama. */
 function SettingsSection({
@@ -617,9 +518,11 @@ function SubBox({
  */
 function DisplaySettingsCard() {
   const qc = useQueryClient();
+  const active = useSectionActive('gorunum');
   const { data } = useQuery({
     queryKey: ['settings', 'display'],
     queryFn: fetchDisplaySettings,
+    enabled: active,
   });
 
   const mut = useMutation({
@@ -684,9 +587,11 @@ function DisplaySettingsCard() {
  */
 function PricingSettingsCard() {
   const qc = useQueryClient();
+  const active = useSectionActive('satis-fiyat');
   const { data } = useQuery({
     queryKey: ['settings', 'pricing'],
     queryFn: fetchPricingSettings,
+    enabled: active,
   });
   const [markup, setMarkup] = useState('');
   const [commission, setCommission] = useState('');
@@ -803,7 +708,12 @@ type CutForm = Record<Exclude<keyof CutPricing, 'currency'>, string>;
  */
 function CutPricingCard() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ['settings', 'cut-pricing'], queryFn: fetchCutPricing });
+  const active = useSectionActive('kesim-fiyat');
+  const { data } = useQuery({
+    queryKey: ['settings', 'cut-pricing'],
+    queryFn: fetchCutPricing,
+    enabled: active,
+  });
   const [f, setF] = useState<CutForm | null>(null);
   useEffect(() => {
     if (data) {
@@ -921,9 +831,11 @@ function CutPricingCard() {
  */
 function MorningSummaryCard() {
   const qc = useQueryClient();
+  const active = useSectionActive('sabah-ozeti');
   const { data } = useQuery({
     queryKey: ['settings', 'morning-summary'],
     queryFn: fetchMorningSummary,
+    enabled: active,
   });
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -998,9 +910,11 @@ function MorningSummaryCard() {
  */
 function CorelIntegrationCard() {
   const qc = useQueryClient();
+  const active = useSectionActive('corel');
   const { data } = useQuery({
     queryKey: ['settings', 'corel'],
     queryFn: fetchCorelIntegration,
+    enabled: active,
   });
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState<'key' | 'url' | null>(null);
@@ -1161,7 +1075,7 @@ function CorelIntegrationCard() {
           bilgisayarındaki StockTrack Runner açar (teklif oluşturulunca değil). Runner aynı
           anahtarla bağlanır ve her 30 sn'de bir durumunu bildirir.
         </p>
-        <RunnerPanel canManage={enabled} />
+        <RunnerPanel canManage={enabled} active={active} />
       </SubBox>
     </SettingsSection>
   );
@@ -1174,9 +1088,12 @@ function CorelIntegrationCard() {
  */
 function CatalogHealthCard() {
   const qc = useQueryClient();
+  // Kopya taraması bütün kataloğu dolaşır: yalnız kart görününce yapılır.
+  const active = useSectionActive('katalog');
   const { data, isFetching } = useQuery({
     queryKey: ['catalog-duplicates'],
     queryFn: fetchCatalogDuplicates,
+    enabled: active,
   });
   const mut = useMutation({
     mutationFn: dedupeCatalog,
@@ -1299,13 +1216,16 @@ function MaintenanceSection() {
   const [keep, setKeep] = useState(5);
   const [copied, setCopied] = useState(false);
 
+  const active = useSectionActive('bakim');
   const { data: notifStats } = useQuery({
     queryKey: ['notification-stats'],
     queryFn: fetchNotificationStats,
+    enabled: active,
   });
   const { data: usage } = useQuery({
     queryKey: ['backup-usage'],
     queryFn: fetchBackupUsage,
+    enabled: active,
   });
 
   const invalidate = () => {
@@ -1489,9 +1409,11 @@ function TelegramSettings() {
   // (tek bot tüm dükkânlara hizmet eder): yalnız sistem sahibi değiştirir.
   // Bildirim sohbeti dükkânındır.
   const { isOwner } = useAuth();
+  const active = useSectionActive('telegram');
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'telegram'],
     queryFn: fetchTelegramSettings,
+    enabled: active,
   });
 
   // Jeton hiç açık gelmez → boş bırakılırsa mevcut jeton korunur.
@@ -1908,13 +1830,16 @@ function BackupSection() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const active = useSectionActive('yedek');
   const { data: backups } = useQuery({
     queryKey: ['backups'],
     queryFn: fetchBackups,
+    enabled: active,
   });
   const { data: tgState } = useQuery({
     queryKey: ['telegram-backup-state'],
     queryFn: fetchTelegramBackupState,
+    enabled: active,
   });
 
   const downloadMut = useMutation({ mutationFn: () => downloadBackup() });
@@ -2257,9 +2182,11 @@ const NOTIF_STATUS: Record<string, { label: string; cls: string }> = {
 
 /** #6 Bildirim geçmişi (gönderim defteri) — yedek/borç/stok bildirimleri burada. */
 function NotificationsHistory() {
+  const active = useSectionActive('bildirimler');
   const { data, isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => fetchNotifications(50),
+    enabled: active,
   });
 
   return (

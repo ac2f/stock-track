@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import {
@@ -15,6 +15,8 @@ import { Quote } from './quote.entity';
  *  - PROCESSING → işleme kalemi (billingUnit/en-boy/uzunluk; unitPrice = birim işleme ücreti).
  */
 @Entity('quote_items')
+@Index(['quoteId'])
+@Index(['plateId'])
 export class QuoteItem extends ShopScopedEntity {
   @ManyToOne(() => Quote, (q) => q.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'quote_id' })

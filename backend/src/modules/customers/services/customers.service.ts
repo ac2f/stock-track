@@ -446,16 +446,16 @@ export class CustomersService {
   /** Müşteri portalı için yeni bir salt-okunur erişim token'ı üretir (varsa yeniler). */
   async issuePortalToken(id: string): Promise<string> {
     const customer = await this.findOne(id);
-    customer.portalToken = randomBytes(24).toString('hex');
-    await this.customersRepo.save(customer);
-    return customer.portalToken;
+    const token = randomBytes(24).toString('hex');
+    // Sütun varsayılan seçimde yok (select: false) → doğrudan yazılır.
+    await this.customersRepo.update(customer.id, { portalToken: token });
+    return token;
   }
 
   /** Portal erişimini iptal eder. */
   async revokePortalToken(id: string): Promise<void> {
     const customer = await this.findOne(id);
-    customer.portalToken = null;
-    await this.customersRepo.save(customer);
+    await this.customersRepo.update(customer.id, { portalToken: null });
   }
 
   /** Portal token'ı ile müşteriyi bulur (public portal uçları için). */

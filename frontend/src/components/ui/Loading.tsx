@@ -24,3 +24,13 @@ export function Spinner({ className = '' }: { className?: string }) {
     />
   );
 }
+
+/** Ekran parçası yüklenirken (tembel yüklenen sayfa) gösterilen iskelet. */
+export function PageFallback() {
+  return (
+    <div className="space-y-4">
+      <div className="skeleton h-7 w-48" />
+      <LoadingBlock rows={3} label="Ekran yükleniyor…" />
+    </div>
+  );
+}

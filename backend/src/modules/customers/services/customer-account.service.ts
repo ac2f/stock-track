@@ -182,6 +182,8 @@ export class CustomerAccountService {
     });
 
     let running = 0;
+    const changedIds: string[] = [];
+    const changedBalances: number[] = [];
     for (const entry of entries) {
       const amount = roundMoney(Number(entry.amount));
       running = roundMoney(
@@ -190,8 +192,21 @@ export class CustomerAccountService {
       );
       if (Number(entry.balanceAfter) !== running) {
         entry.balanceAfter = running;
-        await repo.save(entry);
+        changedIds.push(entry.id);
+        changedBalances.push(running);
       }
+    }
+
+    // Değişen satırlar tek UPDATE ile (satır satır kaydetmek yerine). Çağıranın
+    // işlemi (manager) içinde çalışır; kimlikler dükkâna süzülmüş sorgudan gelir.
+    if (changedIds.length) {
+      await manager.query(
+        `UPDATE customer_ledger_entries AS e
+            SET balance_after = v.balance, updated_at = now()
+           FROM UNNEST($1::uuid[], $2::numeric[]) AS v(id, balance)
+          WHERE e.id = v.id`,
+        [changedIds, changedBalances],
+      );
     }
 
     customer.currentBalance = running;

@@ -260,7 +260,7 @@ verilmeden adlarla) aynı özellikli tür varsa o kullanılır.
 | GET | `/customers/:id/statement?from=&to=&scope=` | 👥 | Dönemlenmiş ekstre. Varsayılan: borcun **en son kapandığı** andan bugüne (`scope=all` tüm geçmiş, `from`/`to` serbest aralık). Dönem başı bakiyesi `openingBalance` (devir) olarak döner |
 | DELETE | `/customers/:id/ledger/:entryId` | 🧑‍🔧 | Yanlış hareketi geri al (ödeme/indirim/manuel). Ödemeye bağlıysa ödeme kaydı + borç kapatma indirimi de silinir. Çalışan yalnızca son 3 gün, Sahip her zaman. Yanıt: `{ currentBalance }` |
 | POST | `/customers/:id/payments` | 🧑‍🔧 | Ödeme al (nakit→çalışan / havale→banka zorunlu) |
-| GET | `/customers/:id/payments` | 👥 | Ödeme geçmişi |
+| GET | `/customers/:id/payments` | 👥 | Ödeme geçmişi. İsteğe bağlı `?method=&from=&to=&page=&limit=`; `page` ya da `limit` verilirse sayfalı yanıt (`{ data, total, page, limit }`), verilmezse eskisi gibi düz liste |
 | PATCH | `/customers/:id/payments/:paymentId` | 🧑‍🔧 | Ödemeyi düzelt; borç kapatma indirimi ters yönde dengelenir |
 | DELETE | `/customers/:id/payments/:paymentId` | 🧑‍🔧 | Ödemeyi geri al; bağlı cari hareketleri (borç kapatma indirimi dahil) silinir |
 
@@ -313,6 +313,9 @@ Yanıt: `{ payment, customer: { currentBalance } }` — kalan borç anında dön
 |-------|-----|-------|
 | POST | `/sales` | 🧑‍🔧 |
 | GET | `/sales`, `/sales/:id` | 👥 |
+| GET | `/sales/summary?from&to` | 👥 |
+
+`GET /sales/summary` dönem toplamı: `{ count, saleTotal, businessMargin }` (varsayılan son 30 gün). Son satışlar listesi 100 kayıtla sınırlı olduğu için özet buradan gelir.
 
 `POST /sales` gövdesi (kendi stok + üçüncü kişi komisyon karışık):
 ```json
@@ -425,6 +428,8 @@ ister.
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | GET | `/processing/queue` | 👥 | Aktif (pending/in_progress) işler, makineye göre gruplu; `?status=&machineId=` |
+| GET | `/processing/queue/count` | 👥 | Aktif iş sayısı → `{ count }` (menü rozeti; kuyruğun tamamını indirmez) |
+| GET | `/processing/queue/plate-ids` | 👥 | Aktif işlerdeki kalem kimlikleri → `string[]` (teklif formu) |
 | PATCH | `/processing/:id/status` | 🧑‍🔧 | `{ status }` — COMPLETED: stok düşer + (ertelenmişse) cari DEBIT (idempotent); CANCELLED: iade |
 | POST/PATCH/DELETE | `/machines(/:id)` | 👔 | Makine tanımları |
 | GET | `/machines` | 👥 | |
@@ -548,6 +553,8 @@ her zaman rol ve süre denetiminden geçer.
 | DELETE | `/plates/:id/retail-price` | 🧑‍🔧 | Kalemin kendi fiyatını (ve kâr yüzdesini) kaldırır; öneri varsa fiyat çatısından gelir |
 | GET | `/plates/:id/retail-suggestions` | 👥 | Aynı türdeki (marka/renk farklı) fiyatı tanımlı malzemeler |
 | GET | `/plates/costs?ids=a,b,…` | 👥 | Kalemlerin alış maliyeti (en çok 200 kimlik; geçersizler yok sayılır) → `{ [plateId]: PlateCost }` |
+| GET | `/plates/pricing?ids=a,b,…` | 👥 | Birden çok kalemin satış fiyatı önerisi tek istekte (en çok 100; geçersizler yok sayılır) → `{ [plateId]: PlatePricing }` |
+| GET | `/plates/owners` | 👥 | Stokta malı olan müşteriler → `[{ id, name }]` (stok listesinde sahip süzgeci) |
 
 Perakende fiyat **TRY (varsayılan), USD veya EUR** girilebilir; `retailCurrency`
 plakada saklanır. Hesaplar baz para biriminde yapılır — döviz, tanımlı kurdan

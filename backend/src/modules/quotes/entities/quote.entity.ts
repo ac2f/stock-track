@@ -20,6 +20,8 @@ import { QuoteItem } from './quote-item.entity';
 @Index(['buyerCustomerId'])
 @Index(['status'])
 @Index(['shopId', 'quoteNo'], { unique: true })
+// Teklif listesi tarihe göre (varsayılan: son 1 hafta).
+@Index(['shopId', 'createdAt'])
 export class Quote extends ShopScopedEntity {
   @Column({ name: 'quote_no' })
   quoteNo: string; // ör. TKF-2026-0001

@@ -526,6 +526,24 @@ export async function fetchPlatePricing(plateId: string): Promise<PlatePricing> 
   return data;
 }
 
+/**
+ * Birden çok kalemin fiyat önerisi tek istekte (en çok 100 kimlik):
+ * seçici listesi satır başına ayrı istek atmaz.
+ */
+export async function fetchPlatesPricing(ids: string[]): Promise<Record<string, PlatePricing>> {
+  if (!ids.length) return {};
+  const { data } = await api.get<Record<string, PlatePricing>>('/plates/pricing', {
+    params: { ids: ids.slice(0, 100).join(',') },
+  });
+  return data;
+}
+
+/** Dükkânda şu an stoğu olan konsinye sahipleri (stok listesindeki sahip süzgeci). */
+export async function fetchPlateOwners(): Promise<{ id: string; name: string }[]> {
+  const { data } = await api.get<{ id: string; name: string }[]>('/plates/owners');
+  return data;
+}
+
 /** Perakende fiyatın girilebileceği para birimleri. */
 export const RETAIL_CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
 export type RetailCurrency = (typeof RETAIL_CURRENCIES)[number];

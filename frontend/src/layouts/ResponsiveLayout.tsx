@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { useDensity } from '../context/DensityContext';
-import { fetchBusinessSettings } from '../api/settings.api';
-import { fetchQueue } from '../api/processing.api';
+import { useBusinessSettings } from '../hooks/useReferenceData';
+import { fetchQueueCount } from '../api/processing.api';
+import { PageFallback } from '../components/ui/Loading';
 import { applyTheme, resolveInitialTheme, type Theme } from '../lib/theme';
 import { applyFontScale, FONT_SCALES, getFontScale, type FontScale } from '../lib/fontScale';
 import { getBrand, setBrand } from '../lib/brand';
@@ -25,16 +26,20 @@ function readCollapsed(): boolean {
   }
 }
 
-/** Kuyrukta bekleyen iş sayısı (menüde rozet). */
+/**
+ * Kuyrukta bekleyen iş sayısı (menüde rozet). Yalnız sayı istenir (bütün
+ * kuyruk değil); anahtar ['queue', ...] altında: kuyruğu değiştiren her işlem
+ * (['queue'] geçersiz kılınınca) rozeti de tazeler.
+ */
 function useQueueCount(enabled: boolean): number {
   const { data } = useQuery({
-    queryKey: ['processing', 'queue', 'badge'],
-    queryFn: () => fetchQueue(),
+    queryKey: ['queue', 'count'],
+    queryFn: fetchQueueCount,
     enabled,
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
-  return data?.reduce((n, g) => n + g.jobs.length, 0) ?? 0;
+  return data?.count ?? 0;
 }
 
 /**
@@ -64,11 +69,7 @@ export function ResponsiveLayout() {
   });
 
   // İşletme adı → marka + sekme başlığı (Ayarlar ekranından düzenlenir).
-  const { data: business } = useQuery({
-    queryKey: ['settings', 'business'],
-    queryFn: fetchBusinessSettings,
-    staleTime: 5 * 60_000,
-  });
+  const { data: business } = useBusinessSettings();
   // Yüklenene kadar son bilinen işletme adını (yerel önbellek) göster.
   const brandName = business?.name || getBrand();
   const page = NAV_ITEMS.find((n) => location.pathname.startsWith(n.to));
@@ -190,7 +191,10 @@ export function ResponsiveLayout() {
           {/* Kaydırma yalnızca burada olur → menü/başlık sabit kalır. */}
           <main className="flex-1 overflow-y-auto p-3 pb-28 sm:p-4 md:p-6 md:pb-6">
             <div className="mx-auto max-w-7xl">
-              <Outlet />
+              {/* Ekran parçası yüklenirken menü/başlık yerinde kalır. */}
+              <Suspense fallback={<PageFallback />}>
+                <Outlet />
+              </Suspense>
             </div>
           </main>
         </div>

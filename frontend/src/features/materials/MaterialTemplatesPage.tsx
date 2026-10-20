@@ -13,10 +13,8 @@ import {
   deleteMaterialTemplate,
   deleteMaterialThickness,
   fetchMaterialBrands,
-  fetchMaterialCategories,
   fetchMaterialColors,
   fetchMaterialSizes,
-  fetchMaterialTemplates,
   fetchMaterialThicknesses,
   updateMaterialBrand,
   updateMaterialColor,
@@ -50,6 +48,7 @@ import type {
   MaterialTemplate,
   MeasurementType,
 } from '../../types';
+import { useMaterialCategories, useMaterialTemplates } from '../../hooks/useReferenceData';
 
 const MEASUREMENT_LABELS: Record<MaterialMeasurementType, string> = {
   area: 'Alan (m²)',
@@ -161,14 +160,8 @@ export function MaterialTemplatesPage() {
   const [editingSizeId, setEditingSizeId] = useState<string | null>(null);
   const [editingThicknessId, setEditingThicknessId] = useState<string | null>(null);
 
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
-  const { data, isLoading } = useQuery({
-    queryKey: ['material-templates'],
-    queryFn: () => fetchMaterialTemplates(),
-  });
+  const { data: categories } = useMaterialCategories();
+  const { data, isLoading } = useMaterialTemplates();
 
   const categoryId = form?.categoryId || undefined;
   const { data: brands } = useQuery({
@@ -222,7 +215,11 @@ export function MaterialTemplatesPage() {
     });
   };
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['material-templates'] });
+  // Stok listesi ve seçiciler kalemin ürün türünü (ad/tür/ebat) gösterir.
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['material-templates'] });
+    qc.invalidateQueries({ queryKey: ['plates'] });
+  };
 
   const createMut = useMutation({
     mutationFn: createMaterialTemplate,

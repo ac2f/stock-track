@@ -1,10 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import { PurchaseOrder } from './purchase-order.entity';
 
 /** Satın alma kalemi — bir plakadan kaç adet, hangi birim fiyatla alındı. */
 @Entity('purchase_order_items')
+@Index(['purchaseOrderId'])
 export class PurchaseOrderItem extends ShopScopedEntity {
   @ManyToOne(() => PurchaseOrder, (order) => order.items, {
     onDelete: 'CASCADE',

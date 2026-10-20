@@ -1,5 +1,5 @@
 import { Can } from '../../components/Can';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -13,12 +13,11 @@ import {
   type RetailCurrency,
   deletePlatePrice,
   depletePlate,
-  fetchMaterialCategories,
-  fetchMaterialTemplates,
   fetchMaterialBrands,
   fetchMaterialThicknesses,
   fetchMaterialSizes,
   fetchMaterialColors,
+  fetchPlateOwners,
   fetchPlatePrices,
   fetchPlateStockLevels,
   fetchPlates,
@@ -31,10 +30,15 @@ import {
   type TransferOwnershipInput,
   type UpdatePlateInput,
 } from '../../api/materials.api';
-import { fetchSuppliers } from '../../api/suppliers.api';
-import { fetchWarehouses } from '../../api/warehouses.api';
-import { fetchCustomers } from '../../api/customers.api';
 import { CustomerPicker } from '../../components/CustomerPicker';
+import {
+  useMaterialCategories,
+  useMaterialTemplates,
+  useSuppliers,
+  useWarehouses,
+} from '../../hooks/useReferenceData';
+import { useDebounced } from '../../hooks/useDebounced';
+import { mapLimit } from '../../lib/concurrency';
 import { TemplateFinder } from './TemplateFinder';
 import { groupPlates } from '../../lib/plateGrouping';
 import { UnitConverter } from '../../components/UnitConverter';
@@ -357,14 +361,8 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     }
   }, []);
 
-  const { data: templates } = useQuery({
-    queryKey: ['material-templates'],
-    queryFn: () => fetchMaterialTemplates(),
-  });
-  const { data: warehouses } = useQuery({
-    queryKey: ['warehouses'],
-    queryFn: fetchWarehouses,
-  });
+  const { data: templates } = useMaterialTemplates();
+  const { data: warehouses } = useWarehouses();
 
   const tpl = templates?.find((t) => t.id === form.templateId);
   const std = tpl?.defaultSize;
@@ -407,6 +405,13 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plates'] });
       qc.invalidateQueries({ queryKey: ['material-templates'] });
+      // Adla verilen tür/marka/renk/ebat/kalınlık kayıtları kendiliğinden
+      // açılmış olabilir: katalog listeleri de tazelensin.
+      qc.invalidateQueries({ queryKey: ['material-categories'] });
+      qc.invalidateQueries({ queryKey: ['material-brands'] });
+      qc.invalidateQueries({ queryKey: ['material-colors'] });
+      qc.invalidateQueries({ queryKey: ['material-sizes'] });
+      qc.invalidateQueries({ queryKey: ['material-thicknesses'] });
       setDrafts([]);
     },
   });
@@ -952,15 +957,18 @@ function RetailPriceSection({ plate }: { plate: Plate }) {
         ...(markup.trim() ? { markupPercent: Number(markup) } : {}),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plate-pricing', plate.id] });
+      // Toplu fiyat listeleri (seçiciler) de bu kalemi içerebilir.
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
       qc.invalidateQueries({ queryKey: ['retail-suggestions'] });
+      qc.invalidateQueries({ queryKey: ['price-rules'] });
     },
   });
 
   const clearMut = useMutation({
     mutationFn: () => clearPlateRetailPrice(plate.id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plate-pricing', plate.id] });
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
+      qc.invalidateQueries({ queryKey: ['retail-suggestions'] });
       qc.invalidateQueries({ queryKey: ['price-rules'] });
     },
   });
@@ -1130,12 +1138,13 @@ function PlatePricesSection({ plate }: { plate: Plate }) {
     queryKey: ['plate-prices', plate.id],
     queryFn: () => fetchPlatePrices(plate.id),
   });
-  const { data: suppliers } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchSuppliers(),
-  });
-  const invalidate = () =>
+  const { data: suppliers } = useSuppliers();
+  // Malzemeci fiyatı piyasa karşılaştırmasına ve fiyat önerisine de girer.
+  const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['plate-prices', plate.id] });
+    qc.invalidateQueries({ queryKey: ['plate-pricing'] });
+    qc.invalidateQueries({ queryKey: ['price-compare', plate.id] });
+  };
 
   const upsertMut = useMutation({
     mutationFn: () =>
@@ -1257,14 +1266,7 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
     processedAt: plate.processedAt,
   });
 
-  const { data: templates } = useQuery({
-    queryKey: ['material-templates'],
-    queryFn: () => fetchMaterialTemplates(),
-  });
-  const { data: customers } = useQuery({
-    queryKey: ['customers', 'all'],
-    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
-  });
+  const { data: templates } = useMaterialTemplates();
   const { data: levels } = useQuery({
     queryKey: ['plate-stock-levels', plate.id],
     queryFn: () => fetchPlateStockLevels(plate.id),
@@ -1279,7 +1281,11 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
     ((form.widthMm != null && Number(form.widthMm) > Number(std.widthMm)) ||
       (form.heightMm != null && Number(form.heightMm) > Number(std.heightMm)));
 
+  // Seviye → aktarım hedefi ('business' | '' (müşteri seçilmedi) | müşteri id).
   const [targets, setTargets] = useState<Record<string, string>>({});
+  // Seçicide seçilen müşterilerin adları (aktarımdan hemen sonra liste
+  // tazelenene kadar yeni sahibin adı görünsün).
+  const [knownNames, setKnownNames] = useState<Record<string, string>>({});
 
   const updateMut = useMutation({
     mutationFn: (input: UpdatePlateInput) => updatePlate(plate.id, input),
@@ -1303,8 +1309,10 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
     },
   });
 
+  // Sahip adı plakanın kendi verisinden (liste her kalemin konsinye
+  // sahiplerini kimlik + adla taşır); tüm müşteri listesi çekilmez.
   const customerName = (id?: string | null) =>
-    customers?.items.find((c) => c.id === id)?.name ?? 'Müşteri';
+    (id && (plate.ownerCustomers?.find((c) => c.id === id)?.name ?? knownNames[id])) || 'Müşteri';
   const activeLevels = (levels ?? []).filter((l) => Number(l.quantity) > 0);
 
   return (
@@ -1462,28 +1470,21 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-slate-400">aktar →</span>
-                  <select
-                    className="input min-w-0 flex-1 sm:w-auto sm:flex-none"
-                    aria-label={`${fromLabel} stoğunu aktar: hedef sahip`}
+                  <OwnerTargetPicker
                     value={target}
-                    onChange={(e) =>
-                      setTargets((t) => ({ ...t, [l.id]: e.target.value }))
-                    }
-                  >
-                    <option value="business">İşletme</option>
-                    {customers?.items
-                      .filter((c) => c.id !== l.ownerCustomerId)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </select>
+                    ariaLabel={`${fromLabel} stoğunu aktar: hedef sahip`}
+                    onChange={(v, name) => {
+                      setTargets((t) => ({ ...t, [l.id]: v }));
+                      if (v && v !== 'business' && name) setKnownNames((n) => ({ ...n, [v]: name }));
+                    }}
+                  />
                   <button
                     className="btn-primary btn-sm"
                     disabled={
                       transferMut.isPending ||
-                      (target === 'business' && !l.ownerCustomerId)
+                      target === '' ||
+                      (target === 'business' && !l.ownerCustomerId) ||
+                      target === l.ownerCustomerId
                     }
                     onClick={() =>
                       transferMut.mutate({
@@ -1539,6 +1540,45 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
           Tamamını sat / stoktan çıkar
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Aktarım hedefi: işletme ya da aranarak seçilen bir müşteri. Tüm müşteri
+ * listesini çekmez (müşteri ancak "Müşteriye" seçilip yazılınca aranır), bu
+ * yüzden 100'den fazla müşterisi olan dükkânda da her müşteri seçilebilir.
+ * Değer: 'business' · '' (müşteri henüz seçilmedi) · müşteri id.
+ */
+function OwnerTargetPicker({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string, name?: string) => void;
+  ariaLabel?: string;
+}) {
+  const mode = value === 'business' ? 'business' : 'customer';
+  return (
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <select
+        className="input min-w-0 sm:w-auto sm:flex-none"
+        aria-label={ariaLabel}
+        value={mode}
+        onChange={(e) => onChange(e.target.value === 'business' ? 'business' : '')}
+      >
+        <option value="business">İşletme</option>
+        <option value="customer">Müşteriye…</option>
+      </select>
+      {mode === 'customer' && (
+        <div className="min-w-[12rem] flex-1">
+          <CustomerPicker
+            placeholder="Müşteri ara…"
+            onChange={(id, name) => onChange(id, name)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1689,17 +1729,19 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
  */
 function BulkOperations({
   filters,
-  customers,
+  owners,
 }: {
   filters: PlateFilters;
-  customers: { id: string; name: string }[];
+  /** Şu an stoğu olan konsinye sahipleri ("kimden" seçenekleri). */
+  owners: { id: string; name: string }[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<null | 'transfer' | 'deplete'>(null);
   const [fromOwner, setFromOwner] = useState('');
-  const [toOwner, setToOwner] = useState('');
+  // Hedef: 'business' · '' (müşteri seçilmedi) · müşteri id.
+  const [toOwner, setToOwner] = useState('business');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -1724,32 +1766,29 @@ function BulkOperations({
   const toggleAll = () =>
     setSel(allSel ? new Set() : new Set(plates.map((p) => p.id)));
 
+  // İstekler en çok 4'er 4'er gönderilir; sonuç ne olursa olsun liste tazelenir.
   const run = async (fn: (id: string) => Promise<unknown>, label: string) => {
     setBusy(true);
     setMsg(null);
-    let ok = 0;
-    let fail = 0;
-    for (const p of selected) {
-      try {
-        await fn(p.id);
-        ok++;
-      } catch {
-        fail++;
-      }
+    try {
+      const results = await mapLimit(selected, 4, (p) => fn(p.id));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const fail = results.length - ok;
+      setMsg(`${ok} malzeme ${label}${fail ? `, ${fail} başarısız` : ''}.`);
+    } finally {
+      setBusy(false);
+      setMode(null);
+      setSel(new Set());
+      qc.invalidateQueries({ queryKey: ['plates'] });
     }
-    setBusy(false);
-    setMode(null);
-    setSel(new Set());
-    qc.invalidateQueries({ queryKey: ['plates'] });
-    qc.invalidateQueries({ queryKey: ['customers'] });
-    setMsg(`${ok} malzeme ${label}${fail ? `, ${fail} başarısız` : ''}.`);
   };
+  const toOwnerId = toOwner === 'business' ? '' : toOwner;
   const runTransfer = () =>
     run(
       (id) =>
         transferPlateOwnership(id, {
           fromOwnerCustomerId: fromOwner || undefined,
-          toOwnerCustomerId: toOwner || undefined,
+          toOwnerCustomerId: toOwnerId || undefined,
         }),
       'aktarıldı',
     );
@@ -1852,30 +1891,23 @@ function BulkOperations({
                     onChange={(e) => setFromOwner(e.target.value)}
                   >
                     <option value="">İşletme</option>
-                    {customers.map((c) => (
+                    {owners.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
                     ))}
                   </select>
                 </label>
-                <label className="block text-sm">
+                <div className="block text-sm">
                   <span className="label">Kime</span>
-                  <select
-                    className="input"
+                  <OwnerTargetPicker
                     value={toOwner}
-                    onChange={(e) => setToOwner(e.target.value)}
-                  >
-                    <option value="">İşletme</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    ariaLabel="Hedef sahip"
+                    onChange={(v) => setToOwner(v)}
+                  />
+                </div>
               </div>
-              {fromOwner === toOwner && (
+              {fromOwner === toOwnerId && toOwner !== '' && (
                 <p className="text-xs text-amber-600">
                   Kaynak ve hedef sahip aynı olamaz.
                 </p>
@@ -1883,7 +1915,7 @@ function BulkOperations({
               <div className="flex flex-wrap gap-2">
                 <button
                   className="btn-primary"
-                  disabled={busy || fromOwner === toOwner}
+                  disabled={busy || toOwner === '' || fromOwner === toOwnerId}
                   onClick={runTransfer}
                 >
                   {busy ? 'Aktarılıyor…' : 'Aktar'}
@@ -2050,25 +2082,38 @@ export function PlatesListPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['plates', filters],
     queryFn: () => fetchPlates(filters),
+    // Filtre/sayfa değişirken önceki liste kalır (iskelete dönüp titremez).
+    placeholderData: keepPreviousData,
   });
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
-  const { data: customers } = useQuery({
-    queryKey: ['customers', 'all'],
-    queryFn: () => fetchCustomers({ page: 1, limit: 100, sort: 'name' }),
+  const { data: categories } = useMaterialCategories();
+  // Sahip süzgeci: yalnız şu an stoğu olan konsinye sahipleri (tüm müşteri
+  // listesi değil). ['plates', ...] altında: stok değişince tazelenir.
+  const { data: owners } = useQuery({
+    queryKey: ['plates', 'owners'],
+    queryFn: fetchPlateOwners,
   });
 
   const set = (patch: Partial<PlateFilters>) =>
     setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
+  // Arama kutusu: her harfte istek gitmesin diye yazma bitince (~300 ms)
+  // filtreye yazılır.
+  const [searchText, setSearchText] = useState('');
+  const debouncedSearch = useDebounced(searchText.trim());
+  useEffect(() => {
+    const next = debouncedSearch || undefined;
+    setFilters((f) => (f.search === next ? f : { ...f, search: next, page: 1 }));
+  }, [debouncedSearch]);
+
   // Hızlı aramadan gelen bağlantılar: ?new=1 formu açar (yazma izni varsa),
-  // ?q=metin arama kutusunu doldurur ve listeyi süzer.
+  // ?q=metin arama kutusunu doldurur ve listeyi süzer (beklemeden).
   useUrlParam('new', () => {
     if (can('stock', 'write')) setShowForm(true);
   });
-  useUrlParam('q', (q) => set({ search: q || undefined }));
+  useUrlParam('q', (q) => {
+    setSearchText(q);
+    set({ search: q.trim() || undefined });
+  });
 
   // Arama kutusu dışındaki etkin filtre sayısı (telefonda "Filtreler" rozetinde).
   const activeCount = [
@@ -2139,8 +2184,8 @@ export function PlatesListPage() {
       <Filters
         search={
           <SearchInput
-            value={filters.search ?? ''}
-            onChange={(v) => set({ search: v || undefined })}
+            value={searchText}
+            onChange={setSearchText}
             placeholder="Ara: beyaz 2,8 akpolimer…"
             aria-label="Stokta ara"
           />
@@ -2211,7 +2256,7 @@ export function PlatesListPage() {
             >
               <option value="">Tüm sahipler</option>
               <option value="business">İşletme</option>
-              {customers?.items.map((c) => (
+              {owners?.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
@@ -2247,10 +2292,7 @@ export function PlatesListPage() {
       {/* Toplu sahiplik aktar / stoktan çıkar (stok yazma izni) — filtreye uyan
           malzemeler üzerinde çalışır. */}
       <Can module="stock" level="write">
-        <BulkOperations
-          filters={filters}
-          customers={customers?.items ?? []}
-        />
+        <BulkOperations filters={filters} owners={owners ?? []} />
       </Can>
 
       {/* Sonuç sayısı + görünüm ayarları (gruplama / mini). */}
@@ -2277,6 +2319,7 @@ export function PlatesListPage() {
                 className="btn-secondary"
                 onClick={() => {
                   clearFilters();
+                  setSearchText('');
                   set({ search: undefined });
                 }}
               >

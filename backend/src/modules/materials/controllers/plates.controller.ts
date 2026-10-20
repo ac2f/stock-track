@@ -26,6 +26,15 @@ import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
 import { SupplierPricesService } from '../services/supplier-prices.service';
 import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
+/** `?ids=a,b` → geçerli UUID'ler (tekrarsız, en çok `max` adet). */
+export function parseIds(ids: string | undefined, max: number): string[] {
+  const out = (ids ?? '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter((x) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(x));
+  return [...new Set(out)].slice(0, max);
+}
+
 @ApiTags('plates')
 @ApiBearerAuth()
 @ShopScope('stock')
@@ -66,13 +75,26 @@ export class PlatesController {
    */
   @Get('costs')
   costs(@Query('ids') ids?: string) {
-    return this.plateCostService.forPlates(
-      (ids ?? '')
-        .split(',')
-        .map((x) => x.trim())
-        .filter((x) => /^[0-9a-f-]{36}$/i.test(x))
-        .slice(0, 200),
-    );
+    return this.plateCostService.forPlates(parseIds(ids, 200));
+  }
+
+  /**
+   * Toplu fiyatlandırma: `?ids=a,b` (en çok 100; geçersiz kimlikler yok
+   * sayılır) → `{ [plateId]: PlatePricing }`. Seçici listesi satır başına ayrı
+   * istek atmak yerine görünen kalemlerin fiyatını tek seferde alır.
+   */
+  @Get('pricing')
+  pricingBatch(@Query('ids') ids?: string) {
+    return this.pricingService.forPlates(parseIds(ids, 100));
+  }
+
+  /**
+   * Dükkânda şu an stoğu olan konsinye sahipleri: `[{ id, name }]`. Stok
+   * listesindeki sahip süzgeci için (tüm müşteri listesi çekilmez).
+   */
+  @Get('owners')
+  owners() {
+    return this.platesService.stockOwners();
   }
 
   @Get(':id')

@@ -22,6 +22,11 @@ import { ProcessingRate } from './processing-rate.entity';
  */
 @Entity('processing_jobs')
 @Index(['customerId', 'processedAt'])
+// Kuyruk (durum), teklif/plakaya bağlı işler ve tarihli geçmiş listesi.
+@Index(['status'])
+@Index(['quoteId'])
+@Index(['plateId'])
+@Index(['shopId', 'processedAt'])
 export class ProcessingJob extends ShopScopedEntity {
   @ManyToOne(() => MaterialPlate, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'plate_id' })

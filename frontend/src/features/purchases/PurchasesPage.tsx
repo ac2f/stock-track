@@ -1,5 +1,5 @@
 import { Can } from '../../components/Can';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   createPurchase,
@@ -10,7 +10,6 @@ import {
 import {
   createSupplier,
   deleteSupplier,
-  fetchSuppliers,
   updateSupplier,
   type Supplier,
   type SupplierInput,
@@ -21,6 +20,11 @@ import {
   type SupplierPriceUnit,
 } from '../../api/materials.api';
 import { SearchSelect } from '../../components/SearchSelect';
+import { Pagination } from '../../components/Pagination';
+import { usePageSize } from '../../hooks/usePageSize';
+import { useDebounced } from '../../hooks/useDebounced';
+import { useSuppliers } from '../../hooks/useReferenceData';
+import { mapLimit } from '../../lib/concurrency';
 import { GroupSection } from '../../components/GroupSection';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -89,6 +93,49 @@ function priceUnitFor(plate?: Plate): SupplierPriceUnit {
   }
 }
 
+/**
+ * Alım kalemi için malzeme seçici: arama sunucuda yapılır (yazma bitince),
+ * liste yalnız açıkken istenir — ilk 100 kalemle sınırlı kalmaz.
+ */
+function PurchasePlatePicker({
+  value,
+  selected,
+  onPick,
+}: {
+  value: string;
+  selected?: Plate;
+  onPick: (id: string, plate?: Plate) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const search = useDebounced(term.trim());
+  const { data, isFetching } = useQuery({
+    queryKey: ['plates', 'purchase-pick', search],
+    queryFn: () => fetchPlates({ search: search || undefined, page: 1, limit: 100 }),
+    enabled: open,
+    placeholderData: keepPreviousData,
+  });
+  const items = data?.items ?? [];
+  // Seçili malzeme listede yoksa da adı görünsün.
+  const list = selected && !items.some((p) => p.id === selected.id) ? [selected, ...items] : items;
+  return (
+    <SearchSelect
+      placeholder="Malzeme/plaka ara/seç…"
+      value={value}
+      options={list.map((p) => ({
+        id: p.id,
+        label: p.name,
+        group: p.template?.category?.name ?? 'Diğer',
+      }))}
+      filterLocally={false}
+      loading={isFetching}
+      onSearchChange={setTerm}
+      onOpenChange={setOpen}
+      onChange={(id) => onPick(id, list.find((p) => p.id === id))}
+    />
+  );
+}
+
 /** ➕ Yeni alım formu — kalemler kaydedilince stok AYNI anda girer. */
 function NewPurchaseForm({
   onDone,
@@ -111,16 +158,10 @@ function NewPurchaseForm({
     { plateId: '', quantity: 1, unitPrice: 0 },
   ]);
 
-  const { data: suppliers } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchSuppliers(),
-  });
-  const { data: platesData } = useQuery({
-    queryKey: ['plates', 'purchase-pick'],
-    queryFn: () => fetchPlates({ page: 1, limit: 100 }),
-  });
-  const plates = platesData?.items ?? [];
-  const plateOf = (id: string) => plates.find((p) => p.id === id);
+  const { data: suppliers } = useSuppliers();
+  // Seçilen malzemeler (ölçü birimi ve fiyat listesi birimi için).
+  const [picked, setPicked] = useState<Record<string, Plate>>({});
+  const plateOf = (id: string): Plate | undefined => picked[id];
 
   const patch = (i: number, p: Partial<PurchaseItemInput>) =>
     setItems((it) => it.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
@@ -140,25 +181,33 @@ function NewPurchaseForm({
       // Alım fiyatını tedarikçi fiyat listesine işle (teklifteki karşılaştırma
       // buradan beslenir). Best-effort: fiyat kaydı başarısız olsa da alım kaydı
       // ve stok girişi tamamlanmıştır.
+      // İstekler en çok 4'er 4'er gider; başarısız olan yok sayılır (liste
+      // fiyatı elle de girilebilir).
       if (recordPrices) {
-        for (const it of input.items) {
-          try {
-            await upsertPlatePrice(it.plateId, {
-              supplierId: input.supplierId,
-              price: it.unitPrice,
-              unit: priceUnitFor(plateOf(it.plateId)),
-            });
-          } catch {
-            // yoksay — liste fiyatı elle de girilebilir
-          }
-        }
+        // Aynı malzeme iki kalemdeyse son kalemin fiyatı geçerli (sırayla
+        // yazmadaki gibi); aynı fiyat kaydına eşzamanlı yazılmaz.
+        const lastByPlate = [...new Map(input.items.map((it) => [it.plateId, it])).values()];
+        await mapLimit(lastByPlate, 4, (it) =>
+          upsertPlatePrice(it.plateId, {
+            supplierId: input.supplierId,
+            price: it.unitPrice,
+            unit: priceUnitFor(plateOf(it.plateId)),
+          }),
+        );
       }
       return order;
     },
-    onSuccess: () => {
+    onSuccess: () => onDone(),
+    // Alım (kısmen de olsa) yazılmış olabilir: sonuç ne olursa olsun tazele.
+    // Alış maliyeti, fiyat önerisi ve tedarikçi fiyat listeleri de değişir.
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['purchases'] });
       qc.invalidateQueries({ queryKey: ['plates'] });
-      onDone();
+      qc.invalidateQueries({ queryKey: ['plate-costs'] });
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
+      qc.invalidateQueries({ queryKey: ['plate-prices'] });
+      qc.invalidateQueries({ queryKey: ['price-compare'] });
+      qc.invalidateQueries({ queryKey: ['price-rules'] });
     },
   });
 
@@ -239,15 +288,13 @@ function NewPurchaseForm({
                   Sil
                 </button>
               </div>
-              <SearchSelect
-                placeholder="Malzeme/plaka ara/seç…"
+              <PurchasePlatePicker
                 value={it.plateId}
-                options={plates.map((p) => ({
-                  id: p.id,
-                  label: p.name,
-                  group: p.template?.category?.name ?? 'Diğer',
-                }))}
-                onChange={(id) => patch(i, { plateId: id })}
+                selected={plate}
+                onPick={(id, p) => {
+                  if (p) setPicked((m) => ({ ...m, [id]: p }));
+                  patch(i, { plateId: id });
+                }}
               />
               <div className="grid grid-cols-2 gap-2">
                 <Field label={isLength ? 'Uzunluk (metre)' : 'Adet'} required>
@@ -339,10 +386,7 @@ function SuppliersSection({ newRequest }: { newRequest: number }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
 
-  const { data: suppliers, isLoading } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchSuppliers(),
-  });
+  const { data: suppliers, isLoading } = useSuppliers();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['suppliers'] });
 
   const createMut = useMutation({
@@ -537,15 +581,16 @@ export function PurchasesPage() {
   const { can } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [supplierReq, setSupplierReq] = useState(0);
+  // Alım geçmişi sayfalı (eskiden yalnız son 50 alım görünüyordu).
+  const [pageSize, setPageSize] = usePageSize('purchases', 20);
+  const [page, setPage] = useState(1);
   const { data, isLoading } = useQuery({
-    queryKey: ['purchases'],
-    queryFn: () => fetchPurchases({ page: 1, limit: 50 }),
+    queryKey: ['purchases', page, pageSize],
+    queryFn: () => fetchPurchases({ page, limit: pageSize }),
+    placeholderData: keepPreviousData,
   });
   // Boş durum mesajı için: tedarikçi var mı? (Aynı sorgu, önbellekten gelir.)
-  const { data: suppliers } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => fetchSuppliers(),
-  });
+  const { data: suppliers } = useSuppliers();
 
   // Hızlı aramadan /purchases?new=1 ile gelinirse yeni alım formunu aç.
   useUrlParam('new', () => {
@@ -600,11 +645,7 @@ export function PurchasesPage() {
       <div className="flex items-baseline justify-between gap-2 pt-2">
         <h2 className="text-sm font-semibold text-slate-600">Alım geçmişi</h2>
         {!!data?.items.length && (
-          <span className="text-xs text-slate-500">
-            {(data.meta?.total ?? 0) > data.items.length
-              ? `son ${data.items.length} / ${data.meta.total} alım`
-              : `${data.items.length} alım`}
-          </span>
+          <span className="text-xs text-slate-500">{data.meta?.total ?? data.items.length} alım</span>
         )}
       </div>
       {isLoading && <LoadingBlock rows={2} />}
@@ -647,7 +688,20 @@ export function PurchasesPage() {
           ))}
         </GroupSection>
       ))}
-      {!isLoading && !data?.items.length && (
+      {data?.meta && data.meta.total > 0 && (
+        <Pagination
+          page={data.meta.page}
+          pageCount={data.meta.pageCount}
+          total={data.meta.total}
+          pageSize={pageSize}
+          onPage={setPage}
+          onPageSize={(n) => {
+            setPageSize(n);
+            setPage(1);
+          }}
+        />
+      )}
+      {!isLoading && !data?.items.length && (data?.meta?.page ?? 1) === 1 && (
         <EmptyState
           icon="📦"
           title="Henüz alım kaydı yok."

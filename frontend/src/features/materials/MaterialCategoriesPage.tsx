@@ -1,10 +1,9 @@
 import { Can } from '../../components/Can';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
   createMaterialCategory,
   deleteMaterialCategory,
-  fetchMaterialCategories,
   updateMaterialCategory,
   type MaterialCategoryInput,
 } from '../../api/materials.api';
@@ -15,6 +14,7 @@ import { confirmDialog } from '../../components/ConfirmDialog';
 import { useUrlParam } from '../../hooks/useUrlParam';
 import { useAuth } from '../../context/AuthContext';
 import type { MaterialCategory, MaterialMeasurementType, MeasurementType } from '../../types';
+import { useMaterialCategories } from '../../hooks/useReferenceData';
 
 const MEASUREMENT_LABELS: Record<MaterialMeasurementType, string> = {
   area: 'Alan (m²)',
@@ -47,12 +47,14 @@ export function MaterialCategoriesPage() {
     if (formOpen) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [formOpen, editingId]);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
+  const { data, isLoading } = useMaterialCategories();
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['material-categories'] });
+  // Tür adı ürün türlerinde, stok listesinde ve seçicilerde de görünür.
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['material-categories'] });
+    qc.invalidateQueries({ queryKey: ['material-templates'] });
+    qc.invalidateQueries({ queryKey: ['plates'] });
+  };
 
   const createMut = useMutation({
     mutationFn: createMaterialCategory,

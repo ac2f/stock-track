@@ -27,6 +27,18 @@ export async function fetchQueue(
   return data;
 }
 
+/** Kuyruktaki (bekleyen/işlenen) iş sayısı — menü rozeti için hafif uç. */
+export async function fetchQueueCount(): Promise<{ count: number }> {
+  const { data } = await api.get<{ count: number }>('/processing/queue/count');
+  return data;
+}
+
+/** Kuyruktaki işlerin plaka kimlikleri (teklif formundaki "kuyrukta" uyarısı). */
+export async function fetchQueuePlateIds(): Promise<string[]> {
+  const { data } = await api.get<string[]>('/processing/queue/plate-ids');
+  return data;
+}
+
 export interface ProcessingHistoryFilters {
   status?: ProcessingStatus;
   from?: string;

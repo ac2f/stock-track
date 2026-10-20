@@ -19,9 +19,7 @@ import {
   type UpdateCustomerInput,
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
-import { fetchDisplaySettings } from '../../api/settings.api';
-import { fetchStaff } from '../../api/shops.api';
-import { fetchBankAccounts } from '../../api/bank-accounts.api';
+import { useBankAccounts, useDisplaySettings, useStaff } from '../../hooks/useReferenceData';
 import { useAuth } from '../../context/AuthContext';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { Pagination } from '../../components/Pagination';
@@ -937,11 +935,7 @@ function CustomerStatement({
   // "Geri al" düğmeleri varsayılan olarak GİZLİDİR: ekstre ekranı müşteriye
   // gösterildiğinde "borcum siliniyor" gibi yanlış anlaşılmasın. Ayarlar ›
   // Görünüm'den açılır.
-  const { data: display } = useQuery({
-    queryKey: ['settings', 'display'],
-    queryFn: fetchDisplaySettings,
-    staleTime: 5 * 60_000,
-  });
+  const { data: display } = useDisplaySettings();
   const showUndo = display?.showLedgerUndo === true;
   const today = new Date().toISOString().slice(0, 10);
   const [entryType, setEntryType] = useState<'debit' | 'credit'>('debit');
@@ -1074,13 +1068,14 @@ function CustomerStatement({
     0,
     Math.round((currentBalance - paidNum) * 100) / 100,
   );
-  const { data: settleEmployees } = useQuery({
-    queryKey: ['staff'],
-    queryFn: fetchStaff,
+  // Çalışan/banka listeleri yalnız borç kapatma formunda tahsil edilen tutar
+  // girilip ilgili yöntem seçilince gerekir (ekstre her açılışta istemez).
+  const settleNeedsMethod = currentBalance > 0 && paidNum > 0;
+  const { data: settleEmployees } = useStaff({
+    enabled: settleNeedsMethod && settleMethod === 'cash',
   });
-  const { data: settleBanks } = useQuery({
-    queryKey: ['bank-accounts'],
-    queryFn: fetchBankAccounts,
+  const { data: settleBanks } = useBankAccounts({
+    enabled: settleNeedsMethod && settleMethod === 'bank_transfer',
   });
   // Para giriliyorsa yöntem-özel alan zorunlu (ödeme formundaki gibi).
   const settleMethodReady =

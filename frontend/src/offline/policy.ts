@@ -43,3 +43,36 @@ export function queueRule(method: string | undefined, url: string | undefined): 
   const path = pathOf(url);
   return RULES.find((r) => r.method === m && r.pattern.test(path)) ?? null;
 }
+
+/**
+ * Hangi GET yanıtları cihazda saklanır? Çevrimdışı ekranların okuduğu
+ * listeler ve kartlar saklanır. Saklanmayanlar: çevrimdışıyken anlamsız ya
+ * da çok sık gelen yanıtlar (fiyat/maliyet hesapları, kuyruk sayacı,
+ * Corel durumu ...).
+ *
+ * Arama yanıtları (`search` / `q` dolu) her harfte ayrı kayıt açmasın diye
+ * yolun tek bir "arama havuzuna" katılır ('merge'): çevrimdışı aramada
+ * (cacheSearch) daha önce bulunan kayıtlar yine bulunur.
+ */
+const NO_CACHE: RegExp[] = [
+  /^\/health$/,
+  /\/pricing$/,
+  /\/costs$/,
+  /\/retail-suggestions$/,
+  /\/prices\/compare$/,
+  /^\/processing\/queue\/(count|plate-ids)$/,
+  /^\/corel-runners/,
+  /^\/exchange-rates\/convert$/,
+  /^\/material-catalog\/duplicates$/,
+  /^\/backups/,
+];
+
+export function cachePolicy(
+  path: string,
+  params?: Record<string, unknown>,
+): 'store' | 'merge' | 'skip' {
+  if (NO_CACHE.some((r) => r.test(path))) return 'skip';
+  const term = params?.search ?? params?.q;
+  if (term !== undefined && term !== null && String(term).trim() !== '') return 'merge';
+  return 'store';
+}

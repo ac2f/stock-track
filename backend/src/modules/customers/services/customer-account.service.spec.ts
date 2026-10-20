@@ -70,3 +70,54 @@ describe('CustomerAccountService — ekstrede yürüyen bakiye', () => {
     expect(ledger.map((e) => Number(e.balanceAfter))).toEqual([1000, 600, 850]);
   });
 });
+
+/**
+ * Bakiye yeniden hesabı: değişen `balance_after` değerleri satır satır
+ * kaydedilmez, tek UPDATE ile yazılır.
+ */
+describe('CustomerAccountService.recomputeBalances', () => {
+  function build(rows: Partial<CustomerLedgerEntry>[]) {
+    const customer = { id: 'c1', currentBalance: 0 };
+    const repo = {
+      find: jest.fn(async () =>
+        rows.map((r) => ({ entryType: LedgerEntryType.DEBIT, ...r })),
+      ),
+      save: jest.fn(),
+    };
+    const manager = {
+      findOne: jest.fn(async () => customer),
+      getRepository: jest.fn(() => repo),
+      query: jest.fn(async () => []),
+      save: jest.fn(async (x: unknown) => x),
+    };
+    const service = new CustomerAccountService({} as never);
+    return { service, manager, repo, customer };
+  }
+
+  it('yalnız değişen satırları tek sorguda günceller', async () => {
+    const { service, manager, repo, customer } = build([
+      { id: 'e1', amount: 100, balanceAfter: 100 },
+      { id: 'e2', amount: 50, balanceAfter: 999 },
+      { id: 'e3', amount: 30, entryType: LedgerEntryType.CREDIT, balanceAfter: 0 },
+    ]);
+
+    const balance = await service.recomputeBalances(manager as never, 'c1');
+
+    expect(balance).toBe(120);
+    expect(customer.currentBalance).toBe(120);
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(manager.query).toHaveBeenCalledTimes(1);
+    const [, params] = manager.query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(params).toEqual([
+      ['e2', 'e3'],
+      [150, 120],
+    ]);
+  });
+
+  it('değişen satır yoksa güncelleme sorgusu atmaz', async () => {
+    const { service, manager } = build([{ id: 'e1', amount: 100, balanceAfter: 100 }]);
+    await service.recomputeBalances(manager as never, 'c1');
+    expect(manager.query).not.toHaveBeenCalled();
+    expect(manager.save).toHaveBeenCalledTimes(1);
+  });
+});

@@ -251,6 +251,8 @@ export interface Plate {
   // Konsinye sahibi müşteri id'leri (adların kimliği) — satış kaleminde sahibin
   // otomatik belirlenmesi için.
   ownerCustomerIds?: string[];
+  // Konsinye sahipleri kimlik + adla (sahip adı müşteri listesi çekilmeden gösterilir).
+  ownerCustomers?: { id: string; name: string }[];
   templateId?: string;
   template?: {
     category: MaterialCategory;

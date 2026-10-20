@@ -318,6 +318,8 @@ function ShopPanel({
   const refresh = async () => {
     await qc.invalidateQueries({ queryKey: ['shop-members', shop.id] });
     await qc.invalidateQueries({ queryKey: ['managed-shops'] });
+    // Ödeme/borç kapatma formlarındaki personel listesi (5 dk önbellekli).
+    await qc.invalidateQueries({ queryKey: ['staff'] });
   };
 
   const shopMut = useMutation({
@@ -985,11 +987,14 @@ function AddMemberForm({
 function AccountsSection() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const { data } = useQuery({ queryKey: ['employees'], queryFn: fetchEmployees });
+  // Hesap listesi bölüm açılınca istenir (kapalıyken gerekmez).
+  const [open, setOpen] = useState(false);
+  const { data } = useQuery({ queryKey: ['employees'], queryFn: fetchEmployees, enabled: open });
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['employees'] });
     void qc.invalidateQueries({ queryKey: ['shop-members'] });
     void qc.invalidateQueries({ queryKey: ['managed-shops'] });
+    void qc.invalidateQueries({ queryKey: ['staff'] });
   };
   const roleMut = useMutation({
     mutationFn: ({ id, role }: { id: string; role: 'owner' | 'employee' }) => updateEmployee(id, { role }),
@@ -998,10 +1003,10 @@ function AccountsSection() {
   const delMut = useMutation({ mutationFn: deleteEmployee, onSuccess: invalidate });
 
   return (
-    <details className="card group">
+    <details className="card group" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-semibold [&::-webkit-details-marker]:hidden">
         <span className="flex items-center gap-2">
-          <span aria-hidden>🔑</span> Bütün hesaplar ({data?.length ?? 0})
+          <span aria-hidden>🔑</span> Bütün hesaplar{data ? ` (${data.length})` : ''}
         </span>
         <span className="text-slate-400 transition group-open:rotate-180" aria-hidden>
           ▾

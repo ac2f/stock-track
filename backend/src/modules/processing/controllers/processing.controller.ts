@@ -41,6 +41,18 @@ export class ProcessingController {
     return this.processingService.queue(query);
   }
 
+  /** Menü rozeti: kuyruktaki iş sayısı → `{ count }`. */
+  @Get('queue/count')
+  queueCount() {
+    return this.processingService.queueCount();
+  }
+
+  /** Kuyruktaki işlerin plaka kimlikleri → `string[]` (teklif formu uyarısı). */
+  @Get('queue/plate-ids')
+  queuePlateIds() {
+    return this.processingService.queuePlateIds();
+  }
+
   @Get()
   findAll(@Query() query: QueryProcessingJobDto) {
     return this.processingService.findAll(query);

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchCustomer } from '../../api/customers.api';
 import { CustomerPicker } from '../../components/CustomerPicker';
@@ -13,12 +13,11 @@ import { DateRangeFilter } from '../../components/ui/DateRangeFilter';
 import { useUrlParam } from '../../hooks/useUrlParam';
 import { formatDate, formatMoney } from '../../lib/format';
 import { toast } from '../../lib/toast';
-import { fetchStaff, type StaffMember } from '../../api/shops.api';
-import {
-  createBankAccount,
-  deleteBankAccount,
-  fetchBankAccounts,
-} from '../../api/bank-accounts.api';
+import { type StaffMember } from '../../api/shops.api';
+import { createBankAccount, deleteBankAccount } from '../../api/bank-accounts.api';
+import { useBankAccounts, useStaff } from '../../hooks/useReferenceData';
+import { usePageSize } from '../../hooks/usePageSize';
+import { Pagination } from '../../components/Pagination';
 import {
   convertLegacyDebtClosing,
   createPayment,
@@ -169,18 +168,40 @@ export function PaymentsPage() {
   // Bağlantıyla seçilen müşteri seçicide adıyla görünsün diye seçici yeniden
   // kurulur (key) ve adı initialName olarak verilir.
   const [picker, setPicker] = useState<{ key: number; name?: string }>({ key: 0 });
-  // Geçmiş filtreleri (istemci tarafı).
+  // Geçmiş filtreleri ve sayfalama — sunucuda uygulanır (müşterinin bütün
+  // ödemeleri indirilip tarayıcıda süzülmez).
   const [histFrom, setHistFrom] = useState('');
   const [histTo, setHistTo] = useState('');
   const [histMethod, setHistMethod] = useState<'' | PaymentMethod>('');
+  const [histPageSize, setHistPageSize] = usePageSize('payments-history', 20);
+  // Müşteri/süzgeç/sayfa boyu değişince 1. sayfaya dönülür (aynı çizimde —
+  // eski sayfa numarasıyla gereksiz bir istek gitmez).
+  const histSig = JSON.stringify([customerId, histFrom, histTo, histMethod, histPageSize]);
+  const [pageState, setPageState] = useState({ sig: histSig, page: 1 });
+  const histPage = pageState.sig === histSig ? pageState.page : 1;
+  const setHistPage = (page: number) => setPageState({ sig: histSig, page });
 
-  const { data: employees } = useQuery({ queryKey: ['staff'], queryFn: fetchStaff });
-  const { data: banks } = useQuery({ queryKey: ['bank-accounts'], queryFn: fetchBankAccounts });
-  const { data: payments, isLoading: paymentsLoading } = useQuery({
-    queryKey: ['payments', customerId],
-    queryFn: () => fetchPayments(customerId),
+  // Çalışan ve banka hesabı listeleri yalnız müşteri seçilince (form ve
+  // geçmiş satırları açılınca) gerekir.
+  const { data: employees } = useStaff({ enabled: !!customerId });
+  const { data: banks } = useBankAccounts({ enabled: !!customerId });
+  const histFilters = {
+    from: histFrom || undefined,
+    to: histTo || undefined,
+    method: histMethod || undefined,
+    page: histPage,
+    limit: histPageSize,
+  };
+  const { data: paymentsPage, isLoading: paymentsLoading } = useQuery({
+    queryKey: ['payments', customerId, histFilters],
+    queryFn: () => fetchPayments(customerId, histFilters),
     enabled: !!customerId,
+    // Aynı müşteride süzgeç/sayfa değişirken önceki liste kalır; başka müşteriye
+    // geçince eski müşterinin ödemeleri gösterilmez.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[1] === customerId ? prev : undefined,
   });
+  const filteredPayments = paymentsPage?.items ?? [];
   // Seçilen müşterinin güncel bakiyesi (tek kayıt sorgusu).
   const { data: selectedCustomer } = useQuery({
     queryKey: ['customers', 'one', customerId],
@@ -214,19 +235,13 @@ export function PaymentsPage() {
       setLastBalance(res.currentBalance);
       qc.invalidateQueries({ queryKey: ['payments', customerId] });
       qc.invalidateQueries({ queryKey: ['customers'] });
+      // Aynı sayfadaki çalışan kasası ve müşterinin ekstresi de bu tahsilatı içerir.
+      qc.invalidateQueries({ queryKey: ['cash-collections'] });
+      qc.invalidateQueries({ queryKey: ['payments-detail'] });
+      qc.invalidateQueries({ queryKey: ['ledger', customerId] });
       setForm({ ...EMPTY, paymentDate: todayISO() });
     },
   });
-
-  const filteredPayments = useMemo(() => {
-    return (payments ?? []).filter((p) => {
-      const d = p.paymentDate?.slice(0, 10) ?? '';
-      if (histFrom && d < histFrom) return false;
-      if (histTo && d > histTo) return false;
-      if (histMethod && p.method !== histMethod) return false;
-      return true;
-    });
-  }, [payments, histFrom, histTo, histMethod]);
 
   const canSubmit =
     customerId &&
@@ -258,7 +273,7 @@ export function PaymentsPage() {
       {isShopAdmin && can('payments', 'write') && <CashCollectionsPanel />}
 
       {/* Uyumluluk: eski "borç kapatma" hareketlerini ödemeye çevirme */}
-      {isShopAdmin && can('payments', 'write') && <LegacyDebtClosePanel employees={employees} banks={banks} />}
+      {isShopAdmin && can('payments', 'write') && <LegacyDebtClosePanel />}
 
       {/* Adım 1 — #1 Müşteri arama: teklislerdeki gibi klavye destekli seçici. */}
       <section className="card space-y-3">
@@ -522,8 +537,8 @@ export function PaymentsPage() {
         <section className="space-y-2">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             Ödeme geçmişi
-            {payments && (
-              <span className="badge bg-slate-100 text-slate-600">{filteredPayments.length}</span>
+            {paymentsPage && (
+              <span className="badge bg-slate-100 text-slate-600">{paymentsPage.meta?.total ?? filteredPayments.length}</span>
             )}
           </h2>
           {/* #6 Geçmiş filtreleri */}
@@ -576,10 +591,20 @@ export function PaymentsPage() {
                   icon="🧾"
                   title="Kayıt yok."
                   hint={
-                    payments?.length
+                    histActive
                       ? 'Seçilen filtrelere uyan ödeme yok; filtreleri temizleyin.'
                       : 'Bu müşteri için henüz ödeme girilmemiş. İlk tahsilatı yukarıdan kaydedin.'
                   }
+                />
+              )}
+              {paymentsPage?.meta && paymentsPage.meta.total > 0 && (
+                <Pagination
+                  page={paymentsPage.meta.page}
+                  pageCount={paymentsPage.meta.pageCount}
+                  total={paymentsPage.meta.total}
+                  pageSize={histPageSize}
+                  onPage={setHistPage}
+                  onPageSize={setHistPageSize}
                 />
               )}
             </>
@@ -961,17 +986,14 @@ function PaymentRow({
  * için ödeme yöntemi seçilip gerçek ödemeye çevrilebilir; varsayılan tarih o
  * borç kapatma tarihidir. Çevirme cari bakiyeyi değiştirmez.
  */
-function LegacyDebtClosePanel({
-  employees,
-  banks,
-}: {
-  employees?: StaffMember[];
-  banks?: BankAccount[];
-}) {
+function LegacyDebtClosePanel() {
   const { data: legacy } = useQuery({
     queryKey: ['legacy-debt-closings'],
     queryFn: fetchLegacyDebtClosings,
   });
+  // Çalışan/banka listeleri yalnız çevrilecek kayıt varsa istenir.
+  const { data: employees } = useStaff({ enabled: !!legacy?.length });
+  const { data: banks } = useBankAccounts({ enabled: !!legacy?.length });
 
   if (!legacy?.length) return null;
 
@@ -1124,7 +1146,7 @@ function BankAccountManager() {
   const [open, setOpen] = useState(false);
   const [bankName, setBankName] = useState('');
   const [iban, setIban] = useState('');
-  const { data: banks } = useQuery({ queryKey: ['bank-accounts'], queryFn: fetchBankAccounts });
+  const { data: banks } = useBankAccounts();
   const inv = () => qc.invalidateQueries({ queryKey: ['bank-accounts'] });
 
   const addMut = useMutation({

@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import {
   OwnerSettlementType,
@@ -10,6 +10,7 @@ import { Sale } from './sale.entity';
 
 /** Satış kalemi — bir malzemeden kaç birim, hangi fiyata, hangi stok kaynağıyla. */
 @Entity('sale_items')
+@Index(['saleId'])
 export class SaleItem extends ShopScopedEntity {
   @ManyToOne(() => Sale, (sale) => sale.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sale_id' })

@@ -16,6 +16,10 @@ import './styles/index.css';
 applyTheme(resolveInitialTheme());
 applyFontScale(getFontScale());
 
+// İş verisi (teklif, stok, ödeme, önizleme...) her ekran açılışında tazelenir:
+// genel bir staleTime, geçersiz kılınmayı unutan her işlemden sonra eski veriyi
+// "taze" gösterirdi. Seyrek değişen başvuru verileri hooks/useReferenceData
+// ile 5 dk taze sayılır.
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });

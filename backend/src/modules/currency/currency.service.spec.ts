@@ -208,3 +208,90 @@ describe('CurrencyService.syncFromApi', () => {
     expect(calls).toEqual(['https://ornek.test/kur?base=TRY']);
   });
 });
+
+/**
+ * Kur önbelleği: döngülerde (fiyat önerisi, çatı listesi) aynı kur için her
+ * çevrimde ayrı sorgu atılmaz; kur yazılınca önbellek boşalır ve sonuç
+ * önbelleksiz hesapla aynı kalır.
+ */
+describe('CurrencyService kur önbelleği', () => {
+  const config = {
+    get: (key: string) =>
+      key === 'currency.base' || key === 'business.defaultCurrency'
+        ? 'TRY'
+        : undefined,
+  } as unknown as ConfigService;
+
+  function buildService(rates: Record<string, number>) {
+    const ratesRepo = {
+      findOne: jest.fn(async ({ where }: { where: { quoteCurrency: string } }) => {
+        const rate = rates[where.quoteCurrency];
+        return rate ? ({ rate } as ExchangeRate) : null;
+      }),
+      create: jest.fn((x: unknown) => x),
+      save: jest.fn(async (x: unknown) => x),
+    };
+    const service = new CurrencyService(
+      ratesRepo as unknown as Repository<ExchangeRate>,
+      config,
+    );
+    return { service, ratesRepo };
+  }
+
+  afterEach(() => jest.useRealTimers());
+
+  it('aynı kur için tekrar tekrar sorgu atmaz (eşzamanlı çağrılar dahil)', async () => {
+    const { service, ratesRepo } = buildService({ USD: 32, EUR: 35 });
+    const results = await Promise.all([
+      service.toBase(1, 'USD'),
+      service.toBase(2, 'USD'),
+      service.toBase(3, 'USD'),
+      service.toBase(1, 'EUR'),
+    ]);
+    expect(results).toEqual([32, 64, 96, 35]);
+    await service.toBase(10, 'USD');
+    expect(ratesRepo.findOne).toHaveBeenCalledTimes(2); // USD + EUR
+  });
+
+  it('tarihli çevrim ayrı anahtardır', async () => {
+    const { service, ratesRepo } = buildService({ USD: 32 });
+    await service.toBase(1, 'USD');
+    await service.toBase(1, 'USD', new Date('2026-01-01T00:00:00Z'));
+    await service.toBase(1, 'USD', new Date('2026-01-01T00:00:00Z'));
+    expect(ratesRepo.findOne).toHaveBeenCalledTimes(2);
+  });
+
+  it('kur yazılınca önbellek boşalır, yeni kur kullanılır', async () => {
+    const rates: Record<string, number> = { USD: 32 };
+    const { service, ratesRepo } = buildService(rates);
+    expect(await service.toBase(1, 'USD')).toBe(32);
+    rates.USD = 40;
+    await service.upsert({ quoteCurrency: 'USD', rate: 40 } as never);
+    expect(await service.toBase(1, 'USD')).toBe(40);
+    expect(ratesRepo.findOne).toHaveBeenCalledTimes(2);
+  });
+
+  it('süresi dolunca yeniden okur', async () => {
+    jest.useFakeTimers({ now: new Date('2026-05-01T10:00:00Z') });
+    const { service, ratesRepo } = buildService({ USD: 32 });
+    await service.toBase(1, 'USD');
+    jest.setSystemTime(new Date('2026-05-01T10:01:00Z'));
+    await service.toBase(1, 'USD');
+    expect(ratesRepo.findOne).toHaveBeenCalledTimes(2);
+  });
+
+  it('kur yoksa her seferinde aynı hatayı verir', async () => {
+    const { service, ratesRepo } = buildService({});
+    await expect(service.toBase(1, 'GBP')).rejects.toThrow('döviz kuru bulunamadı');
+    await expect(service.toBase(1, 'GBP')).rejects.toThrow('döviz kuru bulunamadı');
+    expect(ratesRepo.findOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('sorgu hatası saklanmaz, sonraki çağrı yeniden dener', async () => {
+    const { service, ratesRepo } = buildService({ USD: 32 });
+    ratesRepo.findOne.mockRejectedValueOnce(new Error('db yok'));
+    await expect(service.toBase(1, 'USD')).rejects.toThrow('db yok');
+    expect(await service.toBase(1, 'USD')).toBe(32);
+    expect(ratesRepo.findOne).toHaveBeenCalledTimes(2);
+  });
+});

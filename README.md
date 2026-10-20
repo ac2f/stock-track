@@ -19,6 +19,7 @@ tek bir çatı altında toplar.
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
 - [Fiyatlar ve fiyat çatıları](#fiyatlar-ve-fiyat-çatıları)
 - [Otomatik klasörler (runner)](#otomatik-klasörler-runner)
+- [Performans](#performans)
 - [Kurulum](#kurulum)
 - [Cluster & Stateless Mimari](#cluster--stateless-mimari)
 - [Dokümantasyon](#dokümantasyon)
@@ -215,6 +216,34 @@ aynıdır. Kurulum: runner deposundaki `install.bat`.
   teklifte “📁 Klasörler açıldı: gün › müşteri” ya da neden açılmadığı.
   Runner kapalıyken dönen teklif için **Klasörleri yeniden iste**.
 - Dükkân bilgisayarında masaüstündeki **StockTrack Runner Durumu** penceresi.
+
+## Performans
+
+- **Listeler önden çekilmez.** Müşteri seçicileri yazdıkça sunucuda arar
+  (en fazla 100 kayıt sınırı artık 101. müşteriyi gizlemez); stok listesinin
+  sahip süzgeci `GET /plates/owners` ile yalnız stokta malı olanları getirir.
+  Malzeme seçicileri açıkken ve yazma bitince (~300 ms) `search` ile arar.
+- **Toplu istekler.** Satış kalemi seçicisindeki fiyat rozetleri tek
+  `GET /plates/pricing?ids=` isteğiyle gelir (önceden satır başına bir
+  istek); menüdeki kuyruk rozeti yalnız sayıyı (`/processing/queue/count`)
+  ister.
+- **Sayfa sayfa yükleme.** Her ekran ayrı bir parça olarak, açılınca
+  yüklenir (ilk yük ~743 kB'tan ~97 kB'a indi). Çevrimdışı mod için service
+  worker derlemedeki bütün parçaları önceden saklar.
+- **Hafif liste sorguları.** Teklif, satış ve satın alma listeleri yalnız
+  ekranda görünen alanları yükler; teklif düzenlenirken tamamı ayrıca
+  istenir.
+- **Önbellek.** Tür, şablon, malzemeci, depo, personel, banka hesabı ve
+  ayarlar ekranlar arasında paylaşılır ve 5 dk taze sayılır (değiştiren
+  işlem anahtarı geçersiz kılar). İş verisi her ekran açılışında tazelenir.
+  Çevrimdışı saklama yalnız çevrimdışı ekranların okuduğu yanıtları tutar;
+  arama sonuçları tek havuzda birleşir.
+- **Sunucu.** Alacak yaşlandırma tek SQL sorgusu; kur dönüşümü 30 sn'lik
+  önbellekten (kur yazılınca temizlenir); cari bakiye yeniden hesabı tek
+  UPDATE; sık süzülen sütunlarda indeksler; nginx gzip.
+- **Güvenlik.** Müşteri portal anahtarı (`portalToken`) artık listelerde ve
+  tekliflerde dönmez; yalnız portal araması ve bağlantıyı üreten işlemler
+  okur.
 
 ## Kurulum
 

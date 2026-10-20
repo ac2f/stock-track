@@ -14,11 +14,11 @@ import {
   type BankTxStatus,
   type ColumnMapping,
 } from '../../api/bank-reconciliation.api';
-import { fetchBankAccounts } from '../../api/bank-accounts.api';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingBlock, Spinner } from '../../components/ui/Loading';
 import { formatDate, formatMoney } from '../../lib/format';
+import { useBankAccounts } from '../../hooks/useReferenceData';
 
 
 /** Eşlemede seçilebilecek alanlar ve kullanıcıya görünen adları. */
@@ -51,10 +51,7 @@ export function BankReconciliationPage() {
   const [bankAccountId, setBankAccountId] = useState('');
   const [status, setStatus] = useState<BankTxStatus>('unmatched');
 
-  const { data: accounts } = useQuery({
-    queryKey: ['bank-accounts'],
-    queryFn: fetchBankAccounts,
-  });
+  const { data: accounts } = useBankAccounts();
   const { data: summary } = useQuery({
     queryKey: ['reconciliation-summary', bankAccountId],
     queryFn: () => fetchReconciliationSummary(bankAccountId || undefined),

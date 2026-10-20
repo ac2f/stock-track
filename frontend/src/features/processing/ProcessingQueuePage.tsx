@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -10,7 +10,7 @@ import {
   type CompleteOptions,
 } from '../../api/processing.api';
 import { openPdf } from '../../api/documents.api';
-import { fetchSales, type Sale } from '../../api/sales.api';
+import { fetchSales, fetchSalesSummary, type Sale } from '../../api/sales.api';
 import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
 import {
   useListGrouping,
@@ -31,7 +31,10 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { DateRangeFilter } from '../../components/ui/DateRangeFilter';
 import { formatDate, relativeDay } from '../../lib/format';
 import { usePageSize } from '../../hooks/usePageSize';
-import { fetchMaterialCategories } from '../../api/materials.api';
+import { useMaterialCategories } from '../../hooks/useReferenceData';
+import { useDebounced } from '../../hooks/useDebounced';
+import { mapLimit } from '../../lib/concurrency';
+import { keepWhileSearching } from '../../lib/placeholder';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
 /** Kuyruk/geçmiş işini "Müşteri · Kategori" ile gruplar. */
@@ -120,10 +123,17 @@ function RecentSales() {
     queryFn: () => fetchSales({ from: monthAgo, to: today, page: 1, limit: 100 }),
   });
   const sales: Sale[] = data?.items ?? [];
-  // #D Malzeme satışlarından toplam kâr (işletme payı = satış − sahip payı;
-  // kendi malında tüm satış, konsinyede komisyon).
-  const totalProfit = sales.reduce((s, x) => s + Number(x.businessMargin || 0), 0);
-  const totalSales = sales.reduce((s, x) => s + Number(x.saleTotal || 0), 0);
+  // #D Son 30 günün adet/ciro/kârı sunucuda toplanır (listedeki en çok 100
+  // satışla sınırlı kalmaz). İşletme payı = satış − sahip payı (kendi malında
+  // tüm satış, konsinyede komisyon).
+  const { data: summary } = useQuery({
+    queryKey: ['sales', 'summary', monthAgo, today],
+    queryFn: () => fetchSalesSummary({ from: monthAgo, to: today }),
+  });
+  const totalCount = summary?.count ?? sales.length;
+  const totalProfit =
+    summary?.businessMargin ?? sales.reduce((s, x) => s + Number(x.businessMargin || 0), 0);
+  const totalSales = summary?.saleTotal ?? sales.reduce((s, x) => s + Number(x.saleTotal || 0), 0);
   // Katla/aç tercihi localStorage'da kalıcıdır → sayfa yenilense de korunur.
   // Katlıyken yalnızca adet, ciro ve kâr özeti görünür (kartlar gizlenir).
   const [collapsed, setCollapsed] = useState(
@@ -149,9 +159,9 @@ function RecentSales() {
           🧾 Malzeme satışları
           <span className="text-xs font-normal text-slate-500">(son 30 gün)</span>
         </button>
-        {sales.length > 0 && (
+        {totalCount > 0 && (
           <span className="text-xs text-slate-500">
-            {sales.length} satış · Ciro:{' '}
+            {totalCount} satış · Ciro:{' '}
             <span className="font-semibold text-slate-800">{money.format(totalSales)}</span> · Kâr:{' '}
             <span className="font-semibold text-emerald-700 dark:text-emerald-400">
               {money.format(totalProfit)}
@@ -160,6 +170,11 @@ function RecentSales() {
         )}
       </div>
       {!collapsed && isLoading && <LoadingBlock rows={2} label="Satışlar yükleniyor…" />}
+      {!collapsed && totalCount > sales.length && sales.length > 0 && (
+        <p className="text-xs text-slate-500">
+          Son {sales.length} satış listeleniyor; toplamlar son 30 günün tamamını kapsar.
+        </p>
+      )}
       {!collapsed &&
         sales.map((s) => (
         <div key={s.id} className="card space-y-2">
@@ -279,11 +294,11 @@ function ProcessingHistory() {
     setFilterKey((k) => k + 1);
   };
 
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
+  const { data: categories } = useMaterialCategories();
   const { grouped, toggle: toggleGroup } = useListGrouping();
+  // Arama yazma bitince (~300 ms) uygulanır; yeni sonuç gelene kadar önceki
+  // liste kalır (iskelete dönüp titremez).
+  const searchTerm = useDebounced(search.trim());
   const { data, isLoading } = useQuery({
     queryKey: [
       'processing-history',
@@ -292,7 +307,7 @@ function ProcessingHistory() {
       status,
       categoryId,
       customerId,
-      search,
+      searchTerm,
       page,
       pageSize,
     ],
@@ -303,10 +318,11 @@ function ProcessingHistory() {
         status: status || undefined,
         categoryId: categoryId || undefined,
         customerId: customerId || undefined,
-        search: search || undefined,
+        search: searchTerm || undefined,
         page,
         limit: pageSize,
       }),
+    placeholderData: keepPreviousData,
   });
 
   return (
@@ -589,18 +605,21 @@ export function ProcessingQueuePage() {
   const [filterCustomerId, setFilterCustomerId] = useState('');
   const [search, setSearch] = useState('');
   const [filterKey, setFilterKey] = useState(0); // CustomerPicker'ı sıfırlamak için
-  const { data: categories } = useQuery({
-    queryKey: ['material-categories'],
-    queryFn: fetchMaterialCategories,
-  });
-  const { data, isLoading } = useQuery({
-    queryKey: ['queue', categoryId, filterCustomerId, search],
+  const { data: categories } = useMaterialCategories();
+  // Arama yazma bitince (~300 ms) uygulanır; önceki liste yeni sonuca kadar kalır.
+  const searchTerm = useDebounced(search.trim());
+  const queueKey = ['queue', categoryId, filterCustomerId, searchTerm];
+  const { data, isLoading, isPlaceholderData } = useQuery({
+    queryKey: queueKey,
     queryFn: () =>
       fetchQueue({
         categoryId: categoryId || undefined,
         customerId: filterCustomerId || undefined,
-        search: search || undefined,
+        search: searchTerm || undefined,
       }),
+    // Yalnız arama yazılırken önceki liste kalır; tür/sahip süzgeci değişince
+    // eski süzgecin işleri gösterilmez ("Tümünü tamamla" onlara uygulanmasın).
+    placeholderData: keepWhileSearching(queueKey),
   });
 
   const mut = useMutation({
@@ -623,15 +642,26 @@ export function ProcessingQueuePage() {
     },
   });
 
-  // #1 "Tümünü Tamamla": kuyrukta görünen (filtrelenmiş) tüm işleri sırayla
-  // COMPLETED yapar (stok düşer + faturalanır). Kalan parça/nihai fiyat sorulmaz.
+  // #1 "Tümünü Tamamla": kuyrukta görünen (filtrelenmiş) tüm işleri COMPLETED
+  // yapar (stok düşer + faturalanır). Kalan parça/nihai fiyat sorulmaz. Farklı
+  // plakaların işleri 4'er 4'er gönderilir; aynı plakanın işleri sırayla (stok
+  // düşümü çakışmasın). Biri başarısız olsa da diğerleri tamamlanır ve sonuç
+  // ne olursa olsun listeler tazelenir.
   const bulkComplete = useMutation({
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        await setProcessingStatus(id, 'completed');
+    mutationFn: async (jobs: { id: string; plateId: string }[]) => {
+      const byPlate = new Map<string, string[]>();
+      for (const j of jobs) {
+        const ids = byPlate.get(j.plateId);
+        if (ids) ids.push(j.id);
+        else byPlate.set(j.plateId, [j.id]);
       }
+      const results = await mapLimit([...byPlate.values()], 4, async (ids) => {
+        for (const id of ids) await setProcessingStatus(id, 'completed');
+      });
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed) throw failed.reason;
     },
-    onSuccess: () => {
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['queue'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['plates'] });
@@ -660,7 +690,7 @@ export function ProcessingQueuePage() {
       confirmText: 'Tümünü tamamla',
       danger: false,
     });
-    if (ok) bulkComplete.mutate(allJobs.map((j) => j.id));
+    if (ok) bulkComplete.mutate(allJobs.map((j) => ({ id: j.id, plateId: j.plateId })));
   };
 
   const renderCard = (job: ProcessingJob) => (
@@ -701,7 +731,7 @@ export function ProcessingQueuePage() {
             {allJobs.length > 0 && (
               <button
                 className="btn-success"
-                disabled={bulkComplete.isPending || mut.isPending}
+                disabled={bulkComplete.isPending || mut.isPending || isPlaceholderData}
                 onClick={completeAll}
               >
                 {bulkComplete.isPending && <Spinner />}
