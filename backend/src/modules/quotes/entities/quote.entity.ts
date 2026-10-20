@@ -85,6 +85,30 @@ export class Quote extends ShopScopedEntity {
   @Column({ type: 'text', nullable: true })
   note?: string;
 
+  /**
+   * Dükkân bilgisayarındaki runner bu teklifin klasörlerini açtığını
+   * bildirdiği an, açtığı müşteri klasörü ve bilgisayarın adı.
+   */
+  @Column({ name: 'folders_created_at', type: 'timestamptz', nullable: true })
+  foldersCreatedAt?: Date | null;
+
+  @Column({ name: 'folders_path', type: 'varchar', length: 500, nullable: true })
+  foldersPath?: string | null;
+
+  @Column({ name: 'folders_host', type: 'varchar', length: 120, nullable: true })
+  foldersHost?: string | null;
+
+  /** Runner'ın notu (ör. yeniden adlandırılamayan klasör). */
+  @Column({ name: 'folders_note', type: 'text', nullable: true })
+  foldersNote?: string | null;
+
+  /**
+   * Klasörlerin yeniden istendiği an (runner kapalıyken dönüşen ya da
+   * klasörü silinen teklif için). Runner bundan sonra açınca düşer.
+   */
+  @Column({ name: 'folders_requested_at', type: 'timestamptz', nullable: true })
+  foldersRequestedAt?: Date | null;
+
   @OneToMany(() => QuoteItem, (item) => item.quote, {
     cascade: true,
     eager: true,

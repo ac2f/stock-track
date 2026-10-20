@@ -35,7 +35,8 @@ import { groupChipClass } from '../../components/GroupSection';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
-import { updateQuote } from '../../api/quotes.api';
+import { requestQuoteFolders, updateQuote } from '../../api/quotes.api';
+import { QuoteFolders, RunnerBadge, folderPending, runnerSummary, useRunners } from '../../components/RunnerStatus';
 import { fetchCutPricing } from '../../api/settings.api';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -568,6 +569,10 @@ export function QuotesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['quotes', filters],
     queryFn: () => fetchQuotes(filters),
+    // Yeni dönen ya da klasörü istenen teklif varken klasörün açıldığı
+    // kendiliğinden görünsün.
+    refetchInterval: (query) =>
+      query.state.data?.items.some((q) => folderPending(q)) ? 8_000 : false,
   });
   // Filtre açılır listeleri için müşteri ve tür (kategori) listeleri.
   const { data: customers } = useQuery({
@@ -647,6 +652,13 @@ export function QuotesPage() {
   const [completeOnConvert, setCompleteOnConvert] = useState<
     Record<string, boolean>
   >({});
+  // Dükkân bilgisayarındaki runner (klasörleri açan) ve klasör isteği.
+  const { data: runners } = useRunners();
+  const folderMut = useMutation({
+    mutationFn: (id: string) => requestQuoteFolders(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
+  });
+
   const convertMut = useMutation({
     mutationFn: ({
       id,
@@ -664,6 +676,12 @@ export function QuotesPage() {
       if (res.saleId) parts.push('satış oluşturuldu');
       if (res.processingJobIds.length)
         parts.push(`${res.processingJobIds.length} işleme kuyruğa eklendi`);
+      const runner = runnerSummary(qc.getQueryData(['corel-runners']));
+      parts.push(
+        runner.tone === 'ok' || runner.tone === 'warn'
+          ? 'klasörler dükkân bilgisayarında açılıyor'
+          : `klasörler açılamayacak: ${runner.text.toLowerCase()}`,
+      );
       setConvertMsg({
         text: parts.length
           ? `Dönüştürüldü: ${parts.join(' · ')}.`
@@ -703,6 +721,7 @@ export function QuotesPage() {
         subtitle="Satış ve işleme kalemlerini tek teklifte toplayın; kabul edilen teklifi satışa ve üretim kuyruğuna dönüştürün."
         actions={
           <>
+            <RunnerBadge />
             <DensityToggle mini={mini} onToggle={toggleMini} />
             <Can module="quotes" level="write">
               {showForm ? (
@@ -948,6 +967,14 @@ export function QuotesPage() {
                 {!mini && q.note && (
                   <p className="line-clamp-2 text-xs italic text-slate-500">“{q.note}”</p>
                 )}
+                <QuoteFolders
+                  quote={q}
+                  runners={runners}
+                  compact={mini}
+                  canRequest={can('quotes', 'write')}
+                  requesting={folderMut.isPending && folderMut.variables === q.id}
+                  onRequest={() => folderMut.mutate(q.id)}
+                />
 
                 {/* Eylemler: sıradaki adım dolgulu, diğerleri ikincil, Sil en sonda. */}
                 <div

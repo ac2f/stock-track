@@ -65,6 +65,15 @@ export class QuotesController {
     });
   }
 
+  /**
+   * İşe dönüşmüş teklifin klasörlerini dükkân bilgisayarından yeniden ister
+   * (runner kapalıyken dönüştüyse ya da klasör silindiyse).
+   */
+  @Post(':id/request-folders')
+  requestFolders(@Param('id', ParseUUIDPipe) id: string) {
+    return this.quotesService.requestFolders(id);
+  }
+
   // Teklifi sil: kuyruk işlerini + (varsa) dönüşen satışı geri alır, ekstreden düşer.
   @Delete(':id')
   @HttpCode(204)

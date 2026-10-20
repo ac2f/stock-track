@@ -1,3 +1,4 @@
+import { RunnerPanel } from '../../components/RunnerStatus';
 import { useAuth } from '../../context/AuthContext';
 import {
   createContext,
@@ -1151,6 +1152,16 @@ function CorelIntegrationCard() {
             bağlayın.
           </p>
         </div>
+      </SubBox>
+
+      {/* Dükkân bilgisayarındaki runner: teklif işe dönünce klasörleri açar. */}
+      <SubBox title="Otomatik klasörler (dükkân bilgisayarı)">
+        <p className="text-xs text-slate-500">
+          Teklif <b>işe dönüştürülünce</b> müşteri ve takım yolu klasörlerini dükkân
+          bilgisayarındaki StockTrack Runner açar (teklif oluşturulunca değil). Runner aynı
+          anahtarla bağlanır ve her 30 sn'de bir durumunu bildirir.
+        </p>
+        <RunnerPanel canManage={enabled} />
       </SubBox>
     </SettingsSection>
   );

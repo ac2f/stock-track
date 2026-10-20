@@ -186,12 +186,21 @@ türleri ve stok listesinde tür seçince **marka / kalınlık / ebat / renk
 
 ## Otomatik klasörler (runner)
 
-Teklif **işe dönüştürülünce** dükkân bilgisayarında gün › müşteri › takım
-yolu klasörleri kendiliğinden açılır. Bunu sunucu değil, dükkân
-bilgisayarında çalışan **[stock-track-runner](https://github.com/ac2f/stock-track-runner)**
+Teklif **işe dönüştürülünce** (oluşturulunca değil) dükkân bilgisayarında
+gün › müşteri › takım yolu klasörleri kendiliğinden açılır. Bunu sunucu
+değil, dükkân bilgisayarında çalışan **[stock-track-runner](https://github.com/ac2f/stock-track-runner)**
 yapar (sunucu uzakta olabilir, bilgisayara yazamaz). Runner dükkânın Corel
 anahtarıyla `/corel/jobs` ucunu okur; klasör adları Corel eklentisiyle
 aynıdır. Kurulum: runner deposundaki `install.bat`.
+
+**Çalışıyor mu?**
+- StockTrack › *Ayarlar › Corel entegrasyonu › Otomatik klasörler*: her
+  bilgisayar için bağlı / bağlantı yok, son nabız, gün klasörü, son açılan
+  klasör ve varsa sorun.
+- *Teklifler* başlığındaki rozet (“Runner bağlı · DUKKAN-PC”) ve her işe dönmüş
+  teklifte “📁 Klasörler açıldı: gün › müşteri” ya da neden açılmadığı.
+  Runner kapalıyken dönen teklif için **Klasörleri yeniden iste**.
+- Dükkân bilgisayarında masaüstündeki **StockTrack Runner Durumu** penceresi.
 
 ## Kurulum
 

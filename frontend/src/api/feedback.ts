@@ -42,6 +42,7 @@ const SPECIAL: [RegExp, string][] = [
   [/\/price-rules\/[^/]+\/reference$/, 'Çatı fiyatı seçildi'],
   [/\/plates\/[^/]+\/retail-price$/, 'Kalem fiyatı güncellendi'],
   [/\/material-templates\/[^/]+\/merge$/, 'Ürün türleri birleştirildi'],
+  [/\/request-folders$/, 'Klasörler dükkân bilgisayarından istendi'],
 ];
 
 /** Bildirim gösterilmeyen istekler (oturum işlemleri). */

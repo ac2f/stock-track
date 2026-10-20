@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   Res,
   UseGuards,
@@ -14,6 +17,8 @@ import { CorelKeyGuard } from './corel-key.guard';
 import { CorelService } from './corel.service';
 import { QueryCorelDto, QueryCorelJobsDto } from './dto/query-corel.dto';
 import { CorelJob } from './corel-naming.util';
+import { CorelRunnerService } from './corel-runner.service';
+import { JobFoldersDto, RunnerHeartbeatDto } from './dto/runner.dto';
 
 const TEXT = 'text/plain; charset=utf-8';
 
@@ -22,7 +27,8 @@ const TEXT = 'text/plain; charset=utf-8';
  *
  * JWT yerine Ayarlar'da üretilen anahtar (`X-Api-Key`) ister. Yanıtlar
  * sekmeyle ayrılmış düz metindir; ilk satır `#ac2f-corel 1` sürüm başlığıdır.
- * Hiçbir uç kayıt yazmaz.
+ * Eklentinin uçları kayıt yazmaz; yalnız runner nabzını ve açtığı klasörü
+ * bildirir (JSON).
  */
 @ApiTags('corel')
 @ApiHeader({ name: 'X-Api-Key', required: true })
@@ -30,7 +36,10 @@ const TEXT = 'text/plain; charset=utf-8';
 @UseGuards(CorelKeyGuard)
 @Controller({ path: 'corel', version: '1' })
 export class CorelController {
-  constructor(private readonly corel: CorelService) {}
+  constructor(
+    private readonly corel: CorelService,
+    private readonly runners: CorelRunnerService,
+  ) {}
 
   /** `ok <TAB> işletme adı` — eklentinin bağlantı denemesi. */
   @Get('ping')
@@ -98,6 +107,29 @@ export class CorelController {
   @Get('jobs')
   jobs(@Query() query: QueryCorelJobsDto): Promise<CorelJob[]> {
     return this.corel.jobs(query.since, query.limit);
+  }
+
+  /**
+   * Klasörleri arayüzden yeniden istenen teklifler (runner kapalıyken dönüşen
+   * ya da klasörü silinen). Runner açıp bildirince listeden düşer.
+   */
+  @Get('jobs/requested')
+  requestedJobs(): Promise<CorelJob[]> {
+    return this.corel.requestedJobs();
+  }
+
+  /** Runner açtığı müşteri klasörünü bildirir; teklifte "klasör açıldı" görünür. */
+  @Post('jobs/:id/folders')
+  @HttpCode(200)
+  reportFolders(@Param('id', ParseUUIDPipe) id: string, @Body() dto: JobFoldersDto) {
+    return this.runners.reportFolders(id, dto);
+  }
+
+  /** Runner'ın her turdaki nabzı: bağlı mı, gün klasörü, son hata. */
+  @Post('runner/heartbeat')
+  @HttpCode(200)
+  heartbeat(@Body() dto: RunnerHeartbeatDto) {
+    return this.runners.heartbeat(dto);
   }
 
   /**

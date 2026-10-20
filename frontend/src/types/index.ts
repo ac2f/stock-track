@@ -376,6 +376,13 @@ export interface Quote {
   note?: string | null;
   validUntil?: string | null;
   createdAt: string;
+  convertedAt?: string | null;
+  /** Dükkân bilgisayarındaki runner'ın açtığı müşteri klasörü ve zamanı. */
+  foldersCreatedAt?: string | null;
+  foldersPath?: string | null;
+  foldersHost?: string | null;
+  foldersNote?: string | null;
+  foldersRequestedAt?: string | null;
   items: QuoteItem[];
 }
 

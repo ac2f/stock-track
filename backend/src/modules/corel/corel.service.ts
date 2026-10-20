@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
+import { In, IsNull, MoreThan, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { QuoteStatus } from '../../common/enums/quote-status.enum';
 import { MeasurementType } from '../../common/enums/measurement-type.enum';
 import { Customer } from '../customers/entities/customer.entity';
@@ -216,27 +216,47 @@ export class CorelService {
       order: { convertedAt: 'ASC', id: 'ASC' },
       take: limit,
     });
+    return quotes.filter((q) => q.convertedAt).map((q) => this.toJob(q));
+  }
+
+  /**
+   * Klasörleri yeniden istenmiş ve o istekten sonra henüz açılmamış
+   * (runner bildirmemiş) işe dönüşmüş teklifler.
+   */
+  async requestedJobs(limit = DEFAULT_JOBS): Promise<CorelJob[]> {
+    const quotes = await this.quotesRepo.find({
+      where: { status: QuoteStatus.CONVERTED, foldersRequestedAt: Not(IsNull()) },
+      order: { foldersRequestedAt: 'ASC' },
+      take: 200,
+    });
     return quotes
-      .filter((q) => q.convertedAt)
-      .map((q) => {
-        const c = q.buyerCustomer;
-        const label = customerLine({
-          id: q.buyerCustomerId,
-          name: c?.name ?? '',
-          companyName: c?.companyName,
-          phone: null,
-        }).split('\t')[2];
-        return {
-          id: q.id,
-          quoteNo: q.quoteNo,
-          createdAt: q.createdAt.toISOString(),
-          convertedAt: q.convertedAt!.toISOString(),
-          customerId: q.buyerCustomerId,
-          customerFolder: customerFolderName(c?.name, c?.companyName),
-          customerLabel: label,
-          sheets: (q.items ?? []).filter(isSheetItem).map(jobSheet),
-        };
-      });
+      .filter(
+        (q) =>
+          q.convertedAt &&
+          (!q.foldersCreatedAt || q.foldersCreatedAt < (q.foldersRequestedAt as Date)),
+      )
+      .slice(0, limit)
+      .map((q) => this.toJob(q));
+  }
+
+  private toJob(q: Quote): CorelJob {
+    const c = q.buyerCustomer;
+    const label = customerLine({
+      id: q.buyerCustomerId,
+      name: c?.name ?? '',
+      companyName: c?.companyName,
+      phone: null,
+    }).split('\t')[2];
+    return {
+      id: q.id,
+      quoteNo: q.quoteNo,
+      createdAt: q.createdAt.toISOString(),
+      convertedAt: q.convertedAt!.toISOString(),
+      customerId: q.buyerCustomerId,
+      customerFolder: customerFolderName(c?.name, c?.companyName),
+      customerLabel: label,
+      sheets: (q.items ?? []).filter(isSheetItem).map(jobSheet),
+    };
   }
 
   /** Bir teklifin tabaka kalemleri ve her birinden kullanılan ölçü. */

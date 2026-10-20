@@ -187,6 +187,18 @@ export class QuotesService {
     return buildPaginatedResult(ordered, total, query.page, query.limit);
   }
 
+  /** Runner'dan klasörleri yeniden ister; yalnız işe dönüşmüş teklifte. */
+  async requestFolders(id: string): Promise<Quote> {
+    const quote = await this.findOne(id);
+    if (quote.status !== QuoteStatus.CONVERTED) {
+      throw new BadRequestException(
+        'Klasörler teklif işe dönüştürülünce açılır; önce teklifi işe dönüştürün.',
+      );
+    }
+    await this.quotesRepo.update(id, { foldersRequestedAt: new Date() });
+    return this.findOne(id);
+  }
+
   async findOne(id: string): Promise<Quote> {
     const quote = await this.quotesRepo.findOne({
       where: { id },

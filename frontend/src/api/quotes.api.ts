@@ -71,6 +71,12 @@ export async function convertQuote(
  * Teklifi sil: teklife ait tüm kuyruk (işleme) işlerini ve (dönüştürülmüşse)
  * satışı geri alır → ilgili borçlar cari ekstreden düşer.
  */
+/** İşe dönüşmüş teklifin klasörlerini dükkân bilgisayarından yeniden ister. */
+export async function requestQuoteFolders(id: string): Promise<Quote> {
+  const { data } = await api.post<Quote>(`/quotes/${id}/request-folders`);
+  return data;
+}
+
 export async function deleteQuote(id: string): Promise<void> {
   await api.delete(`/quotes/${id}`);
 }
