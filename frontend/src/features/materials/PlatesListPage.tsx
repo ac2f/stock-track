@@ -1604,6 +1604,32 @@ function OwnerChip({ plate, className = '' }: { plate: Plate; className?: string
   );
 }
 
+/** Başka dükkândan alınan kalem: hangi dükkândan (belgeye bağlantı). */
+function OriginChip({ plate }: { plate: Plate }) {
+  if (!plate.origin) return null;
+  return (
+    <Link
+      to={`/shop-transfers?q=${encodeURIComponent(plate.origin.transferNo)}`}
+      className="badge bg-sky-100 text-sky-800 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-200"
+      title={`${plate.origin.transferNo} · ${formatDate(plate.origin.transferDate)} — kime satıldığını izlemek için açın`}
+    >
+      🏬 {plate.origin.fromShopName} dükkânından
+    </Link>
+  );
+}
+
+/** Başka dükkâna satış bağlantısı (birden çok dükkâna girebilen, satış yetkili kullanıcıya). */
+function SellToShopLink({ plate }: { plate: Plate }) {
+  const { can, shops } = useAuth();
+  if (!can('sales', 'write') || shops.filter((s) => s.isActive).length < 2) return null;
+  if (!(Number(plate.quantityInStock) > 0)) return null;
+  return (
+    <Link className="btn-secondary btn-sm" to={`/shop-transfers?plate=${plate.id}`} title="Bu malzemeyi başka bir dükkâna sat">
+      🔁 Dükkâna sat
+    </Link>
+  );
+}
+
 /** Miktar rozeti: bitti kırmızı, az kaldı sarı, yeterli yeşil. */
 function QtyBadge({ plate }: { plate: Plate }) {
   return (
@@ -1672,6 +1698,7 @@ function PlateCard({ plate }: { plate: Plate }) {
       {/* Sahip rozeti + stok/işlenme tarihi. */}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
         <OwnerChip plate={plate} />
+        <OriginChip plate={plate} />
         {plate.addedAt && <span>Stok: {formatDate(plate.addedAt)}</span>}
         {plate.processedAt && <span>İşlendi: {formatDate(plate.processedAt)}</span>}
       </div>
@@ -1683,6 +1710,7 @@ function PlateCard({ plate }: { plate: Plate }) {
         >
           {editing ? 'Kapat' : 'Düzenle'}
         </button>
+        <SellToShopLink plate={plate} />
       </div>
       {editing && <EditPlateForm plate={plate} onClose={() => setEditing(false)} />}
     </div>
@@ -1706,6 +1734,7 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
             dims && <span className="text-xs text-slate-500">{dims}</span>
           )}
           <OwnerChip plate={plate} />
+          <OriginChip plate={plate} />
         </div>
         <QtyBadge plate={plate} />
         <button

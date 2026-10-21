@@ -464,3 +464,17 @@ Eskiden tüm tabloda tekil olan alanlar artık `(shop_id, alan)` olarak tekildir
 açılışta boş kalan her kayıt ilk dükkâna atanır, mevcut çalışanlar oraya
 eklenir, Telegram bot/yedek ayarları `system_settings`'e taşınır
 (`modules/shops/shop-migration.ts`, her açılışta çalışır, tekrarı zararsız).
+
+## v5 Genişletme (dükkânlar arası satış)
+
+| Tablo / Kolon | Açıklama |
+| ------------- | -------- |
+| `shop_transfers` | Dükkânlar arası satış belgesi (dükkâna süzülmez; iki dükkâna aittir): `transfer_no` (unique, `DA-YYYY-NNNN`, bütün sistemde tek sıra), `from_shop_id`, `to_shop_id`, `transfer_date`, `status` (completed/cancelled), `currency`, `total_amount`, `note`, `sale_id` (satan dükkândaki satış), `buyer_customer_id`, `purchase_order_id` (alan dükkândaki alış), `supplier_id`, `created_by_id`, `cancelled_at`, `cancelled_by_id`. |
+| `shop_transfer_items` | Belge kalemi: `transfer_id` (CASCADE), `line_no`, `source_plate_id` (satan dükkândaki kalem), `target_plate_id` (alan dükkânda açılan kalem — sonraki satışlar bununla izlenir), `plate_name`, `category_name`, `measurement_type`, `quantity`, `width_mm`, `height_mm`, `unit_price` (tabakada m² başına), `line_total`. Tabakada her parça ayrı satırdır. |
+| `customers.linked_shop_id` (+kolon) | Cari başka bir dükkânı temsil eder (satan dükkânda alıcı). |
+| `suppliers.linked_shop_id` (+kolon) | Tedarikçi başka bir dükkânı temsil eder (alan dükkânda satıcı). |
+| `purchase_order_items.width_mm`, `height_mm` (+kolon) | Alınan parçanın ölçüsü (ops.). Verilirse alış maliyeti (m²) bu ölçüden hesaplanır. |
+
+Belge numarası, eşzamanlı iki satışta çakışmasın diye transaction boyunca
+`pg_advisory_xact_lock` ile alınır. Satış, alış, yeni stok kalemleri ve belge
+tek transaction'da yazılır; biri başarısız olursa hiçbiri kalmaz.

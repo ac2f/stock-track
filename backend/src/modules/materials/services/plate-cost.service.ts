@@ -33,6 +33,8 @@ interface PurchaseRow {
   supplier: string | null;
   width_mm: string | null;
   height_mm: string | null;
+  item_width_mm: string | null;
+  item_height_mm: string | null;
 }
 
 /**
@@ -78,9 +80,15 @@ export class PlateCostService {
       const base = await this.toBase(price, cur, row.purchase_date);
       let unitCost: number | null = base;
       if (base != null && unit === MeasurementType.AREA) {
-        // Alınan tabakanın alanı: ürün türünün standart tabakası, yoksa alınan kalemin ölçüsü.
-        const w = Number(p.template?.defaultSize?.widthMm ?? row.width_mm ?? p.widthMm);
-        const h = Number(p.template?.defaultSize?.heightMm ?? row.height_mm ?? p.heightMm);
+        // Alınan tabakanın alanı: alışta parça ölçüsü yazıldıysa o (kesilmiş
+        // parça alımı), yoksa ürün türünün standart tabakası, yoksa kalemin ölçüsü.
+        const piece = Number(row.item_width_mm) > 0 && Number(row.item_height_mm) > 0;
+        const w = Number(
+          piece ? row.item_width_mm : p.template?.defaultSize?.widthMm ?? row.width_mm ?? p.widthMm,
+        );
+        const h = Number(
+          piece ? row.item_height_mm : p.template?.defaultSize?.heightMm ?? row.height_mm ?? p.heightMm,
+        );
         const area = w > 0 && h > 0 ? (w / 1000) * (h / 1000) : 0;
         unitCost = area > 0 ? roundMoney(base / area) : null;
       }
@@ -102,7 +110,8 @@ export class PlateCostService {
   private async latest(keyCol: string, keys: string[], shopId: string): Promise<Map<string, PurchaseRow>> {
     const rows: PurchaseRow[] = await this.dataSource.query(
       `SELECT DISTINCT ON (${keyCol}) ${keyCol} AS key, poi.unit_price, po.currency,
-              po.purchase_date, s.name AS supplier, pl.width_mm, pl.height_mm
+              po.purchase_date, s.name AS supplier, pl.width_mm, pl.height_mm,
+              poi.width_mm AS item_width_mm, poi.height_mm AS item_height_mm
          FROM purchase_order_items poi
          JOIN purchase_orders po ON po.id = poi.purchase_order_id AND po.deleted_at IS NULL
          JOIN material_plates pl ON pl.id = poi.plate_id

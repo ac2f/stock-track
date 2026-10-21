@@ -31,4 +31,15 @@ export class PurchaseOrderItem extends ShopScopedEntity {
 
   @Column({ name: 'line_total', type: 'numeric', precision: 14, scale: 2 })
   lineTotal: number;
+
+  /**
+   * Alınan parçanın ölçüsü (tabaka malzemede, isteğe bağlı). Verilirse alış
+   * maliyeti (m²) standart tabaka yerine bu ölçüden hesaplanır — kesilmiş
+   * parça alımında (ör. başka dükkândan) maliyet doğru çıksın.
+   */
+  @Column({ name: 'width_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  widthMm?: number | null;
+
+  @Column({ name: 'height_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  heightMm?: number | null;
 }

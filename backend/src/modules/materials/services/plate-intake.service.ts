@@ -77,6 +77,22 @@ export class PlateIntakeService {
     return { created: plateIds.length, plateIds, autoCreated };
   }
 
+  /**
+   * Kalemin bu dükkândaki şablonunu ADLARDAN bulur ya da açar (tür, marka,
+   * renk, kalınlık, ebat). Dükkânlar arası satışta karşı dükkânın kataloğunda
+   * aynı malzemenin karşılığını bulmak için kullanılır.
+   */
+  resolveTemplateByNames(item: BatchPlateItemDto): Promise<string> {
+    return this.resolveTemplate(item, {
+      categories: [],
+      brands: [],
+      colors: [],
+      sizes: [],
+      thicknesses: [],
+      templates: [],
+    });
+  }
+
   /** BatchPlateItemDto'dan yalnızca plaka alanlarını ayıklar (ad alanları hariç). */
   private plateFields(item: BatchPlateItemDto) {
     const {

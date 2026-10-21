@@ -97,6 +97,8 @@ import { PlateCostService } from './services/plate-cost.service';
   // Satın alma & işleme modülleri stok ayarı için PlatesService kullanır.
   exports: [
     PlatesService,
+    PlateIntakeService, // dükkânlar arası satış: karşı dükkânda şablon eşleme
+    PlateCostService,
     MaterialTemplatesService,
     MaterialCategoriesService,
     CatalogDedupeService,

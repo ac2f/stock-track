@@ -184,6 +184,15 @@ function RecentSales() {
               <p className="text-xs text-slate-500">
                 {formatDate(s.saleDate)} · {relativeDay(s.saleDate)}
               </p>
+              {s.shopTransfer && (
+                <Link
+                  to={`/shop-transfers?q=${encodeURIComponent(s.shopTransfer.transferNo)}`}
+                  className="badge mt-1 bg-sky-100 text-sky-800 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-200"
+                  title="Dükkânlar arası satış belgesi — malzemenin o dükkânda kime satıldığını gösterir"
+                >
+                  🔁 {s.shopTransfer.toShopName} dükkânına · {s.shopTransfer.transferNo}
+                </Link>
+              )}
             </div>
             <div className="flex shrink-0 items-start gap-2">
               <div className="text-right">
@@ -209,6 +218,14 @@ function RecentSales() {
                 <span className="min-w-0">
                   {it.plate?.name ?? it.itemName ?? '—'} · {saleItemMeasure(it)} ×{' '}
                   {money.format(Number(it.unitPrice))}
+                  {it.origin && (
+                    <span
+                      className="ml-1 whitespace-nowrap text-sky-700 dark:text-sky-300"
+                      title={`${it.origin.transferNo} belgesiyle alındı`}
+                    >
+                      · 🏬 {it.origin.fromShopName} dükkânından alınan
+                    </span>
+                  )}
                 </span>
                 <span className="shrink-0 text-right font-medium">
                   {money.format(Number(it.lineTotal))}

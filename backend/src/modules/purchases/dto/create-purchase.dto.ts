@@ -23,6 +23,17 @@ export class PurchaseItemDto {
   @IsNumber()
   @Min(0)
   unitPrice: number;
+
+  // Tabaka malzemede alınan parçanın ölçüsü (ops.) — m² maliyeti bundan hesaplanır.
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  widthMm?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  heightMm?: number;
 }
 
 export class CreatePurchaseDto {

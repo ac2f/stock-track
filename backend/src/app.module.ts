@@ -30,6 +30,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { BackupsModule } from './modules/backups/backups.module';
 import { CorelModule } from './modules/corel/corel.module';
 import { ShopsModule } from './modules/shops/shops.module';
+import { ShopTransfersModule } from './modules/shop-transfers/shop-transfers.module';
 import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { HealthController } from './health.controller';
 
@@ -65,6 +66,7 @@ import { HealthController } from './health.controller';
     ProcessingModule,
     CustomersModule,
     SalesModule,
+    ShopTransfersModule,
     QuotesModule,
     ReportsModule,
     ExpensesModule,

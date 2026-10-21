@@ -33,12 +33,22 @@ const BankReconciliationPage = lazyPage(
 );
 const ExpensesPage = lazyPage(() => import('./features/expenses/ExpensesPage'), 'ExpensesPage');
 const PurchasesPage = lazyPage(() => import('./features/purchases/PurchasesPage'), 'PurchasesPage');
+const ShopTransfersPage = lazyPage(
+  () => import('./features/shop-transfers/ShopTransfersPage'),
+  'ShopTransfersPage',
+);
 const SettingsPage = lazyPage(() => import('./features/settings/SettingsPage'), 'SettingsPage');
 
 /** Ekip ekranı: sistem sahibi ve en az bir dükkânın yöneticisi. */
 function TeamGate({ children }: { children: ReactNode }) {
   const { managesAnyShop } = useAuth();
   return <>{managesAnyShop ? children : <NoAccess what="Ekip ve yetkiler" />}</>;
+}
+
+/** Dükkânlar arası satış: satışları ya da satın almaları görebilen. */
+function TransfersGate({ children }: { children: ReactNode }) {
+  const { can } = useAuth();
+  return <>{can('sales') || can('purchases') ? children : <NoAccess what="Dükkânlar arası satış" />}</>;
 }
 
 function Placeholder({ title }: { title: string }) {
@@ -133,6 +143,14 @@ export default function App() {
             <Can module="purchases" fallback={<NoAccess what="Satın alma" />}>
               <PurchasesPage />
             </Can>
+          }
+        />
+        <Route
+          path="/shop-transfers"
+          element={
+            <TransfersGate>
+              <ShopTransfersPage />
+            </TransfersGate>
           }
         />
         <Route path="/processing" element={<Placeholder title="İşleme" />} />

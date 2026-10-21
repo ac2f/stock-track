@@ -228,6 +228,78 @@ verilmeden adlarla) aynı özellikli tür varsa o kullanılır.
 | GET | `/purchases` | 👥 | `?supplierId=&from=&to=` |
 | GET | `/purchases/:id` | 👥 | |
 
+Kalem: `{ plateId, quantity, unitPrice, widthMm?, heightMm? }`. Tabakada
+alınan parçanın ölçüsü verilirse alış maliyeti (m²) standart tabaka yerine bu
+ölçüden hesaplanır (kesilmiş parça alımı).
+
+## Shop transfers (Dükkânlar arası satış)
+Seçili dükkân (`X-Shop-Id`) **satan** taraftır.
+
+| Metot | Yol | İzin | Açıklama |
+|-------|-----|------|----------|
+| GET | `/shop-transfers/targets` | satış yazma | Malzeme satılabilecek diğer açık dükkânlar: `[{ id, name, canSell }]` — `canSell`: kullanıcının o dükkânda satın alma yazma izni var mı |
+| POST | `/shop-transfers` | satış yazma (+ alan dükkânda satın alma yazma) | Satış + karşı dükkânda alış, tek transaction |
+| GET | `/shop-transfers` | satış ya da satın alma okuma | `?direction=out\|in&search=&page=&limit=` — out: bu dükkânın sattıkları (satış okuma), in: aldıkları (satın alma okuma), boş: izin verdiği kadarı |
+| GET | `/shop-transfers/:id` | (aynı) | Belge ayrıntısı (izleme bilgisiyle) |
+| POST | `/shop-transfers/:id/cancel` | satış yazma, yalnız satan dükkân (+ alan dükkânda satın alma yazma) | Hiçbir parçası kullanılmamış belgeyi geri alır |
+
+`POST /shop-transfers` gövdesi:
+```json
+{
+  "toShopId": "…",
+  "warehouseId": "…",
+  "transferDate": "2026-10-21",
+  "currency": "TRY",
+  "note": "irsaliye 42",
+  "items": [
+    { "plateId": "…", "quantity": 2, "widthMm": 1220, "heightMm": 500, "unitPrice": 1000 },
+    { "plateId": "…", "quantity": 10, "unitPrice": 5 }
+  ]
+}
+```
+- Tabakada `unitPrice` m² başına, `quantity` parça adedi (tam sayı); ölçü
+  verilmezse kalan tabakanın tamamı satılır. Diğerlerinde ölçü birimi başına.
+- Satan dükkânda alan dükkânı temsil eden cari (`customers.linked_shop_id`),
+  alan dükkânda satan dükkânı temsil eden tedarikçi (`suppliers.linked_shop_id`)
+  ilk satışta kendiliğinden açılır.
+- Alan dükkânda katalog karşılığı (tür, marka, renk, kalınlık, standart
+  tabaka) adla bulunur, yoksa açılır. Tabakada her parça ayrı stok kalemidir.
+
+Yanıt (liste satırı da aynı biçimdedir):
+```json
+{
+  "id": "…", "transferNo": "DA-2026-0001", "status": "completed",
+  "direction": "out", "fromShop": { "id": "…", "name": "Merkez" }, "toShop": { "id": "…", "name": "Şube 2" },
+  "totalAmount": 1270, "currency": "TRY", "saleId": "…", "purchaseOrderId": "…",
+  "detailVisible": true, "canCancel": false,
+  "summary": { "items": 3, "inStock": 1, "partial": 1, "sold": 1 },
+  "items": [
+    {
+      "plateName": "…", "measurementType": "area", "quantity": 1, "widthMm": 1220, "heightMm": 500,
+      "unitPrice": 1000, "lineTotal": 610, "targetPlateId": "…",
+      "state": "sold", "remainingRatio": 0,
+      "usages": [
+        { "kind": "sale", "at": "…", "customerName": "Son Alıcı", "toShopName": null,
+          "quantity": 1, "widthMm": 1220, "heightMm": 500, "amount": 915, "currency": "TRY" }
+      ]
+    }
+  ]
+}
+```
+- `state`: `in_stock` · `partial` · `sold` · `removed` (satış kaydı olmadan
+  stoktan çıktı) · `cancelled`. `remainingRatio`: tabakada kalan alan,
+  diğerlerinde kalan miktar oranı.
+- `usages`: alan dükkândaki satış kalemleri (`kind: sale`) ve iptal edilmemiş
+  işleme işleri (`kind: processing`, `status` ile). `toShopName`: müşteri
+  başka bir dükkânı temsil ediyorsa (zincir satış).
+- `detailVisible: false` → kullanıcı alan dükkânda satışları göremez;
+  `customerName` ve `amount` `null` döner.
+
+İlgili alanlar: `GET /plates` her kaleme (başka dükkândan alındıysa)
+`origin: { transferId, transferNo, transferDate, fromShopName }`; `GET /sales`
+satışa `shopTransfer: { id, transferNo, toShopName }`, kaleme
+`origin: { transferNo, fromShopName }` ekler.
+
 ## Processing (İşleme)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|

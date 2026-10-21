@@ -369,6 +369,12 @@ export async function depletePlate(plateId: string): Promise<unknown> {
 }
 
 /** Gelişmiş filtreleme ile plaka listesi. */
+/** Tek stok kalemi (bağlantıyla gelinen formlarda ön seçim için). */
+export async function fetchPlate(id: string): Promise<Plate> {
+  const { data } = await api.get<Plate>(`/plates/${id}`);
+  return data;
+}
+
 export async function fetchPlates(
   filters: PlateFilters,
 ): Promise<Paginated<Plate>> {

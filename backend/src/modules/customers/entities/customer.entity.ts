@@ -62,6 +62,14 @@ export class Customer extends ShopScopedEntity {
   @Column({ name: 'portal_token', type: 'varchar', nullable: true, select: false })
   portalToken?: string | null;
 
+  /**
+   * Bu cari başka bir DÜKKÂNI temsil eder (dükkânlar arası satışta alıcı).
+   * Kendiliğinden açılır; bakiyesi o dükkânın bu dükkâna borcudur.
+   */
+  @Index()
+  @Column({ name: 'linked_shop_id', type: 'uuid', nullable: true })
+  linkedShopId?: string | null;
+
   @OneToMany(() => CustomerLedgerEntry, (entry) => entry.customer)
   ledgerEntries?: CustomerLedgerEntry[];
 

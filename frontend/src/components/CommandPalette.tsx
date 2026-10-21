@@ -48,6 +48,8 @@ interface QuickAction {
   module: ShopModule;
   level: 'read' | 'write';
   keywords?: string;
+  /** Yalnız birden çok dükkâna girebilen kullanıcıya. */
+  multiShop?: boolean;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
@@ -58,6 +60,7 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: 'new-expense', icon: '🧾', label: 'Gider gir', to: '/expenses?new=1', module: 'expenses', level: 'write', keywords: 'masraf ekle' },
   { id: 'new-purchase', icon: '🛒', label: 'Yeni alım', to: '/purchases?new=1', module: 'purchases', level: 'write', keywords: 'satın alma tedarikçi' },
   { id: 'debtors', icon: '⚠️', label: 'Borçlu müşteriler', to: '/customers?debt=1', module: 'customers', level: 'read', keywords: 'alacak borç liste' },
+  { id: 'shop-transfer', icon: '🔁', label: 'Başka dükkâna malzeme sat', to: '/shop-transfers?new=1', module: 'sales', level: 'write', multiShop: true, keywords: 'dükkân şube transfer aktarım' },
 ];
 
 const RECENT_KEY = 'st_palette_recent';
@@ -118,7 +121,8 @@ export function CommandPalette({
   onShowHelp: () => void;
 }) {
   const navigate = useNavigate();
-  const { can, logout, shop, isOwner, managesAnyShop } = useAuth();
+  const { can, logout, shop, shops, isOwner, managesAnyShop } = useAuth();
+  const multiShop = shops.filter((s) => s.isActive).length > 1;
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,7 +157,7 @@ export function CommandPalette({
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
     for (const a of QUICK_ACTIONS) {
-      if (!can(a.module, a.level)) continue;
+      if (!can(a.module, a.level) || (a.multiShop && !multiShop)) continue;
       list.push({ id: a.id, group: 'İşlemler', icon: a.icon, label: a.label, keywords: a.keywords, run: () => go(a.to) });
     }
     if (managesAnyShop) {
@@ -210,7 +214,7 @@ export function CommandPalette({
     list.push({ id: 'logout', group: 'Hesap', icon: '🚪', label: 'Çıkış yap', keywords: 'oturum kapat', run: logout });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav, can, isOwner, managesAnyShop]);
+  }, [nav, can, isOwner, managesAnyShop, multiShop]);
 
   const tokens = fold(q.trim()).split(/\s+/).filter(Boolean);
 

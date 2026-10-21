@@ -54,6 +54,8 @@ export class PurchasesService {
           quantity: it.quantity,
           unitPrice: it.unitPrice,
           lineTotal: roundMoney(it.quantity * it.unitPrice),
+          widthMm: it.widthMm ?? null,
+          heightMm: it.heightMm ?? null,
         }),
       );
 

@@ -253,6 +253,13 @@ export interface Plate {
   ownerCustomerIds?: string[];
   // Konsinye sahipleri kimlik + adla (sahip adı müşteri listesi çekilmeden gösterilir).
   ownerCustomers?: { id: string; name: string }[];
+  /** Başka dükkândan alındıysa: hangi dükkândan, hangi belgeyle. */
+  origin?: {
+    transferId: string;
+    transferNo: string;
+    transferDate: string;
+    fromShopName: string;
+  } | null;
   templateId?: string;
   template?: {
     category: MaterialCategory;
@@ -292,6 +299,8 @@ export interface PriceRow {
 export interface Customer {
   id: string;
   name: string;
+  /** Bu cari başka bir dükkânı temsil eder (dükkânlar arası satış). */
+  linkedShopId?: string | null;
   companyName?: string;
   phone?: string;
   email?: string;

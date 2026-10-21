@@ -172,8 +172,11 @@ export class SalesService {
         ? (await this.currencyService.convert(ownerAmount, currency, base, saleDate)).amount
         : 0;
 
+    // Kaynağı verilmemiş plakalı kalem işletme stoğundan düşer (kalem de öyle
+    // kaydedilir) → depo gerekir; aksi halde stok düşümü depo olmadan çalışıyordu.
     const needsWarehouse = saleItems.some(
       (i) =>
+        (i.plateId && i.stockSource == null) ||
         i.stockSource === SaleStockSource.BUSINESS ||
         i.stockSource === SaleStockSource.CONSIGNMENT_TRACKED,
     );
@@ -498,7 +501,64 @@ export class SalesService {
       loadEagerRelations: false,
       withDeleted: true, // tükenmiş plakaların adı satış listesinde görünsün
     });
+    await this.attachInterShop(items);
     return buildPaginatedResult(items, total, query.page, query.limit);
+  }
+
+  /**
+   * Dükkânlar arası satış işaretleri:
+   *  - satış başka bir dükkâna yapıldıysa `shopTransfer` (belge no, alan dükkân),
+   *  - kalemin malzemesi başka dükkândan alındıysa kaleme `origin` (satan dükkân).
+   * Böylece başka dükkândan alınıp müşteriye satılan malzeme listede belli olur.
+   */
+  private async attachInterShop(sales: Sale[]): Promise<void> {
+    if (!sales.length) return;
+    const plateIds = [
+      ...new Set(sales.flatMap((s) => (s.items ?? []).map((i) => i.plateId).filter(Boolean))),
+    ] as string[];
+    const [outgoing, origins]: [
+      { sale_id: string; id: string; transfer_no: string; to_shop: string }[],
+      { plate_id: string; transfer_no: string; from_shop: string }[],
+    ] = await Promise.all([
+      this.dataSource.query(
+        `SELECT t.sale_id, t.id, t.transfer_no, s.name AS to_shop
+           FROM shop_transfers t JOIN shops s ON s.id = t.to_shop_id
+          WHERE t.sale_id = ANY($1) AND t.status = 'completed' AND t.deleted_at IS NULL`,
+        [sales.map((s) => s.id)],
+      ),
+      plateIds.length
+        ? this.dataSource.query(
+            `SELECT i.target_plate_id AS plate_id, t.transfer_no, s.name AS from_shop
+               FROM shop_transfer_items i
+               JOIN shop_transfers t ON t.id = i.transfer_id AND t.status = 'completed'
+                                    AND t.deleted_at IS NULL
+               JOIN shops s ON s.id = t.from_shop_id
+              WHERE i.target_plate_id = ANY($1) AND i.deleted_at IS NULL`,
+            [plateIds],
+          )
+        : Promise.resolve([]),
+    ]);
+    const outBySale = new Map(outgoing.map((r) => [r.sale_id, r]));
+    const originByPlate = new Map(origins.map((r) => [r.plate_id, r]));
+    for (const sale of sales) {
+      const out = outBySale.get(sale.id);
+      if (out) {
+        (sale as Sale & { shopTransfer?: unknown }).shopTransfer = {
+          id: out.id,
+          transferNo: out.transfer_no,
+          toShopName: out.to_shop,
+        };
+      }
+      for (const item of sale.items ?? []) {
+        const o = item.plateId ? originByPlate.get(item.plateId) : undefined;
+        if (o) {
+          (item as SaleItem & { origin?: unknown }).origin = {
+            transferNo: o.transfer_no,
+            fromShopName: o.from_shop,
+          };
+        }
+      }
+    }
   }
 
   /**

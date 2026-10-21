@@ -1,4 +1,4 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 
 /** Tedarikçi (malzemeci). Satın alma ve piyasa fiyatlarıyla ilişkilidir. */
@@ -27,4 +27,12 @@ export class Supplier extends ShopScopedEntity {
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  /**
+   * Bu tedarikçi başka bir DÜKKÂNI temsil eder (dükkânlar arası alışta
+   * satıcı). Kendiliğinden açılır.
+   */
+  @Index()
+  @Column({ name: 'linked_shop_id', type: 'uuid', nullable: true })
+  linkedShopId?: string | null;
 }

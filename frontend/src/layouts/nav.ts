@@ -10,6 +10,10 @@ export interface NavItem {
   module?: ShopModule;
   /** Ekip ekranı: sistem sahibi ve dükkân yöneticileri. */
   team?: boolean;
+  /** Bu alanlardan birini görebilen görür (`module` yerine). */
+  anyOf?: ShopModule[];
+  /** Yalnız birden çok dükkâna girebilen kullanıcıya gösterilir. */
+  multiShop?: boolean;
   /** Hızlı aramada eşleşecek ek sözcükler. */
   keywords?: string;
 }
@@ -35,6 +39,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/customers', label: 'Cari', title: 'Müşteriler / Cari', icon: '💳', module: 'customers', keywords: 'müşteri borç ekstre' },
       { to: '/purchases', label: 'Satın Alma', title: 'Satın Alma', icon: '🛒', module: 'purchases', keywords: 'tedarikçi alış' },
+      { to: '/shop-transfers', label: 'Dükkânlar Arası', title: 'Dükkânlar Arası Satış', icon: '🔁', anyOf: ['sales', 'purchases'], multiShop: true, keywords: 'dükkân şube transfer aktarım satış alış' },
       { to: '/expenses', label: 'Gider', title: 'Giderler', icon: '🧾', module: 'expenses', keywords: 'masraf' },
       { to: '/bank-reconciliation', label: 'Mutabakat', title: 'Banka Mutabakatı', icon: '🏦', module: 'banking', keywords: 'banka ekstre' },
       { to: '/reports', label: 'Rapor', title: 'Mali Dashboard', icon: '📊', module: 'reports', keywords: 'rapor kâr zarar dashboard' },
@@ -58,9 +63,15 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 export function visibleNav(
   can: (m: ShopModule) => boolean,
   managesAnyShop: boolean,
+  shopCount = 1,
 ): NavGroup[] {
-  return NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((n) => (n.team ? managesAnyShop : !n.module || can(n.module))),
-  })).filter((g) => g.items.length > 0);
+  const visible = (n: NavItem): boolean => {
+    if (n.team) return managesAnyShop;
+    if (n.multiShop && shopCount < 2) return false;
+    if (n.anyOf) return n.anyOf.some((m) => can(m));
+    return !n.module || can(n.module);
+  };
+  return NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter(visible) })).filter(
+    (g) => g.items.length > 0,
+  );
 }

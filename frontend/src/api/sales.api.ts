@@ -16,6 +16,8 @@ export interface SaleItemRow {
   heightMm?: number | null;
   unitPrice: number;
   lineTotal: number;
+  /** Malzeme başka dükkândan alındıysa (dükkânlar arası satış). */
+  origin?: { transferNo: string; fromShopName: string } | null;
 }
 
 export interface Sale {
@@ -29,6 +31,8 @@ export interface Sale {
   businessMargin: number;
   note?: string | null;
   items: SaleItemRow[];
+  /** Satış başka bir dükkâna yapıldıysa (dükkânlar arası satış belgesi). */
+  shopTransfer?: { id: string; transferNo: string; toShopName: string } | null;
 }
 
 export interface SaleFilters {

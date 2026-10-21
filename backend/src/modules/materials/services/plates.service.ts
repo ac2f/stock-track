@@ -308,8 +308,45 @@ export class PlatesService {
     qb.orderBy('plate.name', 'ASC').skip(query.skip).take(query.limit);
 
     const [items, total] = await qb.getManyAndCount();
-    await this.attachOwners(items);
+    await Promise.all([this.attachOwners(items), this.attachOrigins(items)]);
     return buildPaginatedResult(items, total, query.page, query.limit);
+  }
+
+  /**
+   * Başka dükkândan alınmış kalemlere kökenini ekler (`origin`): hangi
+   * dükkândan, hangi belgeyle, ne zaman. Stok listesinde rozet olarak görünür.
+   * Belge iki dükkâna ait olduğundan tablo dükkâna süzülmez; kalem kimlikleri
+   * zaten bu dükkânın kalemleridir.
+   */
+  private async attachOrigins(plates: MaterialPlate[]): Promise<void> {
+    if (!plates.length) return;
+    const rows: {
+      plate_id: string;
+      transfer_id: string;
+      transfer_no: string;
+      transfer_date: Date;
+      from_shop: string;
+    }[] = await this.dataSource.query(
+      `SELECT i.target_plate_id AS plate_id, t.id AS transfer_id, t.transfer_no,
+              t.transfer_date, s.name AS from_shop
+         FROM shop_transfer_items i
+         JOIN shop_transfers t ON t.id = i.transfer_id AND t.status = 'completed'
+                              AND t.deleted_at IS NULL
+         JOIN shops s ON s.id = t.from_shop_id
+        WHERE i.target_plate_id = ANY($1) AND i.deleted_at IS NULL`,
+      [plates.map((p) => p.id)],
+    );
+    const byPlate = new Map(rows.map((r) => [r.plate_id, r]));
+    for (const plate of plates) {
+      const r = byPlate.get(plate.id);
+      if (!r) continue;
+      (plate as MaterialPlate & { origin?: unknown }).origin = {
+        transferId: r.transfer_id,
+        transferNo: r.transfer_no,
+        transferDate: r.transfer_date,
+        fromShopName: r.from_shop,
+      };
+    }
   }
 
   /**

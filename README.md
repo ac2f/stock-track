@@ -16,6 +16,7 @@ tek bir çatı altında toplar.
 - [Proje Klasör Yapısı](#proje-klasör-yapısı)
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
+- [Dükkânlar arası satış](#dükkânlar-arası-satış)
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
 - [Fiyatlar ve fiyat çatıları](#fiyatlar-ve-fiyat-çatıları)
 - [Otomatik klasörler (runner)](#otomatik-klasörler-runner)
@@ -145,6 +146,38 @@ TypeORM süzgeci her sorguya dükkân koşulunu kendiliğinden ekler (bkz.
 tahsilat, teklif, satış, iş, gider, satın alma ve stok girişi cihazda sıraya
 alınır ve bağlantı gelince bir kez gönderilir (bkz.
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) § 6–8).
+
+## Dükkânlar arası satış
+
+Bir dükkân stoğundaki malzemeyi başka bir dükkâna satabilir (menü:
+**🔁 Dükkânlar Arası**, stok kartında **🔁 Dükkâna sat**, hızlı aramada
+"başka dükkâna malzeme sat"). Tek kayıtta iki taraf birden işlenir:
+
+| Satan dükkân | Alan dükkân |
+| ------------ | ----------- |
+| Alan dükkân adına açılan cariye **satış**: stok düşer (tabakadan parça satılabilir: en × boy), tutar o carinin borcuna yazılır. Ödeme gelince **Tahsilat**'tan girilir. | Satan dükkân adına açılan tedarikçiden **alış**: her kalem yeni stok kalemi olarak girer (tabakada her parça ayrı), alış fiyatı malzemenin **maliyeti** olur; sonraki satışta kâr bunun üzerinden hesaplanır. |
+
+Belge `DA-YYYY-NNNN` numarası alır ve iki kaydı birbirine bağlar.
+
+**Kime satıldı?** Belge, her parçanın alan dükkândaki karşılığını izler. Parça
+orada bir müşteriye satılırsa (ya da işlenirse) belgede kalem altında
+**müşteri, tarih, satılan ölçü/miktar ve tutar** görünür; kalemin durumu
+*Stokta / Kısmen satıldı (kalan %) / Satıldı* olarak güncellenir. Ayrıca:
+
+- alan dükkânın stok kartında **🏬 X dükkânından** rozeti (belgeye bağlantı),
+- alan dükkânın satış listesinde kalemde **"X dükkânından alınan"** işareti,
+- satan dükkânın satış listesinde **"🔁 Y dükkânına · DA-…"** işareti.
+
+**Yetki:** satan dükkânda *satış yazma*, alan dükkânda *satın alma yazma*
+(stok girişi) gerekir; sistem sahibi her iki dükkânda yetkilidir. Belgeler
+satan dükkânda *satış*, alan dükkânda *satın alma* okuma iznine göre görünür.
+Müşteri adları ve tutarlar, kullanıcı alan dükkânda satışları görebiliyorsa
+gösterilir; göremiyorsa yalnız durum ("satıldı") görünür.
+
+**Geri alma:** alan dükkânda hiçbir parça kullanılmadıysa (satılmadı,
+işlenmedi, teklife eklenmedi, kesilmedi) satan dükkân belgeyi **Geri al**
+ile iptal eder: satış silinir, stok ve cari eski haline döner, alan dükkândaki
+alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
 
 ## Arayüz ve Kısayollar
 

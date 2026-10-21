@@ -181,10 +181,12 @@ export function PaymentsPage() {
   const histPage = pageState.sig === histSig ? pageState.page : 1;
   const setHistPage = (page: number) => setPageState({ sig: histSig, page });
 
-  // Çalışan ve banka hesabı listeleri yalnız müşteri seçilince (form ve
-  // geçmiş satırları açılınca) gerekir.
-  const { data: employees } = useStaff({ enabled: !!customerId });
-  const { data: banks } = useBankAccounts({ enabled: !!customerId });
+  // Çalışan ve banka hesabı listeleri tahsilat formunun parçasıdır: sayfa
+  // açılınca istenir (küçük, 5 dk önbellekli). Müşteri seçimine bağlanınca
+  // çevrimiçiyken form hiç açılmadıysa liste cihaza inmiyor, çevrimdışı
+  // tahsilatta "teslim alan" seçilemiyordu.
+  const { data: employees } = useStaff();
+  const { data: banks } = useBankAccounts();
   const histFilters = {
     from: histFrom || undefined,
     to: histTo || undefined,
