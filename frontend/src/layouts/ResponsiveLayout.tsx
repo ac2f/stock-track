@@ -17,6 +17,7 @@ import { ShopSwitcher } from '../components/ShopSwitcher';
 import { OfflineBar } from '../components/OfflineBar';
 import { CommandPalette, ShortcutsHelp, useGlobalShortcuts } from '../components/CommandPalette';
 import { NAV_ITEMS, visibleNav, type NavItem } from './nav';
+import { SyncStatusBar } from '../components/SyncStatusBar';
 
 const COLLAPSE_KEY = 'st_sidebar_collapsed';
 
@@ -173,6 +174,7 @@ export function ResponsiveLayout() {
         {/* İçerik sütunu — min-h-0: flex çocuğu küçülebilsin ki main kayabilsin. */}
         <div className="flex min-h-0 flex-1 flex-col">
           <OfflineBar />
+          <SyncStatusBar />
           <header className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
             <BrandMark name={brandName} small />
             <div className="min-w-0 flex-1">

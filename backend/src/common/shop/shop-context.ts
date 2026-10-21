@@ -16,6 +16,30 @@ export interface ShopStore {
   userId?: string;
   /** Bilerek tüm dükkânlar üzerinde çalışan kod (açılış göçü, yönetim). */
   unscoped?: boolean;
+  /** Eşitleme (docs/SYNC.md): yeniden oynatılan ya da giden kutusuna yazılan istek. */
+  sync?: SyncRequestState;
+}
+
+/** Bir isteğin eşitlemeyle ilgili durumu. */
+export interface SyncRequestState {
+  /**
+   * Merkezde, replikadan gelen işlemin yeniden oynatılması: kayıtlar
+   * replikadaki kimlikleri ve belge numaralarıyla, asıl tarihinde açılır.
+   */
+  replay?: {
+    replicaId: string;
+    actor: 'user' | 'corel';
+    occurredAt?: Date;
+    /** Tablo başına, eklenme sırasıyla kullanılacak kimlikler. */
+    clientIds: Record<string, string[]>;
+    /** Tablo başına istenen belge numarası (ör. quotes → TKF-2026-0042). */
+    docNos: Record<string, string>;
+  };
+  /** İstek boyunca eklenen kayıtlar (giden kutusu / yeniden oynatma yanıtı için). */
+  capture?: {
+    inserted: { table: string; id: string }[];
+    docNos: Record<string, string>;
+  };
 }
 
 const storage = new AsyncLocalStorage<ShopStore>();
@@ -77,5 +101,20 @@ export const ShopContext = {
 
   isUuid(value: unknown): value is string {
     return typeof value === 'string' && UUID_RE.test(value);
+  },
+
+  /**
+   * İşlemin iş tarihi için "şimdi". Replikadan yeniden oynatılan istekte
+   * işlemin yerelde yapıldığı an döner; böylece çevrimdışı girilen satış,
+   * tahsilat, alış ... bağlantı geldiği saatle değil asıl saatiyle kaydolur.
+   */
+  now(): Date {
+    const at = storage.getStore()?.sync?.replay?.occurredAt;
+    return at ? new Date(at.getTime()) : new Date();
+  },
+
+  /** Yeniden oynatmada replikanın verdiği belge numarası (yoksa undefined). */
+  preferredDocNo(table: string): string | undefined {
+    return storage.getStore()?.sync?.replay?.docNos?.[table];
   },
 };

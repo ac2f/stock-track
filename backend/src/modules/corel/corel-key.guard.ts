@@ -20,6 +20,16 @@ export class CorelKeyGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
+    // Merkezde, yerel sunucudan aktarılan runner işlemi: iç istek (gizli
+    // başlıkla doğrulanmış) dükkânı X-Shop-Id ile taşır; anahtar gerekmez.
+    const replay = ShopContext.current()?.sync?.replay;
+    if (replay?.actor === 'corel') {
+      const raw = req.headers['x-shop-id'];
+      const shopId = Array.isArray(raw) ? raw[0] : raw;
+      if (!ShopContext.isUuid(shopId)) throw new UnauthorizedException('Dükkân belirtilmedi.');
+      ShopContext.enter(shopId);
+      return true;
+    }
     const header = req.headers['x-api-key'];
     const key = (Array.isArray(header) ? header[0] : header) ?? '';
 

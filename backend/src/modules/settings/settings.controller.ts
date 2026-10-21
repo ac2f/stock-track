@@ -10,6 +10,7 @@ import { UpdateDisplayDto } from './dto/update-display.dto';
 import { UpdateCutPricingDto } from './dto/update-cut-pricing.dto';
 import { UpdateMorningSummaryDto } from './dto/update-morning-summary.dto';
 import { AnyShopMember, ShopAccess, ShopScope } from '../../common/shop/shop-access.decorator';
+import { PrimaryOnly } from '../sync/sync.decorators';
 
 /**
  * Dükkân ayarları. İşletme/proje kimliği (ad, adres, telefon, VKN, logo,
@@ -100,12 +101,14 @@ export class SettingsController {
   }
 
   /** Yeni anahtar üretir; eski anahtarla gelen istekler reddedilir. */
+  @PrimaryOnly()
   @Post('corel/rotate')
   rotateCorel() {
     return this.settings.rotateCorelKey();
   }
 
   /** Anahtarı siler, entegrasyonu kapatır. */
+  @PrimaryOnly()
   @Delete('corel')
   disableCorel() {
     return this.settings.disableCorelKey();
@@ -125,6 +128,7 @@ export class SettingsController {
    * Bildirim sohbeti dükkânın; bot jetonu, yedek sohbeti ve yetkili
    * kullanıcılar sistemin (yalnız sistem sahibi).
    */
+  @PrimaryOnly()
   @Put('telegram')
   updateTelegram(@Body() dto: UpdateTelegramDto, @CurrentShop() shop: ShopAccessInfo) {
     return this.settings.updateTelegram(dto, shop.isOwner);

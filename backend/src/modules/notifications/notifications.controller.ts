@@ -6,6 +6,7 @@ import { MorningSummaryService } from './morning-summary.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { ShopScope } from '../../common/shop/shop-access.decorator';
+import { PrimaryOnly, SyncSkip } from '../sync/sync.decorators';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
@@ -35,6 +36,7 @@ export class NotificationsController {
    * parametresiz tümünü boşaltır. Yalnızca gönderim geçmişidir — iş verisi
    * (cari, stok, ödeme) etkilenmez.
    */
+  @SyncSkip()
   @Delete()
   clear(@Query('olderThanDays') olderThanDays?: string) {
     const days = olderThanDays ? Number(olderThanDays) : undefined;
@@ -48,12 +50,14 @@ export class NotificationsController {
    * doğrular. Bot adını ve mesajların gideceği sohbet kimliklerini döndürür.
    */
   @Roles(UserRole.OWNER)
+  @PrimaryOnly()
   @Post('telegram/reload')
   reloadTelegram() {
     return this.telegram.verify();
   }
 
   /** Ayarlardaki sohbete deneme mesajı gönderir. */
+  @PrimaryOnly()
   @Post('telegram/test')
   testTelegram() {
     return this.telegram.sendTest();
@@ -66,6 +70,7 @@ export class NotificationsController {
   }
 
   /** Sabah özetini şimdi Telegram'a gönderir. */
+  @PrimaryOnly()
   @Post('morning-summary/send')
   async sendMorningSummary() {
     return { text: await this.morningSummary.send() };

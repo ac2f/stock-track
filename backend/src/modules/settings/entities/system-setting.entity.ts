@@ -24,4 +24,12 @@ export class SystemSetting extends BaseEntity {
    */
   @Column({ name: 'telegram_allowed_user_ids', type: 'text', default: '' })
   telegramAllowedUserIds: string;
+
+  /** Bu kurulumun kalıcı kimliği (eşitlemede: replika doğru merkeze mi bağlı?). */
+  @Column({ name: 'instance_id', type: 'uuid', default: () => 'gen_random_uuid()' })
+  instanceId: string;
+
+  /** Değişiklik günlüğünün silindiği son sıra; daha gerisini isteyen replika baştan eşitlenir. */
+  @Column({ name: 'sync_pruned_seq', type: 'bigint', default: 0 })
+  syncPrunedSeq: string;
 }

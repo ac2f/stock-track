@@ -23,6 +23,7 @@ import {
   QueryShopTransferDto,
 } from './dto/create-shop-transfer.dto';
 import { ShopTransfersService } from './shop-transfers.service';
+import { PrimaryOnly } from '../sync/sync.decorators';
 
 /**
  * Dükkânlar arası malzeme satışı. Seçili dükkân SATAN taraftır; alan dükkânda
@@ -65,6 +66,8 @@ export class ShopTransfersController {
     return this.service.findOne(id, user, shop);
   }
 
+  // İki dükkânı birden değiştirir: yerel sunucuda yapılmaz (docs/SYNC.md).
+  @PrimaryOnly()
   @Post()
   @ShopAccess('sales', 'write')
   create(
@@ -75,6 +78,7 @@ export class ShopTransfersController {
   }
 
   /** Hiçbir parçası kullanılmamış belgeyi geri alır (satan dükkândan). */
+  @PrimaryOnly()
   @Post(':id/cancel')
   @ShopAccess('sales', 'write')
   cancel(

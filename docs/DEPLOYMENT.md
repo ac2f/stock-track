@@ -177,6 +177,27 @@ kapandığında arayüz durmaz:
 Corel eklentisi de StockTrack'ten aldığı son listeleri bilgisayarda saklar;
 sunucu yokken müşteri bağlama ve plaka seçme bu listelerle sürer.
 
+### Dükkânda yerel sunucu (uzun kesintiler için)
+
+Tarayıcının sırası tek cihaza aittir ve kesinti uzarsa stok/cari gibi
+hesaplar sunucuya ulaşana kadar yapılmaz. Merkez uzaktaysa (internet) ya da
+kesintiler uzun sürüyorsa dükkâna **yerel sunucu** kurun:
+
+1. Merkezde **Ayarlar › Yerel sunucular** → ad + dükkânlar → *Anahtar üret*
+   (anahtar bir kez gösterilir).
+2. Dükkân bilgisayarında `backend/.env.replica` hazırlayın (JWT anahtarları
+   merkezinkinden farklı) ve `docker compose -f docker-compose.replica.yml up -d --build`.
+3. Eşitleme ajanını `UPSTREAM_URL=https://<merkez>/api/v1` ve
+   `REPLICA_TOKEN=str_…` ile başlatın. İlk yükleme bitince giriş ekranında
+   "yerel sunucuya bağlanıyorsunuz" yazar.
+4. Dükkândaki cihazlar `http://<pc-ip>/` adresini kullanır. Corel: iş menüsü
+   7 → `5=<pc-ip>`; runner `config.json` → `fallback_server` (boşsa Corel'in
+   ayarı).
+
+Ortam değişkenleri: `SYNC_ROLE` (`primary`/`replica`), `SYNC_RETENTION_DAYS`
+(merkezde günlük süresi, 30), `SYNC_GAP_WAIT_SECONDS` (60). Ayrıntı ve
+kurallar: [`SYNC.md`](SYNC.md).
+
 ## 8) Dükkânlar ve yetkiler
 
 - İlk açılışta mevcut veriler otomatik olarak **ilk dükkâna** taşınır (adı

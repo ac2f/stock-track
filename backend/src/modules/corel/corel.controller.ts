@@ -19,6 +19,7 @@ import { QueryCorelDto, QueryCorelJobsDto } from './dto/query-corel.dto';
 import { CorelJob } from './corel-naming.util';
 import { CorelRunnerService } from './corel-runner.service';
 import { JobFoldersDto, RunnerHeartbeatDto } from './dto/runner.dto';
+import { SyncJournal, SyncSkip } from '../sync/sync.decorators';
 
 const TEXT = 'text/plain; charset=utf-8';
 
@@ -119,6 +120,7 @@ export class CorelController {
   }
 
   /** Runner açtığı müşteri klasörünü bildirir; teklifte "klasör açıldı" görünür. */
+  @SyncJournal()
   @Post('jobs/:id/folders')
   @HttpCode(200)
   reportFolders(@Param('id', ParseUUIDPipe) id: string, @Body() dto: JobFoldersDto) {
@@ -126,6 +128,7 @@ export class CorelController {
   }
 
   /** Runner'ın her turdaki nabzı: bağlı mı, gün klasörü, son hata. */
+  @SyncSkip()
   @Post('runner/heartbeat')
   @HttpCode(200)
   heartbeat(@Body() dto: RunnerHeartbeatDto) {

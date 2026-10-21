@@ -6,7 +6,7 @@ import { DataSource } from 'typeorm';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { runSeed } from './database/seed';
-import { AppConfig } from './config/configuration';
+import { AppConfig, JwtConfig, SyncConfig } from './config/configuration';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor';
@@ -17,6 +17,12 @@ import { installShopScope } from './common/shop/shop-scope.typeorm';
 import { ShopAccessGuard } from './modules/shops/shop-access.guard';
 import { ShopAccessService } from './modules/shops/shop-access.service';
 import { migrateToShops } from './modules/shops/shop-migration';
+import { installSyncCapture } from './modules/sync/sync-capture';
+import { SyncCaptureSubscriber } from './modules/sync/sync-capture.subscriber';
+import { SyncInterceptor } from './modules/sync/sync.interceptor';
+import { syncReplayMiddleware } from './modules/sync/sync-request';
+import { replaySecret } from './modules/sync/sync-replay.secret';
+import { PrimaryOnlyGuard } from './modules/sync/primary-only.guard';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
@@ -28,10 +34,30 @@ async function bootstrap(): Promise<void> {
   // Başarısız olursa uygulama BAŞLAMAZ — yarım geçişle çalışmaktansa.
   const dataSource = app.get(DataSource);
   installShopScope(dataSource);
-  await migrateToShops(dataSource);
+  dataSource.subscribers.push(new SyncCaptureSubscriber());
+
+  // Merkez/yerel sunucu (docs/SYNC.md). Yerel sunucu (replika) verisini
+  // merkezden alır: dükkân göçü ve tohumlama ÇALIŞMAZ (merkezdekiyle çakışan
+  // kayıtlar açılırdı); veritabanı ilk yüklemeye kadar boş kalır.
+  const sync = configService.get<SyncConfig>('sync')!;
+  if (sync.role !== 'replica') await migrateToShops(dataSource);
+  // Değişiklik günlüğü tetikleyicileri (her iki rolde).
+  await installSyncCapture(dataSource, (m) => console.log(m));
+  if (sync.role === 'replica') {
+    // Önceki çalışmada yarıda kalan yerel işlem: tamamlanıp tamamlanmadığı
+    // bilinmiyor → kişi karar verir (merkeze kendiliğinden gönderilmez).
+    await dataSource.query(
+      `UPDATE replica_outbox SET state = 'uncertain', updated_at = now(),
+              error = 'Yerel sunucu işlem sırasında kapandı; işlemin yapılıp yapılmadığını kontrol edin.'
+        WHERE state = 'executing'`,
+    );
+    console.log('Yerel sunucu (replika) kipi: yazma işlemleri giden kutusuna yazılır.');
+  }
 
   // Her istek kendi dükkân bağlamında çalışır (guard dükkânı yazar).
   app.use(shopContextMiddleware);
+  // Merkezde, replikadan gelen işlemin iç yeniden oynatması (gizli başlıkla).
+  app.use(syncReplayMiddleware(replaySecret(configService.get<JwtConfig>('jwt')!.accessSecret)));
 
   // Güvenlik & CORS (mobil + masaüstü istemciler için açık)
   app.use(helmet());
@@ -53,7 +79,12 @@ async function bootstrap(): Promise<void> {
   // Çapraz kesen davranışlar tek yerden.
   app.useGlobalFilters(new AllExceptionsFilter());
   // Tekrar koruması en dışta: saklanan yanıt zarflı gövdenin kendisidir.
-  app.useGlobalInterceptors(app.get(IdempotencyInterceptor), new TransformInterceptor());
+  // Eşitleme (giden kutusu / yeniden oynatma yanıtı) tekrar korumasının içinde.
+  app.useGlobalInterceptors(
+    app.get(IdempotencyInterceptor),
+    app.get(SyncInterceptor),
+    new TransformInterceptor(),
+  );
 
   // Global koruma: önce kimlik (JWT), sonra rol (RBAC), sonra dükkân ve
   // alan izni (okuma/yazma).
@@ -62,6 +93,8 @@ async function bootstrap(): Promise<void> {
     new JwtAuthGuard(reflector),
     new RolesGuard(reflector),
     new ShopAccessGuard(reflector, app.get(ShopAccessService)),
+    // Yerel sunucuda yalnız merkezde yapılabilen işlemler 409 döner.
+    new PrimaryOnlyGuard(reflector, sync.role),
   );
 
   // API dokümantasyonu (Swagger)
@@ -78,7 +111,7 @@ async function bootstrap(): Promise<void> {
   // noktada (TypeORM synchronize) hazırdır. Böylece üretimde ayrı bir seed
   // komutu çalıştırmaya gerek kalmadan ilk girişin yapılabileceği hesap oluşur.
   // SEED_ON_BOOT=false ile kapatılabilir.
-  if (process.env.SEED_ON_BOOT !== 'false') {
+  if (process.env.SEED_ON_BOOT !== 'false' && sync.role !== 'replica') {
     try {
       await runSeed(dataSource);
     } catch (err) {

@@ -63,9 +63,17 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingBlock, Spinner } from '../../components/ui/Loading';
 import { useUrlParam } from '../../hooks/useUrlParam';
-import { toast } from '../../lib/toast';
+import { apiErrorMessage, toast } from '../../lib/toast';
 import { formatDate, formatDateTime, formatMoney, formatNumber } from '../../lib/format';
 import { SECTIONS, type SectionId, type SectionMeta } from './sections';
+import {
+  createReplica,
+  deleteReplica,
+  fetchReplicas,
+  updateReplica,
+  type SyncReplica,
+} from '../../api/system.api';
+import { useSyncStatus, useSystemInfo } from '../../hooks/useSystemInfo';
 
 /** Etiketli form alanı. */
 function Field({
@@ -479,6 +487,7 @@ export function SettingsPage() {
         <PricingSettingsCard />
         <CutPricingCard />
         <CorelIntegrationCard />
+        {isOwner && <ReplicaSection />}
         <CatalogHealthCard />
         <ScreenLockSettings />
         <TelegramSettings />
@@ -899,6 +908,171 @@ function MorningSummaryCard() {
         Saat sunucuda <code>MORNING_SUMMARY_CRON</code> ile değişir (varsayılan
         her gün 08:00, Türkiye saati).
       </p>
+    </SettingsSection>
+  );
+}
+
+/**
+ * 🖥️ Yerel sunucular: dükkândaki bilgisayarda çalışan, merkezin kopyasını
+ * tutan sunucu. İnternet ya da merkez giderse arayüz ve Corel ona bağlanıp
+ * çalışmaya devam eder; eşitleme programı bağlantı gelince işlemleri merkeze
+ * gönderir (docs/SYNC.md). Burada her yerel sunucu için anahtar üretilir.
+ */
+function ReplicaSection() {
+  const qc = useQueryClient();
+  const active = useSectionActive('yerel-sunucu');
+  const { shops } = useAuth();
+  const { data: info } = useSystemInfo();
+  const replicaMode = info?.role === 'replica';
+  const { data: status } = useSyncStatus(active && replicaMode);
+  const { data: list, isLoading } = useQuery({
+    queryKey: ['sync', 'replicas'],
+    queryFn: fetchReplicas,
+    enabled: active && info?.role === 'primary',
+  });
+  const [name, setName] = useState('');
+  const [scope, setScope] = useState<string[]>([]);
+  const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
+  const done = () => qc.invalidateQueries({ queryKey: ['sync', 'replicas'] });
+  const create = useMutation({
+    mutationFn: () => createReplica({ name: name.trim(), shopIds: scope.length ? scope : undefined }),
+    onSuccess: (r) => {
+      setCreated({ name: r.replica.name, token: r.token });
+      setName('');
+      setScope([]);
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, 'Oluşturulamadı.')),
+    onSettled: done,
+  });
+  const toggle = useMutation({
+    mutationFn: (r: SyncReplica) => updateReplica(r.id, { isActive: !r.isActive }),
+    onSettled: done,
+  });
+  const remove = useMutation({ mutationFn: (id: string) => deleteReplica(id), onSettled: done });
+  const upstream = new URL(API_URL, window.location.origin).href.replace(/\/$/, '');
+  const shopName = (id: string) => shops.find((s) => s.id === id)?.name ?? id.slice(0, 8);
+
+  if (replicaMode) {
+    return (
+      <SettingsSection id="yerel-sunucu" badge={<OnOffBadge on onText="Bu sunucu yerel" />}>
+        <p className="text-sm text-slate-500">
+          Bu arayüz dükkândaki yerel sunucuya bağlı. Yerel sunucu anahtarları merkez sunucudaki
+          Ayarlar ekranından yönetilir.
+        </p>
+        <SubBox>
+          <p className="text-sm">
+            Merkez: <span className="font-mono text-xs">{status?.upstreamUrl ?? '—'}</span>
+          </p>
+          <p className="text-sm">
+            Son bağlantı: {status?.lastContactAt ? formatDateTime(status.lastContactAt) : '—'}
+          </p>
+        </SubBox>
+      </SettingsSection>
+    );
+  }
+
+  return (
+    <SettingsSection id="yerel-sunucu" badge={list && <OnOffBadge on={list.some((r) => r.isActive)} onText={`${list.filter((r) => r.isActive).length} etkin`} offText="Yok" />}>
+      <p className="text-sm text-slate-500">
+        Yerel sunucu, dükkândaki bir bilgisayarda çalışan StockTrack kopyasıdır (aynı program,
+        <code className="mx-1">SYNC_ROLE=replica</code>). Arayüz ve Corel eklentisi ona bağlanır;
+        internet ya da merkez sunucu giderse çalışma durmaz. Yanındaki eşitleme programı bağlantı
+        gelince yerelde yapılan işlemleri buraya gönderir, buradaki değişiklikleri yerele indirir.
+        Merkezde reddedilen işlem (ör. stok o arada başka yerde satılmış) yerel sunucunun
+        Eşitleme ekranında karar için bekler.
+      </p>
+
+      {created && (
+        <SubBox title={`"${created.name}" için anahtar — yalnız şimdi görünür`}>
+          <div className="flex gap-2">
+            <input className="input min-w-0 font-mono text-xs md:text-xs" readOnly value={created.token} aria-label="Yerel sunucu anahtarı" data-replica-token />
+            <button
+              className="btn-secondary btn-sm shrink-0"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(created.token);
+                  toast.success('Kopyalandı');
+                } catch {
+                  toast.error('Kopyalanamadı', 'Metni seçip elle kopyalayın.');
+                }
+              }}
+            >
+              Kopyala
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">Eşitleme programının ayarına yazın:</p>
+          <pre className="overflow-auto rounded-lg bg-slate-100 p-2 text-xs dark:bg-slate-900">{`UPSTREAM_URL=${upstream}\nREPLICA_TOKEN=${created.token}`}</pre>
+          <button className="btn-secondary btn-sm" onClick={() => setCreated(null)}>
+            Kaydettim, kapat
+          </button>
+        </SubBox>
+      )}
+
+      <SubBox title="Yeni yerel sunucu">
+        <label className="block">
+          <span className="label">Ad</span>
+          <input className="input" placeholder="Örn. Merkez dükkân PC" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <div>
+          <span className="label">Dükkânlar (seçilmezse hepsi)</span>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {shops.filter((s) => s.isActive).map((s) => (
+              <label key={s.id} className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={scope.includes(s.id)}
+                  onChange={(e) => setScope((v) => (e.target.checked ? [...v, s.id] : v.filter((x) => x !== s.id)))}
+                />
+                {s.name}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Yalnız seçilen dükkânların verisi yerel sunucuya iner. Dükkânlar arası satış yerel sunucuda yapılmaz.
+          </p>
+        </div>
+        <button className="btn-primary" disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>
+          Anahtar üret
+        </button>
+      </SubBox>
+
+      {isLoading && <LoadingBlock rows={1} />}
+      {list?.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700" data-replica={r.name}>
+          <div className="min-w-0">
+            <p className="font-semibold">
+              {r.name} <span className="font-mono text-xs text-slate-400">{r.tokenPrefix}…</span>
+            </p>
+            <p className="text-xs text-slate-500">
+              {r.shopIds.length ? r.shopIds.map(shopName).join(', ') : 'Bütün dükkânlar'} · son görülme{' '}
+              {r.lastSeenAt ? formatDateTime(r.lastSeenAt) : 'hiç'}
+              {r.lag != null ? ` · ${r.lag} değişiklik geride` : ''} · gönderilen {r.pushedOps}
+              {r.rejectedOps ? ` · reddedilen ${r.rejectedOps}` : ''}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-secondary btn-sm" disabled={toggle.isPending} onClick={() => toggle.mutate(r)}>
+              {r.isActive ? 'Durdur' : 'Etkinleştir'}
+            </button>
+            <button
+              className="btn-danger-soft btn-sm"
+              onClick={async () => {
+                if (
+                  await confirmDialog({
+                    message: `"${r.name}" silinsin mi? Anahtarı çalışmaz; yerel sunucu merkezle eşitlenemez.`,
+                    confirmText: 'Sil',
+                    danger: true,
+                  })
+                )
+                  remove.mutate(r.id);
+              }}
+            >
+              Sil
+            </button>
+          </div>
+        </div>
+      ))}
+      {list && !list.length && <p className="text-sm text-slate-500">Henüz yerel sunucu yok.</p>}
     </SettingsSection>
   );
 }

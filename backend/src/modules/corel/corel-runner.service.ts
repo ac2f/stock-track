@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Quote } from '../quotes/entities/quote.entity';
 import { CorelRunner } from './entities/corel-runner.entity';
 import { JobFoldersDto, RunnerHeartbeatDto } from './dto/runner.dto';
+import { ShopContext } from '../../common/shop/shop-context';
 
 /** Arayüzde gösterilen runner durumu. */
 export interface RunnerView {
@@ -67,7 +68,8 @@ export class CorelRunnerService {
   async reportFolders(quoteId: string, dto: JobFoldersDto): Promise<{ ok: true }> {
     const quote = await this.quotesRepo.findOne({ where: { id: quoteId } });
     if (!quote) throw new NotFoundException('Teklif bulunamadı.');
-    const now = new Date();
+    // Yerel sunucudan aktarılan bildirimde klasörün asıl açıldığı an.
+    const now = ShopContext.now();
     const host = dto.host.trim();
     await this.quotesRepo.update(quoteId, {
       foldersCreatedAt: now,

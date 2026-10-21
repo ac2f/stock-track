@@ -21,6 +21,7 @@ import {
   UpdateExpenseDto,
   UpdateProjectDto,
 } from './dto/expense.dto';
+import { ShopContext } from '../../common/shop/shop-context';
 
 export interface ExpenseSummary {
   total: number;
@@ -97,7 +98,7 @@ export class ExpensesService {
       projectId: dto.projectId ?? null,
       amount: dto.amount,
       currency: (dto.currency ?? 'TRY').toUpperCase(),
-      expenseDate: dto.expenseDate ?? new Date().toISOString().slice(0, 10),
+      expenseDate: dto.expenseDate ?? ShopContext.now().toISOString().slice(0, 10),
       description: dto.description,
     });
     return this.expensesRepo.save(expense);

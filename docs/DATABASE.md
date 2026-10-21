@@ -478,3 +478,17 @@ eklenir, Telegram bot/yedek ayarları `system_settings`'e taşınır
 Belge numarası, eşzamanlı iki satışta çakışmasın diye transaction boyunca
 `pg_advisory_xact_lock` ile alınır. Satış, alış, yeni stok kalemleri ve belge
 tek transaction'da yazılır; biri başarısız olursa hiçbiri kalmaz.
+
+## v6 Genişletme (merkez ↔ yerel sunucu eşitlemesi)
+
+Ayrıntı: [`SYNC.md`](SYNC.md).
+
+| Tablo / Kolon | Açıklama |
+| ------------- | -------- |
+| `sync_changes` | Değişiklik günlüğü: `seq` (bigint, PK), `table_name`, `row_id`, `shop_id`, `op` (I/U/D), `origin`, `changed_at` (clock_timestamp). Her iş tablosundaki `st_sync_capture` tetikleyicisi yazar (açılışta kurulur). `stocktrack.sync_origin = 'upstream'` ayarlı yazımlar girmez. |
+| `sync_replicas` | Merkeze bağlanan yerel sunucular: `name`, `token_hash` (SHA-256), `token_prefix`, `shop_ids` (uuid[]; boş = hepsi), `is_active`, `last_seen_at`, `last_seq`, `last_push_at`, `pushed_ops`, `rejected_ops`. |
+| `replica_outbox` | Yerel sunucunun giden kutusu: `seq` (PK), `id` (işlem kimliği = merkezde Idempotency-Key, unique), `state`, `actor`, `user_id`, `shop_id`, `method`, `path`, `body`, `occurred_at`, `created_ids` (jsonb), `doc_nos` (jsonb), `attempts`, `upstream_status`, `upstream_body`, `id_map`, `error`, `resolved_by_id`, `resolved_at`. |
+| `replica_state` | Yerel sunucuda ajanın durumu (tek satır, `id=1`): `upstream_url`, `upstream_server_id`, `last_seq`, `rebased_seq`, `snapshot_at`, `last_pull_at`, `last_push_at`, `upstream_reachable`, `last_contact_at`, `last_error`, `agent_version`, `agent_heartbeat_at`, `writes_paused_until`. |
+| `system_settings.instance_id` (+kolon) | Kurulumun kalıcı kimliği (`/sync/hello` → `serverId`). |
+| `system_settings.sync_pruned_seq` (+kolon) | Günlüğün silindiği son sıra; daha gerisini isteyen replikaya 410. |
+

@@ -36,6 +36,7 @@ import {
   isUnrestrictedActor,
   PaymentsService,
 } from './payments.service';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 /**
  * Ekstreden doğrudan geri alınabilen (silinebilen) hareket kaynakları.
@@ -300,7 +301,7 @@ export class CustomersService {
         amount: dto.amount,
         sourceType: LedgerSourceType.MANUAL_ADJUSTMENT,
         description: dto.description ?? 'Manuel hareket',
-        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : ShopContext.now(),
       };
       if (dto.entryType === LedgerEntryType.DEBIT) {
         await this.accountService.applyDebit(manager, movement);
@@ -388,7 +389,7 @@ export class CustomersService {
         amount: dto.amount,
         sourceType: LedgerSourceType.DISCOUNT,
         description: dto.description?.trim() || 'İndirim (borç kapatma)',
-        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : ShopContext.now(),
       });
       return manager.findOneOrFail(Customer, { where: { id } });
     });
@@ -437,7 +438,7 @@ export class CustomersService {
         amount: balance,
         sourceType: LedgerSourceType.DISCOUNT,
         description: dto.note?.trim() || 'İndirim (borç kapatma — para alınmadan)',
-        occurredAt: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
+        occurredAt: dto.paymentDate ? new Date(dto.paymentDate) : ShopContext.now(),
       });
       return manager.findOneOrFail(Customer, { where: { id } });
     });

@@ -48,7 +48,8 @@ export default defineConfig({
     port: 4173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        // PREVIEW_API: arayüzü başka bir sunucuyla denemek için (ör. yerel sunucu :3001).
+        target: process.env.PREVIEW_API || 'http://localhost:3000',
         // API kapalıyken nginx gibi 502 dön (arayüz bunu "çevrimdışı" sayar).
         configure: (proxy) => {
           proxy.on('error', (_err, _req, res) => {

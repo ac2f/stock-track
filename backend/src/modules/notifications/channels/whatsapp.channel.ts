@@ -6,6 +6,7 @@ import {
   NotificationChannelPort,
   OutboundMessage,
 } from './notification-channel.interface';
+import { isReplicaRole, REPLICA_SILENT_MESSAGE } from '../../sync/sync-role';
 
 /**
  * WhatsApp kanalı (Meta Cloud API). Telegram kanalıyla aynı port; tek fark
@@ -37,6 +38,7 @@ export class WhatsappChannel implements NotificationChannelPort {
   }
 
   async send(message: OutboundMessage): Promise<ChannelResult> {
+    if (isReplicaRole()) return { success: false, error: REPLICA_SILENT_MESSAGE };
     const to = message.whatsappPhone || message.recipient;
     if (!this.isEnabled() || !to) {
       return {

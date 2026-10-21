@@ -232,6 +232,37 @@ Kalem: `{ plateId, quantity, unitPrice, widthMm?, heightMm? }`. Tabakada
 alınan parçanın ölçüsü verilirse alış maliyeti (m²) standart tabaka yerine bu
 ölçüden hesaplanır (kesilmiş parça alımı).
 
+## Sync (Merkez ↔ yerel sunucu eşitlemesi)
+Ayrıntı ve tam biçimler: [`SYNC.md`](SYNC.md).
+
+**Merkezde, yerel sunucu anahtarıyla** (`X-Replica-Token: str_…`, JWT değil):
+
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/sync/hello` | Merkez kimliği, protokol, `schemaHash`, güncel `seq` |
+| GET | `/sync/schema` | Eşitlenen tablolar (bağımlılık sırası, kapsam, sütunlar) |
+| GET | `/sync/snapshot?table=&afterId=&limit=` | İlk yükleme, sayfa sayfa |
+| GET | `/sync/changes?since=&limit=` | Değişiklik akışı; 410 `RESNAPSHOT` |
+| POST | `/sync/rows` | `{ table, ids }` → güncel satırlar + `missing` |
+| POST | `/sync/push` | `{ ops }` → işlem başına `applied/duplicate/rejected/retry/skipped` |
+
+**Merkezde, sistem sahibi:** `GET/POST /sync/replicas`, `PATCH/DELETE /sync/replicas/:id`
+(anahtar yalnız oluşturma yanıtında).
+
+**Her iki rolde:**
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/system/info` | 🔓 | `{ role, version, schemaHash, ready, serverTime }` |
+| GET | `/system/sync` | 👥 | Yerel sunucuda ajan durumu + giden kutusu sayıları |
+| GET | `/system/sync/outbox?state=` | 👥 | Giden kutusu (varsayılan: karar bekleyenler) |
+| POST | `/system/sync/outbox/:id/retry` | 👔 / dükkân yöneticisi | Reddedileni yeniden gönder |
+| POST | `/system/sync/outbox/:id/discard` | 👔 / dükkân yöneticisi | Vazgeç (yerel etkisi geri alınır) |
+
+Yerel sunucuda (`SYNC_ROLE=replica`) yönetim uçları 409 döner; yazma
+istekleri giden kutusuna yazılır. Hata gövdesinde makinelerin okuduğu `code`
+alanı olabilir (ör. `RESNAPSHOT`).
+
 ## Shop transfers (Dükkânlar arası satış)
 Seçili dükkân (`X-Shop-Id`) **satan** taraftır.
 

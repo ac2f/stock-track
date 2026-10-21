@@ -37,6 +37,7 @@ import { Quote } from '../entities/quote.entity';
 import { QuoteItem } from '../entities/quote-item.entity';
 import { CreateQuoteDto, QuoteItemDto } from '../dto/create-quote.dto';
 import { QueryQuoteDto } from '../dto/query-quote.dto';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 export interface QuoteConversionResult {
   quote: Quote;
@@ -373,7 +374,7 @@ export class QuotesService {
       await manager.update(Quote, quote.id, {
         status: QuoteStatus.CONVERTED,
         convertedSaleId: saleId ?? null,
-        convertedAt: new Date(),
+        convertedAt: ShopContext.now(),
       });
 
       return { saleId, processingJobIds };
@@ -398,7 +399,7 @@ export class QuotesService {
 
     quote.status = QuoteStatus.CONVERTED;
     quote.convertedSaleId = outcome.saleId ?? null;
-    quote.convertedAt = new Date();
+    quote.convertedAt = ShopContext.now();
     return {
       quote,
       saleId: outcome.saleId,
@@ -572,7 +573,14 @@ export class QuotesService {
 
   /** Yıllık sıralı teklif numarası (TKF-YYYY-NNNN). */
   private async nextQuoteNo(): Promise<string> {
-    const year = new Date().getFullYear();
+    // Yerel sunucuda (çevrimdışı) verilen numara merkezde boşsa korunur:
+    // Corel klasörleri ve müşteriye verilen teklif aynı numarayla kalır.
+    const preferred = ShopContext.preferredDocNo('quotes');
+    if (preferred && /^TKF-\d{4}-\d{4,}$/.test(preferred)) {
+      const taken = await this.quotesRepo.count({ where: { quoteNo: preferred }, withDeleted: true });
+      if (!taken) return preferred;
+    }
+    const year = ShopContext.now().getFullYear();
     const prefix = `TKF-${year}-`;
     const last = await this.quotesRepo
       .createQueryBuilder('q')

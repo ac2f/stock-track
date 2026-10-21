@@ -10,6 +10,7 @@ export type SectionId =
   | 'satis-fiyat'
   | 'kesim-fiyat'
   | 'corel'
+  | 'yerel-sunucu'
   | 'katalog'
   | 'kilit'
   | 'telegram'
@@ -73,6 +74,15 @@ export const SECTIONS: SectionMeta[] = [
     short: 'Corel',
     description: 'CorelDRAW eklentisinin bağlanacağı sunucu adresi ve anahtar.',
     keywords: 'coreldraw eklenti ac2f anahtar api key dxf',
+  },
+  {
+    id: 'yerel-sunucu',
+    icon: '🖥️',
+    title: 'Yerel sunucular (çevrimdışı çalışma)',
+    short: 'Yerel sunucu',
+    description: 'Dükkândaki yerel sunucu internet ya da merkez giderse çalışmaya devam eder, bağlantı gelince eşitlenir.',
+    keywords: 'replika offline çevrimdışı internet kesinti eşitleme senkron yerel sunucu anahtar token',
+    ownerOnly: true,
   },
   {
     id: 'katalog',

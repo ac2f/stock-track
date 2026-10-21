@@ -13,6 +13,7 @@ import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { QueryPurchaseDto } from './dto/query-purchase.dto';
+import { ShopContext } from '../../common/shop/shop-context';
 
 @Injectable()
 export class PurchasesService {
@@ -68,7 +69,7 @@ export class PurchasesService {
         vehicleId: dto.vehicleId,
         warehouseId: warehouse.id,
         purchasedById,
-        purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : new Date(),
+        purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : ShopContext.now(),
         currency: dto.currency ?? 'TRY',
         note: dto.note,
         totalAmount,

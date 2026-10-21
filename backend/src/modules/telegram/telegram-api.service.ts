@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SettingsService } from '../settings/settings.service';
+import { isReplicaRole } from '../sync/sync-role';
 
 /** Satır satır düğme dizilimi (inline keyboard). */
 export type Keyboard = { text: string; data: string }[][];
@@ -119,6 +120,8 @@ export class TelegramApiService {
     method: string,
     payload: Record<string, unknown>,
   ): Promise<{ ok: boolean; result?: unknown } | null> {
+    // Yerel sunucuda bot çalışmaz, mesaj gönderilmez (merkez gönderir).
+    if (isReplicaRole()) return null;
     const botToken = await this.token();
     if (!botToken) return null;
     const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {

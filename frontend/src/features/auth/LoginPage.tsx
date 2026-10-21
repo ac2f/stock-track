@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getBrand } from '../../lib/brand';
 import { Spinner } from '../../components/ui/Loading';
+import { useSystemInfo } from '../../hooks/useSystemInfo';
 
 /** Parola göster/gizle simgeleri (göz / üstü çizili göz). */
 function EyeIcon({ off = false }: { off?: boolean }) {
@@ -16,6 +17,7 @@ function EyeIcon({ off = false }: { off?: boolean }) {
 }
 
 export function LoginPage() {
+  const { data: info } = useSystemInfo();
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -73,6 +75,21 @@ export function LoginPage() {
           <h1 className="mt-4 break-words text-2xl font-bold text-slate-900">{brand}</h1>
           <p className="mt-1 text-sm text-slate-500">Devam etmek için giriş yapın.</p>
         </div>
+
+        {info?.role === 'replica' && (
+          <p
+            className={`mb-3 rounded-xl px-3 py-2 text-sm ${
+              info.ready
+                ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                : 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100'
+            }`}
+            data-replica-note
+          >
+            {info.ready
+              ? '🖥️ Dükkândaki yerel sunucuya bağlanıyorsunuz. İnternet olmasa da çalışır; işlemler merkeze sonra gönderilir.'
+              : '🖥️ Yerel sunucu henüz merkezden veri almadı. Eşitleme programının çalıştığından ve merkeze bağlanabildiğinden emin olun; ilk yüklemeden sonra giriş yapılabilir.'}
+          </p>
+        )}
 
         <form onSubmit={onSubmit} className="card space-y-4 p-5 shadow-lg sm:p-6">
           <div>

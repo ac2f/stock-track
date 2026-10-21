@@ -68,6 +68,9 @@ const NO_CACHE: RegExp[] = [
   /^\/exchange-rates\/convert$/,
   /^\/material-catalog\/duplicates$/,
   /^\/backups/,
+  // Yerel sunucu eşitleme durumu ve giden kutusu anlıktır.
+  /^\/system\/sync/,
+  /^\/sync\//,
 ];
 
 export function cachePolicy(

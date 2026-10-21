@@ -36,6 +36,7 @@ import { Sale } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { CreateSaleDto, SaleItemDto } from './dto/create-sale.dto';
 import { QuerySaleDto } from './dto/query-sale.dto';
+import { ShopContext } from '../../common/shop/shop-context';
 
 export interface SaleResult {
   sale: Sale;
@@ -105,7 +106,7 @@ export class SalesService {
     await this.customersService.findOne(dto.buyerCustomerId);
 
     const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
-    const saleDate = dto.saleDate ? new Date(dto.saleDate) : new Date();
+    const saleDate = dto.saleDate ? new Date(dto.saleDate) : ShopContext.now();
 
     // Kalemlerin plakalarını yükle (m² bazlı fiyatlama ölçüm tipine göre yapılır).
     // Serbest (plakasız) kalemler atlanır.

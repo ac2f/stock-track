@@ -31,6 +31,7 @@ import { BackupsModule } from './modules/backups/backups.module';
 import { CorelModule } from './modules/corel/corel.module';
 import { ShopsModule } from './modules/shops/shops.module';
 import { ShopTransfersModule } from './modules/shop-transfers/shop-transfers.module';
+import { SyncModule } from './modules/sync/sync.module';
 import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { HealthController } from './health.controller';
 
@@ -53,6 +54,7 @@ import { HealthController } from './health.controller';
 
     // İş modülleri (bounded contexts).
     ShopsModule,
+    SyncModule,
     IdempotencyModule,
     AuthModule,
     UsersModule,

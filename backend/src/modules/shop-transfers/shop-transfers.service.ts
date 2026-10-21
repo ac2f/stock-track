@@ -266,7 +266,7 @@ export class ShopTransfersService {
     const fromShop = await this.shopsRepo.findOneOrFail({ where: { id: fromShopId } });
 
     const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
-    const transferDate = dto.transferDate ? new Date(dto.transferDate) : new Date();
+    const transferDate = dto.transferDate ? new Date(dto.transferDate) : ShopContext.now();
     const lines = await this.buildLines(dto);
 
     // ── Hazırlık (transaction dışında, tekrar çalıştırılması zararsız) ──
@@ -512,7 +512,7 @@ export class ShopTransfersService {
         { id },
         {
           status: ShopTransferStatus.CANCELLED,
-          cancelledAt: new Date(),
+          cancelledAt: ShopContext.now(),
           cancelledById: actor.id,
         },
       );
@@ -777,7 +777,16 @@ export class ShopTransfersService {
 
   /** Yıllık sıralı belge numarası (DA-YYYY-NNNN). */
   private async nextNo(manager: EntityManager): Promise<string> {
-    const prefix = `DA-${new Date().getFullYear()}-`;
+    // Yerel sunucuda verilen numara merkezde boşsa korunur (bkz. docs/SYNC.md).
+    const preferred = ShopContext.preferredDocNo('shop_transfers');
+    if (preferred && /^DA-\d{4}-\d{4,}$/.test(preferred)) {
+      const [{ n }] = await manager.query(
+        `SELECT COUNT(*)::int AS n FROM shop_transfers WHERE transfer_no = $1`,
+        [preferred],
+      );
+      if (!n) return preferred;
+    }
+    const prefix = `DA-${ShopContext.now().getFullYear()}-`;
     const rows: { transfer_no: string }[] = await manager.query(
       `SELECT transfer_no FROM shop_transfers WHERE transfer_no LIKE $1
         ORDER BY transfer_no DESC LIMIT 1`,

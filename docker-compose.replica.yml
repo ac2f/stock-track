@@ -1,0 +1,100 @@
+# ───────────────────────────────────────────────────────────────────────────
+# YEREL SUNUCU (replika) bileşimi — dükkândaki bilgisayar için.
+# İnternet ya da merkez sunucu giderse arayüz, Corel eklentisi ve runner buna
+# bağlanıp çalışmaya devam eder; eşitleme ajanı bağlantı gelince merkezle
+# eşitler. Ayrıntı: docs/SYNC.md
+#
+#   1) Merkezde: Ayarlar › Yerel sunucular → ad + dükkânlar → "Anahtar üret".
+#   2) Bu bilgisayarda:  cp backend/.env.example backend/.env.replica
+#      ve değerleri düzenleyin. JWT anahtarları MERKEZİNKİNDEN FARKLI olmalı.
+#      (SYNC_ROLE aşağıda zorlanır; tohumlama ve zamanlayıcılar çalışmaz.)
+#   3) docker compose -f docker-compose.replica.yml up -d --build
+#   4) Eşitleme ajanını UPSTREAM_URL + REPLICA_TOKEN ile başlatın (aşağıdaki
+#      sync-agent servisi ya da Windows kurulumu). İlk yükleme bitince
+#      http://<bu-pc-ip>/ adresinden giriş yapılabilir.
+#   5) Corel eklentisi: iş menüsü 7 → 5=<bu-pc-ip>  (runner da bunu okur).
+# ───────────────────────────────────────────────────────────────────────────
+services:
+  replica-db:
+    image: postgres:16-alpine
+    container_name: stocktrack-replica-db
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-stocktrack}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-stocktrack}
+      POSTGRES_DB: ${DB_NAME:-stocktrack}
+    volumes:
+      - replica_pgdata:/var/lib/postgresql/data
+    # Ajan aynı makinede ve konteynerde değilse veritabanına buradan bağlanır.
+    ports:
+      - '127.0.0.1:5433:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-stocktrack}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: stocktrack-replica-api
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    depends_on:
+      replica-db:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env.replica
+    environment:
+      NODE_ENV: production
+      DB_HOST: replica-db
+      DB_SYNCHRONIZE: 'true'
+      SYNC_ROLE: replica
+      SEED_ON_BOOT: 'false'
+    ports:
+      - '3000:3000'
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    container_name: stocktrack-replica-web
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    depends_on:
+      - api
+    ports:
+      - '80:80'
+
+  # Eşitleme ajanı ayrı bir programdır (stock-track-sync, bkz.
+  # docs/SYNC_AGENT_MASTER_PROMPT.md). Hazır olunca yorumu kaldırın:
+  # sync-agent:
+  #   image: stocktrack-sync:latest
+  #   container_name: stocktrack-sync-agent
+  #   restart: unless-stopped
+  #   depends_on:
+  #     replica-db:
+  #       condition: service_healthy
+  #     api:
+  #       condition: service_started
+  #   environment:
+  #     UPSTREAM_URL: ${UPSTREAM_URL}          # https://merkez.ornek.com/api/v1
+  #     REPLICA_TOKEN: ${REPLICA_TOKEN}        # str_…
+  #     LOCAL_API_URL: http://api:3000/api/v1
+  #     REPLICA_DB_URL: postgres://${DB_USERNAME:-stocktrack}:${DB_PASSWORD:-stocktrack}@replica-db:5432/${DB_NAME:-stocktrack}
+
+volumes:
+  replica_pgdata:

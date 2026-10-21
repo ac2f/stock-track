@@ -6,6 +6,7 @@ import {
   NotificationChannelPort,
   OutboundMessage,
 } from './notification-channel.interface';
+import { isReplicaRole, REPLICA_SILENT_MESSAGE } from '../../sync/sync-role';
 
 /** "Yeniden başlat" düğmesinin döndürdüğü bağlantı durumu. */
 export interface TelegramVerifyResult {
@@ -38,6 +39,7 @@ export class TelegramChannel implements NotificationChannelPort {
   }
 
   async send(message: OutboundMessage): Promise<ChannelResult> {
+    if (isReplicaRole()) return { success: false, error: REPLICA_SILENT_MESSAGE };
     const { botToken, chatId: defaultChatId } =
       await this.settings.getTelegram();
     const chatId =

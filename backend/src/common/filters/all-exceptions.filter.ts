@@ -81,6 +81,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let message: string | string[] =
       constraint ?? (dbDown ? 'Veritabanına şu an ulaşılamıyor.' : 'Beklenmeyen bir hata oluştu.');
+    // Makinelerin okuduğu kısa hata kodu (ör. eşitlemede RESNAPSHOT).
+    let code: string | undefined;
     if (exception instanceof HttpException) {
       const res = exception.getResponse();
       message =
@@ -88,6 +90,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
           ? res
           : ((res as Record<string, unknown>).message as string) ??
             exception.message;
+      const c = typeof res === 'object' ? (res as Record<string, unknown>).code : undefined;
+      if (typeof c === 'string' && /^[A-Z_]{2,40}$/.test(c)) code = c;
     }
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR && !dbDown) {
@@ -100,6 +104,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json({
       success: false,
       statusCode: status,
+      ...(code ? { code } : {}),
       message,
       path: request.url,
       timestamp: new Date().toISOString(),

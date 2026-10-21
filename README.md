@@ -17,6 +17,7 @@ tek bir çatı altında toplar.
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
 - [Dükkânlar arası satış](#dükkânlar-arası-satış)
+- [Çevrimdışı çalışma: yerel sunucu](#çevrimdışı-çalışma-yerel-sunucu)
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
 - [Fiyatlar ve fiyat çatıları](#fiyatlar-ve-fiyat-çatıları)
 - [Otomatik klasörler (runner)](#otomatik-klasörler-runner)
@@ -178,6 +179,38 @@ gösterilir; göremiyorsa yalnız durum ("satıldı") görünür.
 işlenmedi, teklife eklenmedi, kesilmedi) satan dükkân belgeyi **Geri al**
 ile iptal eder: satış silinir, stok ve cari eski haline döner, alan dükkândaki
 alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
+
+## Çevrimdışı çalışma: yerel sunucu
+
+İki katman vardır:
+
+1. **Tarayıcıda** (her kurulumda): sunucuya ulaşılamazken ekranlar son
+   verilerle açılır, müşteri/tahsilat/teklif/satış... cihazda sıraya alınır
+   (bkz. [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) § 7).
+2. **Dükkânda yerel sunucu** (isteğe bağlı): aynı program dükkândaki bir
+   bilgisayarda `SYNC_ROLE=replica` ile çalışır ve merkezin kopyasını tutar.
+   Arayüz, Corel eklentisi ve runner ona bağlanır; **internet ya da merkez
+   sunucu giderse iş durmaz** — satış, stok düşümü, cari, teklif yerelde
+   gerçek iş kurallarıyla yapılır. Yanındaki eşitleme ajanı bağlantı gelince
+   yerel işlemleri merkeze gönderir (merkez her birini o kişi adına aynı
+   kurallarla yeniden işler; aynı kimlik ve teklif numarasıyla, asıl
+   tarihinde, bir kez), merkezdeki değişiklikleri yerele indirir.
+
+   - Merkezde **Ayarlar › Yerel sunucular**: her yerel sunucu için anahtar,
+     hizmet ettiği dükkânlar, son görülme ve gecikme.
+   - Yerel sunucuya bağlı arayüzde üstte **🖥️ Yerel sunucu** şeridi (merkez
+     bağlantısı, bekleyen işlem) ve **Eşitleme** ekranı: merkezin reddettiği
+     işlem (ör. stok o arada başka yerde satılmış) için *Yeniden dene* /
+     *Vazgeç*.
+   - Ekip/dükkân yönetimi, yedek, Telegram ve Corel anahtarı, dükkânlar arası
+     satış yerelde yapılmaz (merkezde yapılır).
+   - Corel eklentisi (iş menüsü 7 → `5=`) ve runner (`fallback_server`) ana
+     sunucu cevap vermezse yerel sunucuya geçer.
+
+   Protokol ve kurallar: [`docs/SYNC.md`](docs/SYNC.md). Kurulum:
+   `docker-compose.replica.yml`. Eşitleme ajanı ayrı bir programdır; yazılması
+   için hazır talimat: [`docs/SYNC_AGENT_MASTER_PROMPT.md`](docs/SYNC_AGENT_MASTER_PROMPT.md).
+   Sözleşme testi: `scripts/sync-contract-test.mjs`.
 
 ## Arayüz ve Kısayollar
 

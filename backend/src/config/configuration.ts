@@ -83,6 +83,20 @@ export interface NotificationsConfig {
   whatsappApiVersion: string;
 }
 
+/**
+ * Merkez/yerel sunucu eşitlemesi (bkz. docs/SYNC.md).
+ *  - primary: merkez sunucu. Değişiklik günlüğü tutar, replikalara /sync uçlarından veri verir.
+ *  - replica: dükkândaki yerel sunucu. Yazma isteklerini giden kutusuna yazar; eşitleme
+ *    ajanı bağlantı gelince merkeze gönderir. Tohumlama ve zamanlanmış görevler çalışmaz.
+ */
+export interface SyncConfig {
+  role: 'primary' | 'replica';
+  /** Değişiklik günlüğü kaç gün tutulur (merkez). Daha geride kalan replika baştan eşitlenir. */
+  retentionDays: number;
+  /** Günlükteki boşluk (açık transaction) en çok kaç sn beklenir; sonra geri alınmış sayılır. */
+  gapWaitSeconds: number;
+}
+
 export interface RootConfig {
   app: AppConfig;
   database: DatabaseConfig;
@@ -92,6 +106,7 @@ export interface RootConfig {
   scheduler: SchedulerConfig;
   backup: BackupConfig;
   notifications: NotificationsConfig;
+  sync: SyncConfig;
 }
 
 export default (): RootConfig => ({
@@ -134,7 +149,10 @@ export default (): RootConfig => ({
     syncCron: process.env.EXCHANGE_RATE_SYNC_CRON ?? '0 6 * * *',
   },
   scheduler: {
-    enabled: (process.env.SCHEDULER_ENABLED ?? 'true') === 'true',
+    // Yerel sunucuda (replika) zamanlanmış görevler çalışmaz: Telegram botu,
+    // hatırlatma, yedek ve kur çekimi merkezde bir kez çalışmalı.
+    enabled:
+      process.env.SYNC_ROLE !== 'replica' && (process.env.SCHEDULER_ENABLED ?? 'true') === 'true',
   },
   backup: {
     dir: process.env.BACKUP_DIR ?? 'backups',
@@ -162,5 +180,10 @@ export default (): RootConfig => ({
     whatsappToken: process.env.WHATSAPP_TOKEN ?? '',
     whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? '',
     whatsappApiVersion: process.env.WHATSAPP_API_VERSION ?? 'v21.0',
+  },
+  sync: {
+    role: process.env.SYNC_ROLE === 'replica' ? 'replica' : 'primary',
+    retentionDays: Math.max(1, parseInt(process.env.SYNC_RETENTION_DAYS ?? '30', 10) || 30),
+    gapWaitSeconds: Math.max(5, parseInt(process.env.SYNC_GAP_WAIT_SECONDS ?? '60', 10) || 60),
   },
 });

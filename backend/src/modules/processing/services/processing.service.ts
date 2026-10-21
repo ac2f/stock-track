@@ -28,6 +28,7 @@ import { ProcessingJob } from '../entities/processing-job.entity';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
 import { ProcessingRatesService } from './processing-rates.service';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 export interface ProcessingQueueGroup {
   machineId: string | null;
@@ -117,7 +118,7 @@ export class ProcessingService {
     const totalCost = roundMoney(laborCost + extraCost);
 
     const currency = (dto.currency ?? this.business.defaultCurrency).toUpperCase();
-    const processedAt = dto.processedAt ? new Date(dto.processedAt) : new Date();
+    const processedAt = dto.processedAt ? new Date(dto.processedAt) : ShopContext.now();
     const { amount: baseTotalCost, rate: exchangeRate } =
       await this.currencyService.convert(
         totalCost,
@@ -276,7 +277,7 @@ export class ProcessingService {
         }
         const completionDate = opts.completedAt
           ? new Date(opts.completedAt)
-          : job.completedAt ?? new Date();
+          : job.completedAt ?? ShopContext.now();
 
         // Plaka (malzeme türü + ad) ekstre açıklaması için yüklenir.
         const plate = await manager.findOne(MaterialPlate, {
@@ -420,7 +421,7 @@ export class ProcessingService {
             sourceType: LedgerSourceType.PROCESSING,
             sourceId: job.id,
             description: `İşleme iptali #${job.id.slice(0, 8)}`,
-            occurredAt: new Date(),
+            occurredAt: ShopContext.now(),
           });
           job.isBilled = false;
         }
@@ -444,7 +445,7 @@ export class ProcessingService {
           quantityInStock: 1,
           ownerCustomerId: offcut.ownerCustomerId ?? undefined,
           warehouseId: offcut.warehouseId,
-          processedAt: new Date().toISOString().slice(0, 10),
+          processedAt: ShopContext.now().toISOString().slice(0, 10),
         });
       } catch (err) {
         this.logger.warn(

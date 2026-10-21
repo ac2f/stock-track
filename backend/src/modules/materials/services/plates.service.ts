@@ -126,7 +126,7 @@ export class PlatesService {
     // Stok kodu elle verilmediyse tür+marka+renk+kalınlık+tabaka ebatından üret.
     const sku =
       dto.sku ?? (await this.buildSku(template, brand, color, thickness, size));
-    const addedAt = dto.addedAt ?? new Date().toISOString().slice(0, 10);
+    const addedAt = dto.addedAt ?? ShopContext.now().toISOString().slice(0, 10);
 
     const initialQty = dto.quantityInStock ?? 0;
 

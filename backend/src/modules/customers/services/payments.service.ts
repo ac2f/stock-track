@@ -37,6 +37,7 @@ import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { ConvertLegacyDebtCloseDto } from '../dto/convert-legacy-debt-close.dto';
 import { QueryCustomerPaymentsDto } from '../dto/query-payment.dto';
 import { CustomerAccountService } from './customer-account.service';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 export interface PaymentResult {
   payment: Payment;
@@ -99,7 +100,7 @@ export class PaymentsService {
   ): Promise<PaymentResult> {
     await this.validateMethod(dto);
     const direction = dto.direction ?? PaymentDirection.INCOMING;
-    const occurredAt = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
+    const occurredAt = dto.paymentDate ? new Date(dto.paymentDate) : ShopContext.now();
     const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
     const { amount: baseAmount, rate: exchangeRate } =
       await this.currencyService.convert(

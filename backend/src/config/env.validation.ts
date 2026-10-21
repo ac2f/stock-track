@@ -45,6 +45,11 @@ export const envValidationSchema = Joi.object({
   // Zamanlayıcı (cluster'da tek replikada açık tutulur)
   SCHEDULER_ENABLED: Joi.boolean().default(true),
 
+  // Merkez/yerel sunucu eşitlemesi (docs/SYNC.md)
+  SYNC_ROLE: Joi.string().valid('primary', 'replica').default('primary'),
+  SYNC_RETENTION_DAYS: Joi.number().min(1).default(30),
+  SYNC_GAP_WAIT_SECONDS: Joi.number().min(5).default(60),
+
   // Veritabanı yedekleme
   BACKUP_DIR: Joi.string().default('backups'),
   BACKUP_CRON: Joi.string().default('0 3 * * *'),

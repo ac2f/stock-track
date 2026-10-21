@@ -38,6 +38,7 @@ const ShopTransfersPage = lazyPage(
   'ShopTransfersPage',
 );
 const SettingsPage = lazyPage(() => import('./features/settings/SettingsPage'), 'SettingsPage');
+const SyncPage = lazyPage(() => import('./features/sync/SyncPage'), 'SyncPage');
 
 /** Ekip ekranı: sistem sahibi ve en az bir dükkânın yöneticisi. */
 function TeamGate({ children }: { children: ReactNode }) {
@@ -153,6 +154,8 @@ export default function App() {
             </TransfersGate>
           }
         />
+        {/* Yerel sunucu (replika) eşitleme durumu ve kararlar — her oturum açan görür. */}
+        <Route path="/sync" element={<SyncPage />} />
         <Route path="/processing" element={<Placeholder title="İşleme" />} />
         <Route
           path="/queue"

@@ -10,6 +10,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { NoShop } from '../../common/shop/shop-access.decorator';
+import { SyncSkip } from '../sync/sync.decorators';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
@@ -20,6 +21,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @SyncSkip()
   @Post('login')
   @HttpCode(200)
   login(@Body() dto: LoginDto) {
@@ -27,6 +29,7 @@ export class AuthController {
   }
 
   @Public()
+  @SyncSkip()
   @Post('refresh')
   @HttpCode(200)
   refresh(@Body() dto: RefreshDto) {

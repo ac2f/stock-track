@@ -6,6 +6,7 @@ import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum'
 import { roundMoney } from '../../../common/utils/area.util';
 import { Customer } from '../entities/customer.entity';
 import { CustomerLedgerEntry } from '../entities/customer-ledger-entry.entity';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 export interface LedgerMovement {
   customerId: string;
@@ -74,7 +75,7 @@ export class CustomerAccountService {
       amount,
       balanceAfter,
       description: m.description,
-      occurredAt: m.occurredAt ?? new Date(),
+      occurredAt: m.occurredAt ?? ShopContext.now(),
     });
     await manager.save(entry);
 
