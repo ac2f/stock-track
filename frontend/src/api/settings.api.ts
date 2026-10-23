@@ -50,6 +50,24 @@ export interface TelegramSettings {
   backupCron: string;
   /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
   allowedUserIds: string[];
+  /** Konu başına hedefler (satış, stok, Corel ...). */
+  routes: TelegramRoute[];
+  /** Bildirim sohbetini kullanan diğer dükkânlar. */
+  chatSharedWith: string[];
+}
+
+export type TelegramTopic = 'sales' | 'payments' | 'stock' | 'debt' | 'morning' | 'corel';
+
+/** Bir konunun hedefi: bildirim sohbeti, başka sohbet ya da kapalı. */
+export interface TelegramRoute {
+  topic: TelegramTopic;
+  label: string;
+  hint: string;
+  mode: 'default' | 'chat' | 'off';
+  chatId: string;
+  effectiveChatId: string;
+  /** Aynı sohbete gönderen diğer dükkânlar. */
+  sharedWith: string[];
 }
 
 export interface UpdateTelegramInput {
@@ -59,6 +77,8 @@ export interface UpdateTelegramInput {
   backupTelegramChatId?: string;
   /** Virgülle ayrılmış Telegram kullanıcı kimlikleri. */
   telegramAllowedUserIds?: string;
+  /** Konu başına hedefler; verilen nesne öncekinin yerine geçer. */
+  telegramRoutes?: Partial<Record<TelegramTopic, { chatId?: string; off?: boolean }>>;
 }
 
 export async function fetchTelegramSettings(): Promise<TelegramSettings> {
@@ -90,8 +110,8 @@ export async function reloadTelegram(): Promise<TelegramReloadResult> {
   return data;
 }
 
-/** Ayarlardaki sohbete deneme mesajı gönderir. */
-export async function testTelegram(): Promise<{
+/** Ayarlardaki sohbete (konu verilirse o konunun sohbetine) deneme mesajı gönderir. */
+export async function testTelegram(topic?: TelegramTopic): Promise<{
   success: boolean;
   error?: string;
   chatId: string;
@@ -100,7 +120,32 @@ export async function testTelegram(): Promise<{
     success: boolean;
     error?: string;
     chatId: string;
-  }>('/notifications/telegram/test');
+  }>('/notifications/telegram/test', undefined, { params: topic ? { topic } : undefined });
+  return data;
+}
+
+// ── Klasör oluşturucu (runner) ──────────────────────────────────────────
+/** Dükkânın klasör oluşturucusu: runner bu dükkânın anahtarıyla bağlanınca okur. */
+export interface FolderSettings {
+  shopName: string;
+  enabled: boolean;
+  /** Belirteçte kullanılan kod (yazılan ya da dükkân adından). */
+  code: string;
+  /** Yazılan kod; boş = dükkân adından. */
+  customCode: string;
+  materialSaleFolders: boolean;
+  dayRoot: string;
+}
+
+export async function fetchFolderSettings(): Promise<FolderSettings> {
+  const { data } = await api.get<FolderSettings>('/settings/folders');
+  return data;
+}
+
+export async function updateFolderSettings(
+  input: Partial<{ enabled: boolean; code: string; materialSaleFolders: boolean; dayRoot: string }>,
+): Promise<FolderSettings> {
+  const { data } = await api.put<FolderSettings>('/settings/folders', input);
   return data;
 }
 

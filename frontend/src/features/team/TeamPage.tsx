@@ -654,7 +654,12 @@ function MemberCard({
   const [open, setOpen] = useState(false);
   const [perms, setPerms] = useState(member.permissions);
   const [isAdmin, setIsAdmin] = useState(member.isAdmin);
-  const [account, setAccount] = useState({ fullName: member.fullName, phone: member.phone ?? '', password: '' });
+  const [account, setAccount] = useState({
+    fullName: member.fullName,
+    phone: member.phone ?? '',
+    password: '',
+    telegramUserId: member.telegramUserId ?? '',
+  });
 
   useEffect(() => {
     setPerms(member.permissions);
@@ -666,8 +671,13 @@ function MemberCard({
     onSuccess: onChanged,
   });
   const accountMut = useMutation({
-    mutationFn: (input: { fullName?: string; phone?: string; password?: string; isActive?: boolean }) =>
-      updateMemberAccount(shopId, member.id, input),
+    mutationFn: (input: {
+      fullName?: string;
+      phone?: string;
+      password?: string;
+      isActive?: boolean;
+      telegramUserId?: string;
+    }) => updateMemberAccount(shopId, member.id, input),
     onSuccess: async () => {
       setAccount((a) => ({ ...a, password: '' }));
       await onChanged();
@@ -705,6 +715,11 @@ function MemberCard({
               </p>
               {member.otherShops > 0 && (
                 <p className="text-xs text-slate-400">{member.otherShops} başka dükkânda da çalışıyor</p>
+              )}
+              {member.telegramUserId && (
+                <p className="text-xs text-slate-400" title="Telegram botunda yalnız üye olduğu dükkânları görür">
+                  ✈️ Telegram bağlı ({member.telegramUserId})
+                </p>
               )}
             </div>
             {member.editable ? (
@@ -781,6 +796,20 @@ function MemberCard({
                 />
               </label>
             </div>
+            <label className="block min-w-0">
+              <span className="label">Telegram kullanıcı kimliği</span>
+              <input
+                className="input font-mono sm:max-w-xs"
+                inputMode="numeric"
+                value={account.telegramUserId}
+                onChange={(e) => setAccount({ ...account, telegramUserId: e.target.value.replace(/[^\d]/g, '') })}
+                placeholder="Örn. 123456789 (botta /idx)"
+              />
+              <span className="mt-1 block text-xs text-slate-500">
+                Yazılırsa bu kişi Telegram botunda yalnız üye olduğu dükkânları, buradaki izinlerle görür.
+                Kimliğini bota <code>/idx</code> yazarak öğrenir. Boş bırakılırsa bot onu tanımaz.
+              </span>
+            </label>
             <div className="flex flex-wrap gap-2">
               <button
                 className="btn-secondary btn-sm"
@@ -789,6 +818,7 @@ function MemberCard({
                   accountMut.mutate({
                     fullName: account.fullName,
                     phone: account.phone,
+                    telegramUserId: account.telegramUserId,
                     ...(account.password ? { password: account.password } : {}),
                   })
                 }

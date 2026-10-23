@@ -18,6 +18,8 @@ export interface ShopMemberView {
   isActive: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
+  /** Telegram botunda bu kişiyi tanıyan kimlik (boş: bağlı değil). */
+  telegramUserId: string | null;
   /** Üye olduğu başka dükkân sayısı. */
   otherShops: number;
   /** Oturumdaki kullanıcı bu üyeyi düzenleyebilir mi? */
@@ -49,6 +51,8 @@ export interface MemberAccountInput {
   phone?: string;
   password?: string;
   isActive?: boolean;
+  /** Telegram kullanıcı kimliği; boş = bağlantıyı kaldır. */
+  telegramUserId?: string;
 }
 
 export async function fetchMyShops(): Promise<ShopAccess[]> {

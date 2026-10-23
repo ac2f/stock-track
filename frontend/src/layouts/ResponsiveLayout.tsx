@@ -13,7 +13,7 @@ import { applyFontScale, FONT_SCALES, getFontScale, type FontScale } from '../li
 import { getBrand, setBrand } from '../lib/brand';
 import { CurrencyTicker } from '../components/CurrencyTicker';
 import { LockProvider, useLock } from '../context/LockContext';
-import { ShopSwitcher } from '../components/ShopSwitcher';
+import { ShopChip, ShopColorBar, ShopSwitcher, useShopShortcuts } from '../components/ShopSwitcher';
 import { OfflineBar } from '../components/OfflineBar';
 import { CommandPalette, ShortcutsHelp, useGlobalShortcuts } from '../components/CommandPalette';
 import { NAV_ITEMS, visibleNav, type NavItem } from './nav';
@@ -70,6 +70,7 @@ export function ResponsiveLayout() {
     openHelp: () => setHelpOpen(true),
     nav: flat,
   });
+  useShopShortcuts();
 
   // İşletme adı → marka + sekme başlığı (Ayarlar ekranından düzenlenir).
   const { data: business } = useBusinessSettings();
@@ -117,12 +118,15 @@ export function ResponsiveLayout() {
                 <div className="truncate text-[15px] font-bold leading-tight text-slate-900" title={brandName}>
                   {brandName}
                 </div>
-                {shop && shop.name !== brandName && <div className="truncate text-xs text-slate-500">{shop.name}</div>}
               </div>
             )}
           </div>
 
-          {!collapsed && <ShopSwitcher className="mx-3 mt-3" hideSingle />}
+          {collapsed ? (
+            shops.length > 1 && <ShopChip className="mx-auto mt-3" compact />
+          ) : (
+            <ShopSwitcher className="mx-3 mt-3" />
+          )}
 
           <div className="px-3 pt-3">
             <button
@@ -173,16 +177,14 @@ export function ResponsiveLayout() {
 
         {/* İçerik sütunu — min-h-0: flex çocuğu küçülebilsin ki main kayabilsin. */}
         <div className="flex min-h-0 flex-1 flex-col">
+          <ShopColorBar />
           <OfflineBar />
           <SyncStatusBar />
           <header className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
             <BrandMark name={brandName} small />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-bold leading-tight">{brandName}</div>
-              <div className="truncate text-xs text-slate-500">
-                {page?.title ?? ''}
-                {shop && shop.name !== brandName ? ` · ${shop.name}` : ''}
-              </div>
+              <div className="truncate text-sm font-bold leading-tight">{page?.title ?? brandName}</div>
+              {shop && <ShopChip compact className="max-w-full" />}
             </div>
             <CurrencyTicker compact />
             <button
@@ -586,7 +588,7 @@ function MobileMenu({
           </button>
         </div>
 
-        <ShopSwitcher className="mt-3" hideSingle />
+        <ShopSwitcher className="mt-3" layout="grid" />
         <button
           onClick={onSearch}
           className="mt-3 flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm text-slate-500"

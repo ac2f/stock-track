@@ -11,6 +11,7 @@ import type { NavItem } from '../layouts/nav';
 import { SECTIONS as SETTINGS_SECTIONS } from '../features/settings/sections';
 import type { ShopModule } from '../types';
 import { useDebounced } from '../hooks/useDebounced';
+import { useShopList, useSwitchShop } from './ShopSwitcher';
 
 /**
  * Hızlı arama (Ctrl+K): ekrana git, yeni kayıt aç, müşteri ya da plaka bul.
@@ -123,6 +124,8 @@ export function CommandPalette({
   const navigate = useNavigate();
   const { can, logout, shop, shops, isOwner, managesAnyShop } = useAuth();
   const multiShop = shops.filter((s) => s.isActive).length > 1;
+  const switchShop = useSwitchShop();
+  const shopList = useShopList();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -156,6 +159,24 @@ export function CommandPalette({
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
+    // Dükkânlar arası geçiş: "dükkân" ya da dükkân adı yazınca.
+    if (shopList.length > 1) {
+      shopList.forEach((s, i) => {
+        if (s.id === shop?.id) return;
+        list.push({
+          id: `shop:${s.id}`,
+          group: 'Dükkân',
+          icon: '🏪',
+          label: `${s.name} dükkânına geç`,
+          hint: i < 9 ? `Alt+Shift+${i + 1}` : undefined,
+          keywords: 'dükkân dukkan şube sube geç değiştir mağaza',
+          run: () => {
+            onClose();
+            switchShop(s.id);
+          },
+        });
+      });
+    }
     for (const a of QUICK_ACTIONS) {
       if (!can(a.module, a.level) || (a.multiShop && !multiShop)) continue;
       list.push({ id: a.id, group: 'İşlemler', icon: a.icon, label: a.label, keywords: a.keywords, run: () => go(a.to) });
@@ -214,7 +235,7 @@ export function CommandPalette({
     list.push({ id: 'logout', group: 'Hesap', icon: '🚪', label: 'Çıkış yap', keywords: 'oturum kapat', run: logout });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav, can, isOwner, managesAnyShop, multiShop]);
+  }, [nav, can, isOwner, managesAnyShop, multiShop, shopList, shop?.id, switchShop]);
 
   const tokens = fold(q.trim()).split(/\s+/).filter(Boolean);
 
@@ -238,7 +259,8 @@ export function CommandPalette({
           return c && { ...c, group: 'Son kullanılanlar' };
         })
         .filter((c): c is Command => !!c);
-      out.push(...recent);
+      out.push(...recent.filter((r) => !r.id.startsWith('shop:')));
+      out.push(...commands.filter((c) => c.group === 'Dükkân'));
       out.push(...commands.filter((c) => c.group === 'İşlemler' && !recent.some((r) => r.id === c.id)));
       out.push(...commands.filter((c) => c.group === 'Ekranlar'));
       return out;
@@ -470,7 +492,8 @@ export function useGlobalShortcuts({
         return;
       }
       if (document.querySelector('[aria-modal="true"]')) return;
-      if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code)) {
+      // Alt+Shift+rakam dükkân geçişidir (useShopShortcuts).
+      if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code)) {
         const item = nav[Number(e.code.slice(5)) - 1];
         if (item) {
           e.preventDefault();
@@ -512,6 +535,7 @@ function Row({ keys, children }: { keys: ReactNode; children: ReactNode }) {
 }
 
 export function ShortcutsHelp({ nav, onClose }: { nav: NavItem[]; onClose: () => void }) {
+  const shops = useShopList();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -547,6 +571,21 @@ export function ShortcutsHelp({ nav, onClose }: { nav: NavItem[]; onClose: () =>
             </Row>
           ))}
         </div>
+        {shops.length > 1 && (
+          <>
+            <h3 className="mb-1 mt-4 text-sm font-semibold text-slate-500">Dükkânlar</h3>
+            <div className="divide-y divide-slate-100">
+              {shops.slice(0, 9).map((s, i) => (
+                <Row
+                  key={s.id}
+                  keys={<><span className="kbd">Alt</span><span className="kbd">Shift</span><span className="kbd">{i + 1}</span></>}
+                >
+                  🏪 {s.name}
+                </Row>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

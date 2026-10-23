@@ -16,6 +16,11 @@ import {
   fetchTelegramSettings,
   reloadTelegram,
   testTelegram,
+  fetchFolderSettings,
+  updateFolderSettings,
+  type FolderSettings,
+  type TelegramRoute,
+  type TelegramTopic,
   updateBusinessSettings,
   fetchDisplaySettings,
   fetchPricingSettings,
@@ -1251,7 +1256,117 @@ function CorelIntegrationCard() {
         </p>
         <RunnerPanel canManage={enabled} active={active} />
       </SubBox>
+
+      <FolderCreatorPanel active={active} />
     </SettingsSection>
+  );
+}
+
+/**
+ * Bu dükkânın klasör oluşturucusu: runner bu dükkânın anahtarıyla bağlanınca
+ * okur. Her dükkânın ayrı ayarı vardır (aç/kapat, klasör belirtecindeki kod,
+ * malzeme satışına klasör, gün klasörü kökü).
+ */
+function FolderCreatorPanel({ active }: { active: boolean }) {
+  const qc = useQueryClient();
+  const { can } = useAuth();
+  const canWrite = can('settings', 'write');
+  const { data } = useQuery({ queryKey: ['settings', 'folders'], queryFn: fetchFolderSettings, enabled: active });
+  const [form, setForm] = useState<{ enabled: boolean; code: string; materialSaleFolders: boolean; dayRoot: string } | null>(null);
+  useEffect(() => {
+    if (data) {
+      setForm({
+        enabled: data.enabled,
+        code: data.customCode,
+        materialSaleFolders: data.materialSaleFolders,
+        dayRoot: data.dayRoot,
+      });
+    }
+  }, [data]);
+  const save = useMutation({
+    mutationFn: () => updateFolderSettings(form!),
+    onSuccess: (next: FolderSettings) => {
+      qc.setQueryData(['settings', 'folders'], next);
+      toast.success('Klasör ayarları kaydedildi', `Belirteç kodu: ${next.code}`);
+    },
+    onError: (e) => toast.error('Kaydedilemedi', apiErrorMessage(e)),
+  });
+  if (!data || !form) return null;
+
+  // Önizleme: yazılan kodun klasör adına girecek hâli (sunucu da böyle kısaltır).
+  const code =
+    form.code
+      .toLocaleLowerCase('tr')
+      .replace(/[çğıöşü]/g, (c) => ({ ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u' })[c] ?? c)
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 20)
+      .replace(/-+$/, '') || data.code;
+  const today = new Date();
+  const dd = (n: number) => String(n).padStart(2, '0');
+  const stamp = `F${dd(today.getDate())}-${dd(today.getMonth() + 1)}-${today.getFullYear()}`;
+
+  return (
+    <SubBox title={`📁 Bu dükkânın klasör oluşturucusu — ${data.shopName}`}>
+      <p className="text-xs text-slate-500">
+        Her dükkânın ayarı ayrıdır; runner hangi dükkânın anahtarıyla bağlanırsa o dükkânın ayarını kullanır.
+        Bir bilgisayar birden çok dükkâna klasör açıyorsa her dükkâna ayrı gün klasörü kökü verin.
+      </p>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={form.enabled}
+          disabled={!canWrite}
+          onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+        />
+        Bu dükkânın teklifleri işe dönünce klasör aç
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={form.materialSaleFolders}
+          disabled={!canWrite || !form.enabled}
+          onChange={(e) => setForm({ ...form, materialSaleFolders: e.target.checked })}
+        />
+        Kesimsiz malzeme satışına da klasör aç (<code>malzeme-F…</code>)
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Klasör belirtecindeki işletme kodu"
+          value={form.code}
+          disabled={!canWrite}
+          onChange={(v) => setForm({ ...form, code: v })}
+          placeholder={data.code}
+          hint="İşletmenin malından kesilen tabakada sahip olarak yazılır. Boşsa dükkân adından."
+        />
+        <Field
+          label="Gün klasörü kökü (dükkân bilgisayarında)"
+          value={form.dayRoot}
+          disabled={!canWrite}
+          onChange={(v) => setForm({ ...form, dayRoot: v })}
+          placeholder="Boş: runner / Corel eklentisi / CDR Auto Renamer ayarı"
+          hint="Örn. D:\Isler\Merkez — runner'ın kendi ayarı doluysa o geçer."
+        />
+      </div>
+      <div className="rounded-lg bg-slate-50 p-2 font-mono text-[11px] leading-5 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+        <div className="font-sans text-xs font-medium text-slate-500">Klasör adları (örnek):</div>
+        <div className="break-all">001-pleksi-1220x2440--2pcs--2800um-akpolimer-beyaz--{stamp}.{code}.pleksi-beyaz</div>
+        <div className="break-all">002-pleksi-1220x2440--1pcs--2800um-akpolimer-siyah--{stamp}.ozturk-reklam.pleksi-siyah</div>
+        {form.materialSaleFolders && (
+          <div className="break-all">malzeme-{stamp}.{code}.pleksi-beyaz\m1220x2440-2adet</div>
+        )}
+        <div className="mt-1 font-sans text-xs text-slate-500">
+          F + projenin gün klasörünün tarihi · malzemenin sahibi (müşterinin malıysa müşteri, değilse işletme kodu) · tür-renk.
+          Malzeme satışında kesim olmadığı için tabaka klasörü açılmaz; satılan her ölçü bir <code>m</code> dosyasıdır
+          (kullanılan parçadaki <code>u</code> dosyası gibi).
+        </div>
+      </div>
+      <button className="btn-primary" disabled={!canWrite || save.isPending} onClick={() => save.mutate()}>
+        {save.isPending && <Spinner />}
+        Kaydet
+      </button>
+    </SubBox>
   );
 }
 
@@ -1595,13 +1710,22 @@ function TelegramSettings() {
   const [chatId, setChatId] = useState('');
   const [backupChatId, setBackupChatId] = useState('');
   const [allowedIds, setAllowedIds] = useState('');
+  // Konu başına hedef: bildirim sohbeti, başka sohbet ya da kapalı.
+  const [routes, setRoutes] = useState<Partial<Record<TelegramTopic, { mode: TelegramRoute['mode']; chatId: string }>>>({});
   useEffect(() => {
     if (data) {
       setChatId(data.chatIdSource === 'db' ? data.chatId : '');
       setBackupChatId(data.backupChatId);
       setAllowedIds(data.allowedUserIds.join(', '));
+      setRoutes(Object.fromEntries((data.routes ?? []).map((r) => [r.topic, { mode: r.mode, chatId: r.chatId }])));
     }
   }, [data]);
+  const routePayload = () =>
+    Object.fromEntries(
+      Object.entries(routes)
+        .filter(([, r]) => r && (r.mode === 'off' || (r.mode === 'chat' && r.chatId.trim())))
+        .map(([k, r]) => [k, r!.mode === 'off' ? { off: true } : { chatId: r!.chatId.trim() }]),
+    );
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['settings', 'telegram'] });
@@ -1615,10 +1739,11 @@ function TelegramSettings() {
               // Boş jeton "değiştirme" demek; temizlemek için ayrı düğme var.
               ...(token.trim() ? { telegramBotToken: token.trim() } : {}),
               telegramChatId: chatId.trim(),
+              telegramRoutes: routePayload(),
               backupTelegramChatId: backupChatId.trim(),
               telegramAllowedUserIds: allowedIds,
             }
-          : { telegramChatId: chatId.trim() },
+          : { telegramChatId: chatId.trim(), telegramRoutes: routePayload() },
       ),
     onSuccess: () => {
       setToken('');
@@ -1630,7 +1755,7 @@ function TelegramSettings() {
     onSuccess: invalidate,
   });
   const reloadMut = useMutation({ mutationFn: reloadTelegram, onSuccess: invalidate });
-  const testMut = useMutation({ mutationFn: testTelegram });
+  const testMut = useMutation({ mutationFn: (topic?: TelegramTopic) => testTelegram(topic) });
 
   if (isLoading || !data) {
     return (
@@ -1743,7 +1868,11 @@ function TelegramSettings() {
           value={chatId}
           onChange={setChatId}
           placeholder={data.chatIdSource === 'env' ? data.chatId : '-1001234567890'}
-          hint="Sabah özeti ve bildirimler buraya gider. Boşsa .env'deki değer kullanılır."
+          hint={
+            data.chatSharedWith?.length
+              ? `Bu sohbeti ${data.chatSharedWith.join(', ')} de kullanıyor; mesajların başında dükkân adı yazar.`
+              : 'Aşağıda başka sohbet seçilmeyen bildirimler buraya gider. Boşsa .env’deki değer kullanılır.'
+          }
         />
         <Field
           label="Yedek sohbet kimliği (opsiyonel)"
@@ -1754,6 +1883,71 @@ function TelegramSettings() {
           hint="Yedekleri ayrı bir gruba göndermek isterseniz."
         />
       </div>
+
+      {/* Konu başına hedef: her dükkân her konuyu ayrı kanala, ortak kanala ya da hiçbir yere. */}
+      <SubBox title="📬 Hangi bildirim nereye gitsin?">
+        <p className="text-xs text-slate-500">
+          Her konu bu dükkânın bildirim sohbetine, başka bir sohbete (kanal/grup) gidebilir ya da kapatılabilir.
+          Dükkânlar aynı sohbeti paylaşabilir; birden çok dükkân varken mesajın ilk satırında dükkân adı yazar.
+          Müşterinin kendi Telegram sohbetine giden mesajlar bundan etkilenmez.
+        </p>
+        <div className="divide-y divide-slate-100 dark:divide-slate-700">
+          {(data.routes ?? []).map((r) => {
+            const cur = routes[r.topic] ?? { mode: r.mode, chatId: r.chatId };
+            const setCur = (patch: Partial<typeof cur>) =>
+              setRoutes((all) => ({ ...all, [r.topic]: { ...cur, ...patch } }));
+            return (
+              <div key={r.topic} className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 sm:w-56">
+                  <div className="text-sm font-medium">{r.label}</div>
+                  <div className="text-xs text-slate-500">{r.hint}</div>
+                </div>
+                <select
+                  className="input sm:w-44"
+                  aria-label={`${r.label} hedefi`}
+                  value={cur.mode}
+                  onChange={(e) => setCur({ mode: e.target.value as TelegramRoute['mode'] })}
+                >
+                  <option value="default">Bildirim sohbeti</option>
+                  <option value="chat">Başka sohbet</option>
+                  <option value="off">Kapalı</option>
+                </select>
+                {cur.mode === 'chat' && (
+                  <input
+                    className="input min-w-0 flex-1 font-mono text-sm"
+                    aria-label={`${r.label} sohbet kimliği`}
+                    placeholder="-1001234567890"
+                    value={cur.chatId}
+                    onChange={(e) => setCur({ chatId: e.target.value })}
+                  />
+                )}
+                <div className="flex items-center gap-2 sm:ml-auto">
+                  {r.sharedWith.length > 0 && cur.mode === r.mode && (
+                    <span className="badge bg-slate-100 text-slate-600" title="Aynı sohbete gönderen dükkânlar">
+                      ortak: {r.sharedWith.join(', ')}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    disabled={testMut.isPending || !data.tokenSet || r.mode === 'off' || cur.mode !== r.mode}
+                    title={
+                      cur.mode !== r.mode
+                        ? 'Önce kaydedin'
+                        : r.mode === 'off'
+                          ? 'Bu konu kapalı'
+                          : `${r.effectiveChatId || '—'} sohbetine deneme mesajı`
+                    }
+                    onClick={() => testMut.mutate(r.topic)}
+                  >
+                    ✉️ Dene
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </SubBox>
 
       {/* Bot üzerinden İŞLEM yapabilecek kullanıcılar — güvenlik kapısı. */}
       <SubBox
@@ -1777,6 +1971,8 @@ function TelegramSettings() {
         />
         <p className="text-xs text-slate-600">
           Bu kişiler botta bütün dükkânlara erişir; ana menüdeki dükkân düğmesiyle dükkân değiştirir.
+          Yalnız kendi dükkânını görmesi gereken çalışanın kimliğini buraya değil,{' '}
+          <b>Ekip</b> ekranında hesabına yazın: bot ona yalnız üye olduğu dükkânları, kendi izinleriyle gösterir.
         </p>
         {data.allowedUserIds.length === 0 && (
           <p className="text-xs font-medium text-amber-800">
@@ -1819,7 +2015,7 @@ function TelegramSettings() {
               ? 'Ayarlardaki sohbete deneme mesajı gönderir'
               : 'Önce jeton ve sohbet kimliğini tanımlayın'
           }
-          onClick={() => testMut.mutate()}
+          onClick={() => testMut.mutate(undefined)}
         >
           {testMut.isPending ? 'Gönderiliyor…' : '✉️ Test mesajı gönder'}
         </button>
