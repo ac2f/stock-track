@@ -57,6 +57,7 @@ PostgreSQL + TypeORM. Tüm tablolar `BaseEntity`'den türer:
 | password_hash | varchar            | bcrypt                                    |
 | role          | enum `UserRole`    | `owner` \| `employee`                     |
 | is_active     | boolean            | Pasif personel giriş yapamaz              |
+| telegram_user_id | varchar(32) (unique, nullable) | Telegram kimliği: botta yalnız üye olduğu dükkânlar, kendi izinleriyle |
 
 ### 2. `suppliers` — Tedarikçi
 | Alan | Tip | Açıklama |
@@ -416,8 +417,8 @@ current_balance = opening_balance
 | Tablo / Kolon | Açıklama |
 | ------------- | -------- |
 | `quotes` | Teklif (proforma): `quote_no` (TKF-YYYY-NNNN, unique), `buyer_customer_id`, `owner_customer_id?`, `warehouse_id?`, `status` (draft/sent/accepted/rejected/expired/converted), `valid_until?`, `currency`+`exchange_rate`, `subtotal`/`total`/`base_total`, `converted_sale_id?`, `converted_at?`, `note?`; dükkân runner'ının bildirdiği klasör (`folders_created_at?`, `folders_path?`, `folders_host?`, `folders_note?`) ve arayüzden yeniden istek (`folders_requested_at?`). Cari/stok hareketi YOK. |
-| `corel_runners` | Dükkân bilgisayarındaki runner'ın son durumu, bilgisayar başına bir satır (`shop_id`+`host` tekil): `version?`, `started_at?`, `last_seen_at`, `poll_seconds`, `day_root?`, `day_root_source?`, `last_error?`, `last_error_at?`, `last_job_quote_no?`, `last_job_at?`, `last_folder?`. |
-| `quote_items` | Teklif kalemi: `quote_id` (CASCADE), `line_kind` (sale/processing), `plate_id`, `description?`, `quantity`, `unit_price`, `line_total`; işleme alanları (`billing_unit?`, `width_mm?`, `height_mm?`, `length_meters?`); dönüşüm anındaki tabaka ölçüsü (`sheet_width_mm?`, `sheet_height_mm?` — dönüşüm plakanın kalan boyunu düşürdüğü için, dükkân runner'ı klasör adına tam ölçüyü bununla yazar); satış alanları (`stock_source?`, `owner_settlement?`, `commission_percent?`, `owner_amount?`). |
+| `corel_runners` | Dükkân bilgisayarındaki runner'ın son durumu, bilgisayar başına bir satır (`shop_id`+`host` tekil): `version?`, `started_at?`, `last_seen_at`, `poll_seconds`, `day_root?`, `day_root_source?`, `last_error?`, `last_error_at?`, `last_job_quote_no?`, `last_job_at?`, `last_folder?`, `offline_notified_at?` (Telegram'a "bağlantısı koptu" denildi; nabız gelince temizlenir), `alert_notified_at?` (son sorun bildirimi; 10 dk'da en çok bir). |
+| `quote_items` | Teklif kalemi: `quote_id` (CASCADE), `line_kind` (sale/processing), `plate_id`, `description?`, `quantity`, `unit_price`, `line_total`; işleme alanları (`billing_unit?`, `width_mm?`, `height_mm?`, `length_meters?`); dönüşüm anındaki tabaka ölçüsü (`sheet_width_mm?`, `sheet_height_mm?` — dönüşüm plakanın kalan boyunu düşürdüğü için, dükkân runner'ı klasör adına tam ölçüyü bununla yazar); dönüşüm anındaki malzeme sahibi (`material_owner_kind?` business/customer, `material_owner_id?` — klasör belirtecine yazılır); satış alanları (`stock_source?`, `owner_settlement?`, `commission_percent?`, `owner_amount?`). |
 | `machines` | Üretim makinesi: `name`, `code` (unique), `default_measurement_type`, `is_active`. |
 | `processing_jobs` (+kolonlar) | `status` (pending/in_progress/completed/cancelled), `machine_id?`, `bill_on_completion`, `completed_at?`, `stock_consumed`. Ertelemeli işte stok+borç COMPLETED'da uygulanır (idempotent); CANCELLED iade eder. |
 | `customers` (+kolon) | `portal_token?` (unique, NULL=erişim yok) — müşteri self-servis portalı için tahmin edilemez salt-okunur token. |
@@ -438,6 +439,7 @@ current_balance = opening_balance
 | `shops` | Dükkân: `name`, `is_active`. Silinmez; kapatılır. |
 | `shop_members` | Üyelik: `shop_id`, `user_id` (ikisi birlikte unique), `is_admin`, `permissions` (jsonb: alan başına `{ read, write }`). Silme fizikseldir. Sistem sahibinin (`users.role = owner`) üyeliği gerekmez. |
 | `system_settings` | Bütün sisteme ait tek satır: `telegram_bot_token`, `backup_telegram_chat_id`, `telegram_allowed_user_ids`. |
+| `app_settings` (+kolon) | Dükkânın klasör oluşturucusu: `folders_enabled`, `folder_code` (belirteçteki işletme kodu; boş = dükkân adından), `material_sale_folders`, `folder_day_root`. Telegram konu hedefleri: `telegram_routes` (jsonb `{ konu: { chatId? , off? } }`). |
 | `idempotency_keys` | İşlenmiş yazma istekleri: `key` (PK), `user_id`, `shop_id`, `method`, `path`, `state` (processing/done), `status_code`, `body` (json — yanıt aynen döner), `created_at`. `IDEMPOTENCY_TTL_DAYS` gün sonra silinir. |
 | **her iş tablosu** (+kolon) | `shop_id` (uuid, indeksli): müşteri, ödeme, cari defter, stok, plaka, katalog, teklif, satış, iş, satın alma, gider, banka, bildirim, ayarlar (`app_settings` artık dükkân başına bir satır) ... Dükkândan bağımsız olanlar: `users`, `exchange_rates`, `shops`, `shop_members`, `system_settings`, `idempotency_keys`. |
 

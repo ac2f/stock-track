@@ -454,7 +454,7 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | GET | `/notifications/stats` | Defterin büyüklüğü (kayıt sayısı, en eski tarih) |
 | DELETE | `/notifications?olderThanDays=` | Defteri temizler; parametresiz tümünü siler. İş verisi etkilenmez |
 | POST | `/notifications/telegram/reload` | Telegram'ı "yeniden başlat": ayarları tazeler, jetonu `getMe` ile doğrular. Yanıt: `{ ok, botUsername, chatId, backupChatId, error? }` |
-| POST | `/notifications/telegram/test` | Ayarlardaki sohbete deneme mesajı gönderir |
+| POST | `/notifications/telegram/test?topic=` | Ayarlardaki sohbete (konu verilirse o konunun sohbetine) deneme mesajı gönderir |
 
 ### Settings (Ayarlar — 👔 OWNER yazma)
 | Metot | Yol | Açıklama |
@@ -462,7 +462,18 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | GET | `/settings/business` | İşletme kimliği (belgelerde/portalda kullanılır) |
 | PUT | `/settings/business` | İşletme kimliğini güncelle |
 | GET | `/settings/telegram` | Telegram durumu. **Jeton maskeli döner**, asla açık değil. Mesajın gideceği sohbet kimlikleri burada |
-| PUT | `/settings/telegram` | Jeton/sohbet kimliklerini güncelle. Alan gönderilmezse değişmez, **boş** gönderilirse temizlenir (`.env` değerine düşer) |
+| PUT | `/settings/telegram` | Jeton/sohbet kimliklerini güncelle. Alan gönderilmezse değişmez, **boş** gönderilirse temizlenir (`.env` değerine düşer). `telegramRoutes: { sales: { chatId }, corel: { off: true }, … }` dükkânın konu hedefleri (verilen nesne öncekinin yerine geçer) |
+
+**Telegram konuları** (`routes` her dükkânın kendisinin): `sales` satışlar,
+`payments` tahsilat (sohbeti olmayan müşterinin), `stock` kritik stok, `debt`
+borç hatırlatma (sohbeti olmayan borçlunun), `morning` sabah özeti, `corel`
+Corel ve klasörler (runner klasör açtı · sorun bildirdi / düzeldi · bağlantısı
+koptu / geri geldi). Her konu bildirim sohbetine, başka bir sohbete gider ya
+da kapalıdır. Dükkânlar aynı sohbeti paylaşabilir; birden çok açık dükkân
+varken mesajın ilk satırı `🏪 Dükkân adı`dır. Müşterinin kendi sohbetine
+giden mesaj ve yedek yönlendirmeden etkilenmez. `GET /settings/telegram`
+`routes[]` (`mode: default|chat|off`, `effectiveChatId`, `sharedWith[]`) ve
+`chatSharedWith[]` döner.
 
 ### Backups (Yedekleme — 👔 OWNER)
 | Metot | Yol | Açıklama |
@@ -571,9 +582,20 @@ Bot, web uygulamasındaki günlük işlemleri sohbet üzerinden yaptırır. Men�
 inline düğmelerle gezilir; bir şey yazmanız gerektiğinde bot bunu söyler.
 
 ### Güvenlik
-Her mesaj ve her düğme basışı, **işlenmeden önce** ayarlardaki yetkili kullanıcı
-listesine (`Ayarlar › Telegram › Yetkili kullanıcılar`) karşı doğrulanır.
-Liste boşken **hiç kimse** yetkili değildir. Yetkisiz kişiye yalnızca kendi
+Her mesaj ve her düğme basışı, **işlenmeden önce** gönderenin erişimine göre
+doğrulanır:
+
+1. Telegram kimliği bir StockTrack hesabına yazılıysa (**Ekip** ekranında
+   üyenin hesabı, `PATCH /shops/:id/members/:mid/account { telegramUserId }`)
+   kişi botta **yalnız üye olduğu dükkânları**, o dükkândaki izinleriyle görür
+   (tahsilat için *ödeme yazma*, stok için *stok okuma*, rapor için *rapor
+   okuma*; yedek yalnız sistem sahibine). Tek dükkânı olan dükkân düğmesi
+   görmez.
+2. Yalnız sistemin yetkili listesindeyse (`Ayarlar › Telegram › Yetkili
+   kullanıcılar`, sistem sahibinin eklediği kişiler) bütün açık dükkânlara
+   tam yetkiyle girer.
+
+İkisi de değilse — liste boşken **hiç kimse** — yetkili değildir. Yetkisiz kişiye yalnızca kendi
 kullanıcı kimliği söylenir; hiçbir iş verisi dönmez, hiçbir işlem yapılmaz.
 
 Tek istisna `/idx`: yetki istemez ama sadece sohbet ve kullanıcı kimliğini
@@ -813,7 +835,9 @@ gerekmez).
 | GET | `/settings/corel` | ayarlar (yazma) | `{ enabled, apiKey }` — anahtar bir tür paroladır |
 | POST | `/settings/corel/rotate` | ayarlar (yazma) | Yeni anahtar; eskisi anında geçersiz |
 | DELETE | `/settings/corel` | ayarlar (yazma) | Anahtarı siler, entegrasyonu kapatır |
-| GET | `/corel/ping` | 🔑 | `ok <TAB> işletme adı` |
+| GET | `/corel/ping` | 🔑 | `ok <TAB> işletme adı <TAB> klasör kodu` |
+| GET | `/corel/folder-settings` | 🔑 | Runner: dükkânın klasör oluşturucu ayarları (JSON) `{ shopName, enabled, code, customCode, materialSaleFolders, dayRoot }` |
+| GET/PUT | `/settings/folders` | ayarlar | Aynı ayarlar, arayüz için: `{ enabled?, code?, materialSaleFolders?, dayRoot? }` |
 | GET | `/corel/customers?q=&limit=` | 🔑 | Müşteriler; `q` boşsa son güncellenenler |
 | GET | `/corel/customers/:id` | 🔑 | Tek müşteri |
 | GET | `/corel/materials?customerId=&q=&limit=` | 🔑 | Stoktaki tabakalar; müşterinin malzemesi önce |
@@ -844,7 +868,11 @@ id  sahip  tür  kalınlık µm  marka  varyant  renk  en  boy  adet  görünen 
 3bb3…  B  pleksi  2800  akpolimer  dokme  beyaz  1220  2440  3  Pleksi 2.8mm Akpolimer Dokme Beyaz 1220x2440 x3
 ```
 
-- **`/corel/jobs`**: `{ id, quoteNo, createdAt, convertedAt, customerFolder, customerLabel, sheets: [{ kind, thicknessUm, brand, variant, color, sheetWidthMm, sheetHeightMm, usedWidthMm, usedHeightMm, quantity, label }] }` dizisi. `sheetWidthMm/HeightMm` tabakanın dönüşümden önceki ölçüsüdür.
+- **`/corel/jobs`**: `{ id, quoteNo, createdAt, convertedAt, customerFolder, customerLabel, shopCode, materialSaleFolders, sheets: [{ purpose, ownerKind, owner, kind, thicknessUm, brand, variant, color, sheetWidthMm, sheetHeightMm, usedWidthMm, usedHeightMm, quantity, label }] }` dizisi. `sheetWidthMm/HeightMm` tabakanın dönüşümden önceki ölçüsüdür.
+  - `purpose`: `cut` takım yolu klasörü, `sale` **malzeme satışı** (aynı tabakada işleme kalemi olmayan satış kalemi; runner `malzeme-F…` klasörü ve `m` dosyası açar). Aynı tabakada satış + işleme varsa tabaka bir kez, `cut` olarak gelir (satış kaleminin ölçüsü ve adediyle).
+  - `ownerKind` / `owner`: malzemenin sahibi — `customer` (müşterinin klasör adı, en çok 20 harf) ya da `business` (dükkânın klasör kodu). Dönüşümde kaleme yazılır (`material_owner_kind/id`); eski kalemde satış kaleminin stok kaynağından ve plakanın stok seviyesinden bulunur. Runner klasör belirtecine (`F<gün>.<sahip>.<tür>-<renk>`) yazar.
+  - Dükkânın klasör oluşturucusu kapalıysa liste boştur; malzeme satışına klasör kapalıysa `sale` kalemleri gelmez.
+  - `/corel/quotes` tabaka sayısı ve `/corel/quotes/:id/usage` yalnız kesilen tabakaları (purpose `cut`) sayar.
 - **Klasörler ne zaman açılır:** teklif **işe dönüştürülünce** (oluşturulunca
   değil). Teklif yanıtındaki `foldersCreatedAt`, `foldersPath`, `foldersHost`,
   `foldersNote` runner'ın bildirdiği sonucu, `foldersRequestedAt` son yeniden

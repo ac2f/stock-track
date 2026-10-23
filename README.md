@@ -17,6 +17,7 @@ tek bir çatı altında toplar.
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
 - [Dükkânlar arası satış](#dükkânlar-arası-satış)
+- [Telegram: dükkân ve konu başına sohbet](#telegram-dükkân-ve-konu-başına-sohbet)
 - [Çevrimdışı çalışma: yerel sunucu](#çevrimdışı-çalışma-yerel-sunucu)
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
 - [Fiyatlar ve fiyat çatıları](#fiyatlar-ve-fiyat-çatıları)
@@ -133,6 +134,13 @@ birbirinden bağımsızdır**.
 | **Sistem sahibi** (`owner`) | Her dükkânda her şey; dükkân açar/kapatır, herkesin izinlerini düzenler, yedek ve Telegram botu. |
 | **Dükkân yöneticisi** | Yönettiği dükkânın ekibini düzenler — yalnız kendisinde olan izinleri verebilir, kendi üyeliğini değiştiremez. Kendi veri erişimi de izin tablosuna bağlıdır. |
 | **Kullanıcı** | Üye olduğu her dükkânda, verilen izinlerle. |
+
+**Dükkân geçişi:** yan menüde (telefonda *Menü*'de) dükkânlar tek dokunuşla
+seçilen düğmelerdir; başlıktaki renkli dükkân rozeti hızlı bir liste açar,
+`Alt+Shift+1…9` ve hızlı aramada "dükkân" yazmak da geçirir. Geçince köşede
+hangi dükkâna geçildiği yazar, ekranın üstünde dükkânın renginde ince bir
+şerit durur. **Tek dükkâna erişimi olan** kullanıcı seçim görmez, yalnız o
+dükkânın adını görür (Telegram botunda da: aşağıda).
 
 İzinler dükkân ve alan başınadır, **okuma ve yazma ayrı** işaretlenir.
 Alanlar: stok, katalog/tarifeler, satın alma, iş kuyruğu, teklif, satış,
@@ -265,6 +273,24 @@ dokunuşla birleştirilir. Stok girişinde, teklifin malzeme seçicisinde, ürü
 türleri ve stok listesinde tür seçince **marka / kalınlık / ebat / renk
 çipleri** çıkar; arama sözcük sırasından bağımsızdır ("beyaz 2,8 akpolimer").
 
+## Telegram: dükkân ve konu başına sohbet
+
+*Ayarlar › Telegram › Hangi bildirim nereye gitsin?* — her dükkân her konuyu
+(satışlar, tahsilat, kritik stok, borç hatırlatma, sabah özeti, **Corel ve
+klasörler**) kendi bildirim sohbetine, başka bir kanala/gruba gönderebilir ya
+da kapatabilir; her satırda deneme düğmesi var. Dükkânlar aynı sohbeti
+paylaşabilir: ekran hangi dükkânların aynı sohbete yazdığını gösterir, birden
+çok dükkân varken her mesaj dükkân adıyla başlar.
+
+*Corel ve klasörler* konusu: runner bir teklifin klasörlerini açınca (yol,
+açılan/istiflenen klasörler, sorunlar), runner sorun bildirince ve düzelince
+(aynı bilgisayar için 10 dakikada en çok bir), runner'ın nabzı kesilince ve
+geri gelince.
+
+**Bot erişimi:** çalışanın Telegram kimliği *Ekip* ekranında hesabına
+yazılırsa bot ona yalnız üye olduğu dükkânları, o dükkândaki izinleriyle
+gösterir; sistemin yetkili listesindekiler eskisi gibi bütün dükkânlara girer.
+
 ## Otomatik klasörler (runner)
 
 Teklif **işe dönüştürülünce** (oluşturulunca değil) dükkân bilgisayarında
@@ -273,6 +299,22 @@ değil, dükkân bilgisayarında çalışan **[stock-track-runner](https://githu
 yapar (sunucu uzakta olabilir, bilgisayara yazamaz). Runner dükkânın Corel
 anahtarıyla `/corel/jobs` ucunu okur; klasör adları Corel eklentisiyle
 aynıdır. Kurulum: runner deposundaki `install.bat`.
+
+**Klasör adları:** takım yolu klasörünün sonunda bir belirteç vardır:
+`001-pleksi-1220x2440--2pcs--2800um-akpolimer-dokme-beyaz--F23-10-2026.merkez.pleksi-beyaz`
+— F + projenin gün klasörünün tarihi, malzemenin sahibi (müşterinin kendi
+malıysa müşteri, dükkânın stoğuysa dükkânın klasör kodu), tür-renk.
+**Malzeme satışında** (teklifte kesim kalemi olmayan satış) takım yolu
+klasörü açılmaz: `malzeme-F23-10-2026.merkez.pleksi-beyaz` klasörüne satılan
+her ölçü bir `m` dosyası olarak konur (`m1220x2440-2800um-akpolimer-dokme-2adet`,
+kullanılan parçadaki `u` dosyası gibi).
+
+**Her dükkânın klasör oluşturucusu ayrı:** *Ayarlar › Corel entegrasyonu ›
+Bu dükkânın klasör oluşturucusu* — aç/kapat, belirteçteki klasör kodu,
+malzeme satışına klasör, bu dükkânın gün klasörü kökü. Bir bilgisayar birden
+çok dükkâna klasör açıyorsa runner'ın `config.json`'unda `shops` listesi
+yazılır; her dükkân kendi anahtarı, gün klasörü, durumu ve nabzıyla ayrı
+çalışır.
 
 **Çalışıyor mu?**
 - StockTrack › *Ayarlar › Corel entegrasyonu › Otomatik klasörler*: her
