@@ -24,4 +24,11 @@ export class User extends BaseEntity {
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  /**
+   * Telegram kullanıcı kimliği (botta /idx ile öğrenilir). Doluysa bu kişi
+   * Telegram botunda yalnız üye olduğu dükkânları, kendi izinleriyle görür.
+   */
+  @Column({ name: 'telegram_user_id', type: 'varchar', length: 32, nullable: true, unique: true })
+  telegramUserId?: string | null;
 }

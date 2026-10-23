@@ -40,6 +40,8 @@ export interface MemberView {
   isActive: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
+  /** Telegram botunda bu kişiyi tanıyan kimlik (boş: bağlı değil). */
+  telegramUserId: string | null;
   /** Kullanıcının üye olduğu başka dükkân sayısı (hesap düzenleme kuralı için). */
   otherShops: number;
   /** Oturumdaki kullanıcı bu üyeyi düzenleyebilir mi? */
@@ -247,6 +249,16 @@ export class ShopsService {
     if (dto.phone !== undefined) user.phone = dto.phone.trim() || undefined;
     if (dto.isActive !== undefined) user.isActive = dto.isActive;
     if (dto.password) user.passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    if (dto.telegramUserId !== undefined) {
+      const tg = dto.telegramUserId.trim() || null;
+      if (tg) {
+        const taken = await this.users.findOne({ where: { telegramUserId: tg } });
+        if (taken && taken.id !== user.id) {
+          throw new ConflictException(`Bu Telegram kimliği ${taken.fullName} hesabına yazılı.`);
+        }
+      }
+      user.telegramUserId = tg;
+    }
     await this.users.save(user);
     member.user = user;
     const others = await this.otherShopCounts([user.id], shopId);
@@ -342,6 +354,7 @@ export class ShopsService {
       isActive: m.user?.isActive ?? false,
       isAdmin: m.isAdmin,
       permissions: normalizePermissions(m.permissions),
+      telegramUserId: m.user?.telegramUserId ?? null,
       otherShops,
       editable,
     };

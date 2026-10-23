@@ -67,9 +67,10 @@ export class TelegramScreensService {
   ) {}
 
   // ── Ana menü ────────────────────────────────────────────────────────
-  async home(): Promise<Screen> {
+  /** `shops`: kişinin girebildiği dükkânlar (verilmezse bütün açık dükkânlar). */
+  async home(shops?: { id: string; name: string }[]): Promise<Screen> {
     const business = await this.settings.getBusiness();
-    const shops = await this.shopAccess.activeShops();
+    shops = shops ?? (await this.shopAccess.activeShops());
     const current = shops.find((x) => x.id === ShopContext.shopId());
     const shopRow =
       shops.length > 1
@@ -98,8 +99,8 @@ export class TelegramScreensService {
   }
 
   /** Dükkân seçimi: botun gösterdiği ve yazdığı her şey seçili dükkânındır. */
-  async shopPicker(): Promise<Screen> {
-    const shops = await this.shopAccess.activeShops();
+  async shopPicker(shops?: { id: string; name: string }[]): Promise<Screen> {
+    shops = shops ?? (await this.shopAccess.activeShops());
     const currentId = ShopContext.shopId();
     return {
       text: '<b>🏪 Dükkân seçin</b>\nMüşteri, stok, tahsilat ve raporlar seçtiğiniz dükkânın olur.',

@@ -9,6 +9,7 @@ import { UpdatePricingDto } from './dto/update-pricing.dto';
 import { UpdateDisplayDto } from './dto/update-display.dto';
 import { UpdateCutPricingDto } from './dto/update-cut-pricing.dto';
 import { UpdateMorningSummaryDto } from './dto/update-morning-summary.dto';
+import { UpdateFolderSettingsDto } from './dto/update-folder-settings.dto';
 import { AnyShopMember, ShopAccess, ShopScope } from '../../common/shop/shop-access.decorator';
 import { PrimaryOnly } from '../sync/sync.decorators';
 
@@ -112,6 +113,20 @@ export class SettingsController {
   @Delete('corel')
   disableCorel() {
     return this.settings.disableCorelKey();
+  }
+
+  /**
+   * Dükkânın klasör oluşturucusu (runner): açık mı, belirteçteki işletme
+   * kodu, malzeme satışına klasör, bu dükkânın gün klasörü kökü.
+   */
+  @Get('folders')
+  getFolders() {
+    return this.settings.getFolderSettings();
+  }
+
+  @Put('folders')
+  updateFolders(@Body() dto: UpdateFolderSettingsDto) {
+    return this.settings.updateFolderSettings(dto);
   }
 
   /**

@@ -15,7 +15,15 @@ describe('CorelRunnerService', () => {
         }
         return x;
       }),
-      update: jest.fn(async (id, patch) => Object.assign(rows.find((r) => r.id === id)!, patch)),
+      update: jest.fn(async (where, patch) => {
+        const id = typeof where === 'string' ? where : where.id;
+        const row = rows.find((r) => r.id === id)!;
+        if (typeof where !== 'string' && 'offlineNotifiedAt' in where && row.offlineNotifiedAt) {
+          return { affected: 0 };
+        }
+        Object.assign(row, patch);
+        return { affected: 1 };
+      }),
       find: jest.fn(async () => rows),
       delete: jest.fn(),
     };
@@ -23,7 +31,13 @@ describe('CorelRunnerService', () => {
       findOne: jest.fn(async ({ where: { id } }) => quotes.find((q) => q.id === id) ?? null),
       update: jest.fn(async (id, patch) => Object.assign(quotes.find((q) => q.id === id)!, patch)),
     };
-    return { service: new CorelRunnerService(runnersRepo as never, quotesRepo as never), rows, quotes };
+    const notifications = { notify: jest.fn(async (_p: Record<string, unknown>) => undefined) };
+    return {
+      service: new CorelRunnerService(runnersRepo as never, quotesRepo as never, notifications as never),
+      rows,
+      quotes,
+      notifications,
+    };
   }
 
   it('nabız bilgisayar başına tek satır tutar ve bağlı gösterir', async () => {
@@ -71,6 +85,34 @@ describe('CorelRunnerService', () => {
     });
     expect((quote as Record<string, unknown>).foldersCreatedAt).toBeInstanceOf(Date);
     expect(rows[0].lastJobQuoteNo).toBe('TKF-2026-0007');
+  });
+
+  it('Telegram: klasör açıldı, sorun bir kez, düzelince haber; koptu ve geri geldi', async () => {
+    const quote = { id: 'q1', quoteNo: 'TKF-2026-0007', buyerCustomer: { name: 'Ali', companyName: 'Öztürk Reklam' } };
+    const { service, rows, notifications } = build([quote]);
+    const subjects = () => notifications.notify.mock.calls.map((c: any[]) => c[0].subject);
+
+    await service.heartbeat({ host: 'PC' });
+    await service.reportFolders('q1', { host: 'PC', folder: 'D:\\Isler\\x', report: ['yeni:  001-pleksi'] });
+    expect(subjects()).toEqual(['📁 Klasörler açıldı: TKF-2026-0007 · Öztürk Reklam']);
+    expect(notifications.notify.mock.calls[0][0]).toMatchObject({ type: 'corel_folders' });
+
+    await service.heartbeat({ host: 'PC', error: 'Gün klasörü bilinmiyor' });
+    await service.heartbeat({ host: 'PC', error: 'Gün klasörü bilinmiyor' });
+    await service.heartbeat({ host: 'PC', error: null });
+    // Hemen tekrar bozulup düzelirse (10 dk dolmadan) yeni mesaj yok.
+    await new Promise((r) => setTimeout(r, 5));
+    await service.heartbeat({ host: 'PC', error: 'Klasör açılamadı' });
+    await service.heartbeat({ host: 'PC', error: null });
+    expect(subjects().slice(1)).toEqual(['⚠️ Runner sorun bildirdi', '✅ Runner sorunu giderildi']);
+
+    // Nabız kesildi: bir kez "koptu", nabız gelince "yeniden bağlandı".
+    const later = new Date(Date.now() + 5 * 60 * 1000);
+    expect(await service.alertOffline(later)).toBe(1);
+    expect(await service.alertOffline(later)).toBe(0);
+    await service.heartbeat({ host: 'PC' });
+    expect(subjects().slice(3)).toEqual(['🔴 Runner bağlantısı koptu', '🟢 Runner yeniden bağlandı']);
+    expect(rows[0].offlineNotifiedAt).toBeNull();
   });
 
   it('bilinmeyen teklif için 404', async () => {

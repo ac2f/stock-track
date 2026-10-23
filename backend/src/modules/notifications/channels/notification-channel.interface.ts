@@ -1,4 +1,5 @@
 import { NotificationChannel } from '../enums/notification.enums';
+import { NotificationTopic } from '../enums/notification-topic';
 
 export interface OutboundMessage {
   recipient?: string; // genel/yedek hedef (defterde gösterim için)
@@ -6,6 +7,8 @@ export interface OutboundMessage {
   whatsappPhone?: string; // WhatsApp'a özel hedef (telefon)
   subject?: string;
   body: string;
+  /** Dükkânın konu yönlendirmesi için (açık hedef yoksa). */
+  topic?: NotificationTopic | null;
 }
 
 export interface ChannelResult {
@@ -25,5 +28,10 @@ export interface NotificationChannelPort {
    * Promise dönebilir.
    */
   isEnabled(): boolean | Promise<boolean>;
+  /**
+   * Bu mesajı göndermeli mi? (ör. dükkân bu konuyu Telegram'da kapatmış).
+   * Yoksa her mesaj gönderilir; hayırsa deftere de yazılmaz.
+   */
+  accepts?(message: OutboundMessage): Promise<boolean>;
   send(message: OutboundMessage): Promise<ChannelResult>;
 }

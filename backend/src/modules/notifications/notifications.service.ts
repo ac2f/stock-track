@@ -6,6 +6,7 @@ import {
   NotificationStatus,
   NotificationType,
 } from './enums/notification.enums';
+import { NotificationTopic, topicOf } from './enums/notification-topic';
 import { ShopContext } from '../../common/shop/shop-context';
 import { ShopAccessService } from '../shops/shop-access.service';
 import { Notification } from './entities/notification.entity';
@@ -25,6 +26,8 @@ export interface NotifyParams {
   relatedId?: string;
   /** Yalnız bu kanallar (verilmezse etkin olan hepsi). */
   channels?: NotificationChannel[];
+  /** Telegram konusu; verilmezse tipten (satış → sales ...). */
+  topic?: NotificationTopic | null;
 }
 
 @Injectable()
@@ -55,12 +58,24 @@ export class NotificationsService {
       if (!first) return;
       return ShopContext.forShop(first.id, () => this.notify(params));
     }
+    const message = {
+      recipient: params.recipient,
+      telegramChatId: params.telegramChatId,
+      whatsappPhone: params.whatsappPhone,
+      subject: params.subject,
+      body: params.body,
+      topic: params.topic !== undefined ? params.topic : topicOf(params.type),
+    };
     for (const channel of this.channels) {
       if (params.channels && !params.channels.includes(channel.channel)) {
         continue;
       }
       // Kanal ayarlarını çalışma zamanında okuyabilir (Telegram) → await.
       if (!(await channel.isEnabled())) {
+        continue;
+      }
+      // Dükkân bu konuyu bu kanalda kapatmış: gönderilmez, deftere yazılmaz.
+      if (channel.accepts && !(await channel.accepts(message))) {
         continue;
       }
       const record = await this.notificationsRepo.save(
@@ -77,13 +92,7 @@ export class NotificationsService {
         }),
       );
 
-      const result = await channel.send({
-        recipient: params.recipient,
-        telegramChatId: params.telegramChatId,
-        whatsappPhone: params.whatsappPhone,
-        subject: params.subject,
-        body: params.body,
-      });
+      const result = await channel.send(message);
 
       record.status = result.success
         ? NotificationStatus.SENT

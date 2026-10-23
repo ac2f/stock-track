@@ -108,6 +108,16 @@ export class QuoteItem extends ShopScopedEntity {
   })
   sheetHeightMm?: number | null;
 
+  // Dönüşüm anında malzemenin sahibi: 'business' (dükkânın stoğu) ya da
+  // 'customer' (müşterinin/konsinye malı, kimliği material_owner_id). Runner
+  // takım yolu klasörünün belirtecine sahibi yazar; stok sonradan tükenip
+  // seviye kaydı silinse de bilinsin diye o an kaydedilir. Eski kalemde boş.
+  @Column({ name: 'material_owner_kind', type: 'varchar', length: 10, nullable: true })
+  materialOwnerKind?: 'business' | 'customer' | null;
+
+  @Column({ name: 'material_owner_id', type: 'uuid', nullable: true })
+  materialOwnerId?: string | null;
+
   @Column({
     name: 'length_meters',
     type: 'numeric',

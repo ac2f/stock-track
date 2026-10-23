@@ -25,6 +25,8 @@ describe('CorelService', () => {
     business?: unknown[];
     customers?: unknown[];
     quotes?: unknown[];
+    levels?: unknown[];
+    folders?: Record<string, unknown>;
   }) {
     const qb = {
       select: jest.fn().mockReturnThis(),
@@ -50,7 +52,10 @@ describe('CorelService', () => {
       find: jest.fn(() => Promise.resolve(opts.customers ?? [])),
       findOne: jest.fn(() => Promise.resolve(null)),
     };
-    const stockLevelsRepo = { createQueryBuilder: jest.fn(() => qb) };
+    const stockLevelsRepo = {
+      createQueryBuilder: jest.fn(() => qb),
+      find: jest.fn(() => Promise.resolve(opts.levels ?? [])),
+    };
     const quotesRepo = {
       find: jest.fn(() => Promise.resolve(opts.quotes ?? [])),
       findOne: jest.fn(({ where }: { where: { id: string } }) =>
@@ -63,6 +68,17 @@ describe('CorelService', () => {
     };
     const settings = {
       getBusiness: jest.fn(() => Promise.resolve({ name: 'Acme Reklam' })),
+      getFolderSettings: jest.fn(() =>
+        Promise.resolve({
+          shopName: 'Merkez',
+          enabled: true,
+          code: 'merkez',
+          customCode: '',
+          materialSaleFolders: true,
+          dayRoot: '',
+          ...opts.folders,
+        }),
+      ),
     };
     return new CorelService(
       customersRepo as never,
@@ -203,9 +219,13 @@ describe('CorelService', () => {
       customerFolder: 'ozturk-reklam',
       customerLabel: 'Ozturk Reklam (Ali Veli)',
     });
+    expect(job.shopCode).toBe('merkez');
     expect(job.sheets).toEqual([
       {
         itemId: 'i1',
+        purpose: 'cut',
+        ownerKind: 'business',
+        owner: 'merkez',
         label: 'Pleksi 2.8mm Akpolimer Dokme Beyaz 1220x2440',
         kind: 'pleksi',
         thicknessUm: '2800',
@@ -225,9 +245,89 @@ describe('CorelService', () => {
     await expect(build({}).quotes(undefined)).rejects.toThrow('customerId');
   });
 
-  it('ping işletme adını döner', async () => {
+  it('ping işletme adını ve klasör kodunu döner', async () => {
     await expect(build({}).ping()).resolves.toBe(
-      '#ac2f-corel 1\nok\tAcme Reklam\n',
+      '#ac2f-corel 1\nok\tAcme Reklam\tmerkez\n',
     );
+  });
+
+  describe('runner işleri: malzeme satışı ve malzemenin sahibi', () => {
+    const sheet = (id: string, color: string) => ({
+      ...pleksi(id, color),
+      measurementType: 'area',
+    });
+    const quote = (items: unknown[], extra = {}) => ({
+      id: 'q1',
+      quoteNo: 'TKF-2026-0009',
+      status: 'converted',
+      buyerCustomerId: 'c1',
+      buyerCustomer: { name: 'Ali Veli', companyName: 'Öztürk Reklam' },
+      createdAt: new Date('2026-10-17T10:00:00Z'),
+      convertedAt: new Date('2026-10-18T08:30:00Z'),
+      items,
+      ...extra,
+    });
+
+    it('yalnız satılan tabaka malzeme satışıdır; aynı tabakanın satış + işlemesi bir kez, kesim olarak sayılır', async () => {
+      const svc = build({
+        quotes: [
+          quote([
+            // Beyaz: satılıp kesiliyor (satış + işleme aynı tabakada).
+            { id: 's1', lineKind: 'sale', plateId: 'p1', stockSource: 'business', quantity: '1', plate: sheet('p1', 'Beyaz') },
+            { id: 'k1', lineKind: 'processing', plateId: 'p1', quantity: '1', plate: sheet('p1', 'Beyaz') },
+            // Siyah: yalnız satış, kesim yok.
+            { id: 's2', lineKind: 'sale', plateId: 'p2', stockSource: 'business', quantity: '2', plate: sheet('p2', 'Siyah') },
+          ]),
+        ],
+      });
+      const [job] = await svc.jobs();
+      expect(job.sheets.map((x) => [x.itemId, x.purpose, x.ownerKind, x.owner])).toEqual([
+        ['s1', 'cut', 'business', 'merkez'],
+        ['s2', 'sale', 'business', 'merkez'],
+      ]);
+      // Eklentinin "kullanılan parça" işi yalnız kesilen tabakayı görür.
+      expect(lines(await svc.quoteUsage('q1')).map((l) => l.split('\t')[0])).toEqual(['s1']);
+    });
+
+    it('müşterinin malzemesi: dönüşümde kaydedilen sahip, yoksa stok seviyesinin sahibi', async () => {
+      const svc = build({
+        quotes: [
+          quote([
+            { id: 'k1', lineKind: 'processing', plateId: 'p1', quantity: '1', plate: sheet('p1', 'Beyaz'),
+              materialOwnerKind: 'customer', materialOwnerId: 'c9' },
+            // Eski kalem: sahip kaydedilmemiş, stok seviyesi c1'in.
+            { id: 'k2', lineKind: 'processing', plateId: 'p2', quantity: '1', plate: sheet('p2', 'Siyah') },
+            // Konsinye satış: teklifteki sahip.
+            { id: 's3', lineKind: 'sale', plateId: 'p3', stockSource: 'consignment_tracked', quantity: '1', plate: sheet('p3', 'Mavi') },
+          ], { ownerCustomerId: 'c7' }),
+        ],
+        levels: [
+          { plateId: 'p2', ownerCustomerId: null, quantity: '0.10' },
+          { plateId: 'p2', ownerCustomerId: 'c1', quantity: '1.00' },
+        ],
+        customers: [
+          { id: 'c9', name: 'Mehmet', companyName: 'Çınar Tabela Reklam Ltd' },
+          { id: 'c1', name: 'Ali Veli', companyName: 'Öztürk Reklam' },
+          { id: 'c7', name: 'Ayşe Konsinye', companyName: null },
+        ],
+      });
+      const [job] = await svc.jobs();
+      expect(job.sheets.map((x) => [x.itemId, x.purpose, x.ownerKind, x.owner])).toEqual([
+        ['k1', 'cut', 'customer', 'cinar-tabela-reklam'],
+        ['k2', 'cut', 'customer', 'ozturk-reklam'],
+        ['s3', 'sale', 'customer', 'ayse-konsinye'],
+      ]);
+    });
+
+    it('dükkânda klasör oluşturucu kapalıysa iş yok; malzeme satışı klasörü kapalıysa yalnız kesim', async () => {
+      const items = [
+        { id: 'k1', lineKind: 'processing', plateId: 'p1', quantity: '1', plate: sheet('p1', 'Beyaz') },
+        { id: 's2', lineKind: 'sale', plateId: 'p2', stockSource: 'business', quantity: '1', plate: sheet('p2', 'Siyah') },
+      ];
+      expect(await build({ quotes: [quote(items)], folders: { enabled: false } }).jobs()).toEqual([]);
+      const [job] = await build({ quotes: [quote(items)], folders: { materialSaleFolders: false } }).jobs();
+      expect(job.materialSaleFolders).toBe(false);
+      expect(job.sheets.map((x) => x.itemId)).toEqual(['k1']);
+    });
   });
 });

@@ -49,4 +49,15 @@ export class CorelRunner extends ShopScopedEntity {
 
   @Column({ name: 'last_folder', type: 'varchar', length: 500, nullable: true })
   lastFolder?: string | null;
+
+  /**
+   * Telegram'a "bağlantısı koptu" denildiyse zamanı; nabız gelince
+   * "yeniden bağlandı" denir ve temizlenir.
+   */
+  @Column({ name: 'offline_notified_at', type: 'timestamptz', nullable: true })
+  offlineNotifiedAt?: Date | null;
+
+  /** Son sorun bildiriminin zamanı (aynı runner için 10 dk'da en çok bir). */
+  @Column({ name: 'alert_notified_at', type: 'timestamptz', nullable: true })
+  alertNotifiedAt?: Date | null;
 }

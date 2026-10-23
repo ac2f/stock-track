@@ -5,6 +5,8 @@ import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { StockLevel } from '../materials/entities/stock-level.entity';
 import { Quote } from '../quotes/entities/quote.entity';
 import { SettingsModule } from '../settings/settings.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { CorelRunnerAlertScheduler } from './corel-runner-alert.scheduler';
 import { CorelController } from './corel.controller';
 import { CorelKeyGuard } from './corel-key.guard';
 import { CorelService } from './corel.service';
@@ -21,9 +23,10 @@ import { CorelRunner } from './entities/corel-runner.entity';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Customer, MaterialPlate, StockLevel, Quote, CorelRunner]),
-    SettingsModule, // anahtar ve işletme adı
+    SettingsModule, // anahtar, işletme adı, klasör ayarları
+    NotificationsModule, // runner klasör/sorun/bağlantı bildirimleri
   ],
   controllers: [CorelController, CorelRunnerController],
-  providers: [CorelService, CorelRunnerService, CorelKeyGuard],
+  providers: [CorelService, CorelRunnerService, CorelKeyGuard, CorelRunnerAlertScheduler],
 })
 export class CorelModule {}

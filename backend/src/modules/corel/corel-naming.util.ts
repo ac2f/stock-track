@@ -330,11 +330,135 @@ export function usageLine(item: CorelQuoteItemLike): string {
   ]);
 }
 
+// ── Malzeme sahibi ve klasör belirteci ─────────────────────────────────
+
+/**
+ * Takım yolu klasörünün sonundaki belirteç:
+ *
+ *   001-pleksi-1220x2440--2pcs--2800um-akpolimer-beyaz--F23-10-2026.ozturk.pleksi-beyaz
+ *   malzeme-F23-10-2026.isletme.pleksi-beyaz      (malzeme satışı, kesim yok)
+ *
+ * F + projenin gün klasörünün tarihi, malzemenin sahibi (müşterinin
+ * klasör adı ya da dükkânın klasör kodu), tür-renk. Tarihi runner ve
+ * eklenti gün klasöründen koyar; sunucu sahip jetonunu ve dükkân kodunu
+ * verir. Klasör kopyalanıp CNC'ye götürülse de kimin, hangi günün işi
+ * olduğu adından okunur.
+ */
+export type MaterialOwnerKind = 'business' | 'customer';
+
+/** Sahip jetonu ve dükkân kodu en çok bu kadar: yol uzunluğu (MAX_PATH). */
+export const OWNER_TOKEN_MAX = 20;
+
+/** Jetonu `max` harfte keser, sondaki tireyi atar. */
+export function clipToken(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max).replace(/-+$/, '') : s;
+}
+
+/**
+ * Dükkânın klasör kodu: ayarda yazılan kod, yoksa dükkân adından
+ * ("Merkez Dükkân" → "merkez-dukkan"); ikisi de boşsa "isletme".
+ */
+export function folderCode(
+  code: string | null | undefined,
+  fallbackName?: string | null,
+): string {
+  return clipToken(nameToken(code) || nameToken(fallbackName), OWNER_TOKEN_MAX) || 'isletme';
+}
+
+/** Müşteri malzemesinde belirteçteki sahip: müşterinin klasör adı, kısaltılmış. */
+export function ownerToken(name: string | null | undefined, companyName?: string | null): string {
+  return clipToken(customerFolderName(name, companyName), OWNER_TOKEN_MAX);
+}
+
+/** Sahibi bulmak için gereken teklif kalemi alanları. */
+export interface OwnerItemLike {
+  lineKind: string;
+  plateId?: string | null;
+  stockSource?: string | null;
+}
+
+export interface MaterialOwner {
+  kind: MaterialOwnerKind;
+  /** Müşterinin malıysa müşteri kimliği. */
+  customerId: string | null;
+}
+
+/**
+ * Teklif kaleminde malzemenin sahibi.
+ *  - Satış kalemi: işletme stoğundan satıldıysa işletme; konsinye ya da
+ *    üçüncü kişi malıysa teklifteki sahip (yoksa alıcı).
+ *  - İşleme kalemi: aynı tabakanın satış kalemi varsa onunki (malzemeyi
+ *    dükkân satıp kesiyor); yoksa tabakanın stoğu kimdeyse o
+ *    (`levelOwner`: en çok miktarlı stok seviyesinin sahibi, null = işletme).
+ */
+export function materialOwner(
+  item: OwnerItemLike,
+  quote: { buyerCustomerId: string; ownerCustomerId?: string | null },
+  saleOnPlate: Map<string, OwnerItemLike>,
+  levelOwner: Map<string, string | null>,
+): MaterialOwner {
+  const fromSale = (sale: OwnerItemLike): MaterialOwner =>
+    !sale.stockSource || sale.stockSource === 'business'
+      ? { kind: 'business', customerId: null }
+      : { kind: 'customer', customerId: quote.ownerCustomerId || quote.buyerCustomerId };
+  if (item.lineKind === 'sale') return fromSale(item);
+  const sale = item.plateId ? saleOnPlate.get(item.plateId) : undefined;
+  if (sale) return fromSale(sale);
+  const owner = item.plateId ? levelOwner.get(item.plateId) : undefined;
+  return owner ? { kind: 'customer', customerId: owner } : { kind: 'business', customerId: null };
+}
+
+/**
+ * Plaka başına stoğun sahibi: en çok miktarlı seviyenin sahibi (null =
+ * işletme). İşleme bitince kalan parçanın sahibi de böyle bulunur.
+ */
+export function topLevelOwners(
+  levels: { plateId: string; ownerCustomerId?: string | null; quantity: number | string }[],
+): Map<string, string | null> {
+  const best = new Map<string, { qty: number; owner: string | null }>();
+  for (const l of levels) {
+    const qty = Number(l.quantity) || 0;
+    const cur = best.get(l.plateId);
+    if (!cur || qty > cur.qty) best.set(l.plateId, { qty, owner: l.ownerCustomerId ?? null });
+  }
+  return new Map([...best].map(([k, v]) => [k, v.owner]));
+}
+
+/**
+ * Klasör açılacak tabaka kalemleri ve amaçları. Satış kalemi aynı
+ * tabakada işleme kalemi yoksa malzeme satışıdır (`sale`: kesim yok,
+ * takım yolu klasörü değil). Aynı tabakada ikisi birden varsa tabaka
+ * bir kez sayılır: satış kalemi (stoktan alınan ölçü ve adet) kesim
+ * (`cut`) olarak geçer, işleme kalemi atlanır.
+ */
+export function sheetItemsWithPurpose<T extends OwnerItemLike>(
+  items: T[],
+): { item: T; purpose: 'cut' | 'sale' }[] {
+  const salePlates = new Set(items.filter((i) => i.lineKind === 'sale' && i.plateId).map((i) => i.plateId));
+  const procPlates = new Set(
+    items.filter((i) => i.lineKind === 'processing' && i.plateId).map((i) => i.plateId),
+  );
+  const out: { item: T; purpose: 'cut' | 'sale' }[] = [];
+  for (const item of items) {
+    if (item.lineKind === 'sale') {
+      out.push({ item, purpose: item.plateId && procPlates.has(item.plateId) ? 'cut' : 'sale' });
+    } else if (!item.plateId || !salePlates.has(item.plateId)) {
+      out.push({ item, purpose: 'cut' });
+    }
+  }
+  return out;
+}
+
 // ── İşe dönüşen teklifler (dükkân runner'ı) ─────────────────────────────
 
 /** Runner'ın klasör açmak için okuduğu tabaka kalemi. */
 export interface CorelJobSheet {
   itemId: string;
+  /** `cut` takım yolu klasörü, `sale` malzeme satışı (kesim yok). */
+  purpose: 'cut' | 'sale';
+  /** Malzemenin sahibi; `owner` belirteçteki jetonu (müşteri klasörü ya da dükkân kodu). */
+  ownerKind: MaterialOwnerKind;
+  owner: string;
   label: string;
   kind: string;
   thicknessUm: string;
@@ -358,6 +482,10 @@ export interface CorelJob {
   customerId: string;
   customerFolder: string;
   customerLabel: string;
+  /** Dükkânın klasör kodu (işletme malında belirteçteki sahip). */
+  shopCode: string;
+  /** Malzeme satışına klasör açılsın mı (dükkân ayarı). */
+  materialSaleFolders: boolean;
   sheets: CorelJobSheet[];
 }
 
@@ -378,7 +506,14 @@ const mmNum = (v: number | string | null | undefined): number | null => {
  * Dönüşümden önce kaydedilmiş ölçü yoksa (eski teklif) plakanın şimdiki
  * ölçüsü geçer.
  */
-export function jobSheet(item: CorelJobItemLike): CorelJobSheet {
+export function jobSheet(
+  item: CorelJobItemLike,
+  role: { purpose: 'cut' | 'sale'; ownerKind: MaterialOwnerKind; owner: string } = {
+    purpose: 'cut',
+    ownerKind: 'business',
+    owner: 'isletme',
+  },
+): CorelJobSheet {
   const p = item.plate!;
   const sw = mmNum(item.sheetWidthMm ?? p.widthMm);
   const sh = mmNum(item.sheetHeightMm ?? p.heightMm);
@@ -397,6 +532,9 @@ export function jobSheet(item: CorelJobItemLike): CorelJobSheet {
     .join(' ');
   return {
     itemId: item.id,
+    purpose: role.purpose,
+    ownerKind: role.ownerKind,
+    owner: role.owner,
     label: asciiFold(label),
     kind: plateKind(p),
     thicknessUm: thicknessMicrons(p.thicknessMm),

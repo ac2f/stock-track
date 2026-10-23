@@ -42,7 +42,7 @@ export class CorelController {
     private readonly runners: CorelRunnerService,
   ) {}
 
-  /** `ok <TAB> işletme adı` — eklentinin bağlantı denemesi. */
+  /** `ok <TAB> işletme adı <TAB> klasör kodu` — eklentinin bağlantı denemesi. */
   @Get('ping')
   ping(@Res({ passthrough: true }) res: Response): Promise<string> {
     res.set({ 'Content-Type': TEXT });
@@ -108,6 +108,15 @@ export class CorelController {
   @Get('jobs')
   jobs(@Query() query: QueryCorelJobsDto): Promise<CorelJob[]> {
     return this.corel.jobs(query.since, query.limit);
+  }
+
+  /**
+   * Bu dükkânın klasör oluşturucu ayarları (JSON, runner için): açık mı,
+   * belirteçteki işletme kodu, malzeme satışına klasör, gün klasörü kökü.
+   */
+  @Get('folder-settings')
+  folderSettings() {
+    return this.corel.folderSettings();
   }
 
   /**

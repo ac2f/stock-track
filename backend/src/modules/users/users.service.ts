@@ -56,6 +56,11 @@ export class UsersService {
     return this.usersRepo.findOne({ where: { id } });
   }
 
+  /** Telegram botu: kimliği hesabına yazılmış etkin kullanıcı. */
+  findByTelegramId(telegramUserId: string): Promise<User | null> {
+    return this.usersRepo.findOne({ where: { telegramUserId, isActive: true } });
+  }
+
   /** Parolayı da içerecek şekilde getirir (yalnızca kimlik doğrulama için). */
   findByEmailWithPassword(email: string): Promise<User | null> {
     return this.usersRepo

@@ -20,5 +20,9 @@ export enum NotificationType {
   DEBT_REMINDER = 'debt_reminder',
   BACKUP = 'backup',
   MORNING_SUMMARY = 'morning_summary',
+  /** Runner bir teklifin klasörlerini açtı. */
+  COREL_FOLDERS = 'corel_folders',
+  /** Runner sorun bildirdi ya da bağlantısı koptu / geri geldi. */
+  COREL_RUNNER = 'corel_runner',
   GENERIC = 'generic',
 }

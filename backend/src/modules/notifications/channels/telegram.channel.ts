@@ -7,6 +7,8 @@ import {
   OutboundMessage,
 } from './notification-channel.interface';
 import { isReplicaRole, REPLICA_SILENT_MESSAGE } from '../../sync/sync-role';
+import { ShopContext } from '../../../common/shop/shop-context';
+import { NotificationTopic } from '../enums/notification-topic';
 
 /** "Yeniden başlat" düğmesinin döndürdüğü bağlantı durumu. */
 export interface TelegramVerifyResult {
@@ -38,18 +40,33 @@ export class TelegramChannel implements NotificationChannelPort {
     return !!(await this.settings.getBotToken());
   }
 
+  /** Açık hedefi olmayan mesajda dükkân bu konuyu kapatmışsa gönderilmez. */
+  async accepts(message: OutboundMessage): Promise<boolean> {
+    if (message.telegramChatId || message.recipient) return true;
+    return !(await this.settings.telegramTarget(message.topic ?? null)).off;
+  }
+
   async send(message: OutboundMessage): Promise<ChannelResult> {
     if (isReplicaRole()) return { success: false, error: REPLICA_SILENT_MESSAGE };
-    const { botToken, chatId: defaultChatId } =
-      await this.settings.getTelegram();
-    const chatId =
-      message.telegramChatId || message.recipient || defaultChatId;
+    const botToken = await this.settings.getBotToken();
+    // Açık hedef (müşterinin sohbeti, yedek sohbeti) yoksa dükkânın o
+    // konuya seçtiği sohbet; dükkânlar sohbet paylaşabildiği için mesaja
+    // dükkân adı eklenir.
+    const explicit = message.telegramChatId || message.recipient;
+    let chatId = explicit;
+    let shopLine = '';
+    if (!explicit) {
+      const target = await this.settings.telegramTarget(message.topic ?? null);
+      if (target.off) return { success: false, error: 'Bu konu dükkânda kapalı.' };
+      chatId = target.chatId;
+      shopLine = await this.shopLine();
+    }
     if (!botToken || !chatId) {
       return { success: false, error: 'Telegram token veya chat id tanımlı değil.' };
     }
-    const text = message.subject
-      ? `*${message.subject}*\n${message.body}`
-      : message.body;
+    const text =
+      shopLine +
+      (message.subject ? `*${message.subject}*\n${message.body}` : message.body);
     try {
       const res = await fetch(
         `https://api.telegram.org/bot${botToken}/sendMessage`,
@@ -72,6 +89,21 @@ export class TelegramChannel implements NotificationChannelPort {
       this.logger.warn(`Telegram gönderimi başarısız: ${(err as Error).message}`);
       return { success: false, error: (err as Error).message };
     }
+  }
+
+  /**
+   * Birden çok açık dükkân varsa mesajın ilk satırı dükkân adı: aynı
+   * sohbete iki dükkân bildirim gönderebilir.
+   */
+  private async shopLine(): Promise<string> {
+    if (!ShopContext.shopId() || (await this.settings.activeShopCount()) < 2) return '';
+    const name = await this.settings.currentShopName();
+    return name ? `🏪 ${TelegramChannel.escapeMarkdown(name)}\n` : '';
+  }
+
+  /** Telegram'ın eski Markdown biçiminde özel karakterleri kaçırır. */
+  static escapeMarkdown(s: string): string {
+    return s.replace(/([_*`\[])/g, '\\$1');
   }
 
   /**
@@ -121,14 +153,18 @@ export class TelegramChannel implements NotificationChannelPort {
     }
   }
 
-  /** Ayarlardaki sohbete deneme mesajı gönderir (bağlantıyı uçtan uca sınar). */
-  async sendTest(): Promise<ChannelResult & { chatId: string }> {
-    const { chatId } = await this.settings.getTelegram();
+  /**
+   * Ayarlardaki sohbete (konu verilirse o konunun sohbetine) deneme mesajı
+   * gönderir; bağlantıyı ve yönlendirmeyi uçtan uca sınar.
+   */
+  async sendTest(topic?: NotificationTopic | null): Promise<ChannelResult & { chatId: string }> {
+    const target = await this.settings.telegramTarget(topic ?? null);
+    if (target.off) return { success: false, error: 'Bu konu kapalı.', chatId: '' };
     const result = await this.send({
       subject: 'StockTrack test mesajı',
-      body: `Telegram bağlantısı çalışıyor. Bu mesaj ${chatId} sohbetine gönderildi.`,
-      telegramChatId: chatId,
+      body: `Telegram bağlantısı çalışıyor. Bu mesaj ${target.chatId} sohbetine gönderildi.`,
+      topic: topic ?? null,
     });
-    return { ...result, chatId };
+    return { ...result, chatId: target.chatId };
   }
 }

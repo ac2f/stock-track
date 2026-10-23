@@ -13,6 +13,13 @@ import { AppSetting } from './entities/app-setting.entity';
 import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
+import { UpdateFolderSettingsDto } from './dto/update-folder-settings.dto';
+import { folderCode, nameToken } from '../corel/corel-naming.util';
+import {
+  isTopic,
+  NOTIFICATION_TOPICS,
+  NotificationTopic,
+} from '../notifications/enums/notification-topic';
 
 /** Belgelerde/portalda kullanılan, çözülmüş işletme kimliği. */
 export interface ResolvedBusiness {
@@ -80,6 +87,35 @@ export interface CorelIntegrationStatus {
 /** Corel anahtarı denetiminin sonucu. */
 export type CorelKeyCheck = 'ok' | 'invalid' | 'disabled';
 
+/**
+ * Dükkânın klasör oluşturucusu (runner). Runner dükkânın anahtarıyla
+ * bağlanınca bunları okur; her dükkânın kendi ayarı vardır.
+ */
+export interface FolderSettings {
+  shopName: string;
+  enabled: boolean;
+  /** Belirteçte kullanılan kod (yazılan ya da dükkân adından). */
+  code: string;
+  /** Ayarda yazılan kod; boş = dükkân adından türetiliyor. */
+  customCode: string;
+  materialSaleFolders: boolean;
+  dayRoot: string;
+}
+
+/** Bir konunun Telegram hedefi (arayüz ve gönderim). */
+export interface TelegramRouteView {
+  topic: NotificationTopic;
+  label: string;
+  hint: string;
+  /** 'default' bildirim sohbeti, 'chat' başka sohbet, 'off' kapalı. */
+  mode: 'default' | 'chat' | 'off';
+  chatId: string;
+  /** Mesajın gerçekte gideceği sohbet (kapalıysa boş). */
+  effectiveChatId: string;
+  /** Aynı sohbete bildirim gönderen diğer dükkânlar. */
+  sharedWith: string[];
+}
+
 /** Ayar değerinin nereden geldiği — arayüzde gösterilir. */
 export type SettingSource = 'db' | 'env' | 'none';
 
@@ -100,6 +136,10 @@ export interface TelegramStatus {
   backupCron: string;
   /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
   allowedUserIds: string[];
+  /** Konu başına hedefler. */
+  routes: TelegramRouteView[];
+  /** Bildirim sohbetini kullanan diğer dükkânlar. */
+  chatSharedWith: string[];
 }
 
 /**
@@ -315,6 +355,43 @@ export class SettingsService {
     return shopId ? { check: 'ok', shopId } : { check: 'invalid' };
   }
 
+  // ── Klasör oluşturucu (runner) ──────────────────────────────────────
+
+  /** O anki dükkânın adı (klasör kodu ve mesaj ön eki için). */
+  async currentShopName(): Promise<string> {
+    const shopId = ShopContext.shopId();
+    if (!shopId) return '';
+    const rows: { name: string }[] = await this.repo.query(
+      'SELECT "name" FROM "shops" WHERE "id" = $1',
+      [shopId],
+    );
+    return rows[0]?.name ?? '';
+  }
+
+  async getFolderSettings(): Promise<FolderSettings> {
+    const s = await this.getOrCreate();
+    const shopName = await this.currentShopName();
+    return {
+      shopName,
+      enabled: s.foldersEnabled !== false,
+      code: folderCode(s.folderCode, shopName || s.businessName),
+      customCode: s.folderCode ?? '',
+      materialSaleFolders: s.materialSaleFolders !== false,
+      dayRoot: s.folderDayRoot ?? '',
+    };
+  }
+
+  async updateFolderSettings(dto: UpdateFolderSettingsDto): Promise<FolderSettings> {
+    const s = await this.getOrCreate();
+    if (dto.enabled !== undefined) s.foldersEnabled = dto.enabled;
+    if (dto.materialSaleFolders !== undefined) s.materialSaleFolders = dto.materialSaleFolders;
+    // Kod klasör adına girer: ASCII, küçük harf, tireli (boş = dükkân adından).
+    if (dto.code !== undefined) s.folderCode = nameToken(dto.code).slice(0, 20).replace(/-+$/, '');
+    if (dto.dayRoot !== undefined) s.folderDayRoot = dto.dayRoot.trim();
+    await this.repo.save(s);
+    return this.getFolderSettings();
+  }
+
   // ── Telegram ────────────────────────────────────────────────────────
 
   /** Sisteme ait tek satır; yoksa oluşturulur. */
@@ -376,7 +453,73 @@ export class SettingsService {
       effectiveBackupChatId: resolved.backupChatId,
       backupCron: this.envBackup.telegramCron,
       allowedUserIds: await this.getAllowedUserIds(),
+      ...(await this.routeViews(s, resolved.chatId)),
     };
+  }
+
+  /**
+   * Konu başına hedefler ve hangi sohbeti başka hangi dükkânların
+   * kullandığı (arayüz "Merkez de bu sohbete gönderiyor" der).
+   */
+  private async routeViews(
+    s: AppSetting,
+    defaultChat: string,
+  ): Promise<{ routes: TelegramRouteView[]; chatSharedWith: string[] }> {
+    const others = await this.otherShopTargets();
+    const sharers = (chat: string) =>
+      chat ? [...new Set(others.filter((o) => o.chats.includes(chat)).map((o) => o.name))] : [];
+    const routes = NOTIFICATION_TOPICS.map(({ key, label, hint }) => {
+      const r = (s.telegramRoutes ?? {})[key] ?? {};
+      const chatId = (r.chatId ?? '').trim();
+      const mode: TelegramRouteView['mode'] = r.off ? 'off' : chatId ? 'chat' : 'default';
+      const effectiveChatId = mode === 'off' ? '' : chatId || defaultChat;
+      return { topic: key, label, hint, mode, chatId, effectiveChatId, sharedWith: sharers(effectiveChatId) };
+    });
+    return { routes, chatSharedWith: sharers(defaultChat) };
+  }
+
+  /** Diğer açık dükkânların adları ve bildirim gönderdikleri sohbetler. */
+  private async otherShopTargets(): Promise<{ name: string; chats: string[] }[]> {
+    const shopId = ShopContext.shopId();
+    const rows: { name: string; chat: string; routes: AppSetting['telegramRoutes'] | null }[] =
+      await this.repo.query(
+        `SELECT sh."name" AS name, s."telegram_chat_id" AS chat, s."telegram_routes" AS routes
+           FROM "app_settings" s JOIN "shops" sh ON sh."id" = s."shop_id"
+          WHERE s."deleted_at" IS NULL AND sh."is_active" = true AND s."shop_id" <> $1`,
+        [shopId ?? '00000000-0000-0000-0000-000000000000'],
+      );
+    const envChat = this.envNotifications.telegramOwnerChatId || '';
+    return rows.map((r) => {
+      const base = (r.chat ?? '').trim() || envChat;
+      const chats = new Set<string>();
+      for (const { key } of NOTIFICATION_TOPICS) {
+        const route = (r.routes ?? {})[key] ?? {};
+        if (route.off) continue;
+        const c = (route.chatId ?? '').trim() || base;
+        if (c) chats.add(c);
+      }
+      return { name: r.name, chats: [...chats] };
+    });
+  }
+
+  /**
+   * Bir konunun bu dükkândaki Telegram hedefi. `off`: dükkân bu konuyu
+   * kapatmış. Konu yoksa (genel mesaj) bildirim sohbeti.
+   */
+  async telegramTarget(topic: NotificationTopic | null): Promise<{ chatId: string; off: boolean }> {
+    const { chatId } = await this.getTelegram();
+    if (!topic || !ShopContext.shopId()) return { chatId, off: false };
+    const r = ((await this.getOrCreate()).telegramRoutes ?? {})[topic] ?? {};
+    if (r.off) return { chatId: '', off: true };
+    return { chatId: (r.chatId ?? '').trim() || chatId, off: false };
+  }
+
+  /** Birden çok açık dükkân varsa mesajlara dükkân adı eklenir. */
+  async activeShopCount(): Promise<number> {
+    const rows: { n: string }[] = await this.repo.query(
+      'SELECT COUNT(*)::int AS n FROM "shops" WHERE "is_active" = true AND "deleted_at" IS NULL',
+    );
+    return Number(rows[0]?.n ?? 0);
   }
 
   /**
@@ -416,9 +559,10 @@ export class SettingsService {
         'Bot jetonu, yedek sohbeti ve yetkili kullanıcıları yalnız sistem sahibi değiştirebilir.',
       );
     }
-    if (dto.telegramChatId !== undefined) {
+    if (dto.telegramChatId !== undefined || dto.telegramRoutes !== undefined) {
       const s = await this.getOrCreate();
-      s.telegramChatId = dto.telegramChatId.trim();
+      if (dto.telegramChatId !== undefined) s.telegramChatId = dto.telegramChatId.trim();
+      if (dto.telegramRoutes !== undefined) s.telegramRoutes = cleanRoutes(dto.telegramRoutes);
       await this.repo.save(s);
     }
     if (touchesSystem) {
@@ -467,4 +611,25 @@ export class SettingsService {
     if (!secret) return `${token.slice(0, 2)}••••`;
     return `${botId}:••••${secret.slice(-4)}`;
   }
+}
+
+/**
+ * Arayüzden gelen konu hedeflerini süzer: yalnız bilinen konular, sohbet
+ * kimliği metin (en çok 64), kapalı olan işaretlenir. Varsayılana dönen
+ * konu hiç yazılmaz.
+ */
+export function cleanRoutes(
+  input: Record<string, { chatId?: unknown; off?: unknown }> | null | undefined,
+): Record<string, { chatId?: string; off?: boolean }> {
+  const out: Record<string, { chatId?: string; off?: boolean }> = {};
+  for (const [key, value] of Object.entries(input ?? {})) {
+    if (!isTopic(key) || !value || typeof value !== 'object') continue;
+    if (value.off === true) {
+      out[key] = { off: true };
+      continue;
+    }
+    const chatId = typeof value.chatId === 'string' ? value.chatId.trim().slice(0, 64) : '';
+    if (chatId) out[key] = { chatId };
+  }
+  return out;
 }

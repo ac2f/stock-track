@@ -9,7 +9,13 @@ describe('TelegramBotService — yetki doğrulaması', () => {
   const ALLOWED = 111;
   const STRANGER = 999;
 
-  function buildBot(allowedIds: string[]) {
+  const SHOP_A = '00000000-0000-4000-8000-000000000001';
+  const SHOP_B = '00000000-0000-4000-8000-000000000002';
+
+  function buildBot(
+    allowedIds: string[],
+    linked: Record<string, { role: string; shops: { id: string; name: string; permissions: unknown }[] }> = {},
+  ) {
     const sent: { chatId: number; text: string }[] = [];
     const screensCalled: string[] = [];
 
@@ -29,8 +35,15 @@ describe('TelegramBotService — yetki doğrulaması', () => {
       screensCalled.push(name);
       return { text: name, keyboard: [] };
     };
+    const homeShops: unknown[] = [];
     const screens = {
-      home: screen('home'),
+      home: async (shops?: unknown) => {
+        screensCalled.push('home');
+        homeShops.push(shops);
+        return { text: 'home', keyboard: [] };
+      },
+      paymentAmountPrompt: screen('paymentAmountPrompt'),
+      stockMenu: screen('stockMenu'),
       help: screen('help'),
       cariPrompt: screen('cari'),
       customerCard: screen('customerCard'),
@@ -57,7 +70,18 @@ describe('TelegramBotService — yetki doğrulaması', () => {
     };
 
     const shopAccess = {
-      activeShops: jest.fn(async () => [{ id: '00000000-0000-4000-8000-000000000001', name: 'Ana' }]),
+      activeShops: jest.fn(async () => [
+        { id: SHOP_A, name: 'Ana' },
+        { id: SHOP_B, name: 'Şube' },
+      ]),
+      listFor: jest.fn(async (actor: { id: string }) =>
+        linked[actor.id].shops.map((x) => ({ ...x, isActive: true, isAdmin: false })),
+      ),
+    };
+    const users = {
+      findByTelegramId: jest.fn(async (tg: string) =>
+        linked[tg] ? { id: tg, role: linked[tg].role } : null,
+      ),
     };
 
     const bot = new TelegramBotService(
@@ -67,8 +91,9 @@ describe('TelegramBotService — yetki doğrulaması', () => {
       settings as never,
       shopAccess as never,
       { get: jest.fn(() => true) } as never,
+      users as never,
     );
-    return { bot, api, sent, screensCalled, settings };
+    return { bot, api, sent, screensCalled, settings, sessions, homeShops };
   }
 
   /** Özel bir olayı doğrudan işleyiciye verir (poll döngüsünü atlar). */
@@ -159,5 +184,65 @@ describe('TelegramBotService — yetki doğrulaması', () => {
     await handle(bot, message(STRANGER, '1500'));
 
     expect(screensCalled).toEqual([]);
+  });
+
+  describe('hesabına Telegram kimliği yazılmış çalışan', () => {
+    const WORKER = 222;
+    const readOnly = {
+      customers: { read: true, write: false },
+      payments: { read: true, write: false },
+      stock: { read: false, write: false },
+      reports: { read: false, write: false },
+    };
+
+    it('yetkili listede olmasa da girer; yalnız üye olduğu dükkânı görür', async () => {
+      const { bot, screensCalled, sessions, homeShops } = buildBot([], {
+        [WORKER]: { role: 'employee', shops: [{ id: SHOP_B, name: 'Şube', permissions: readOnly }] },
+      });
+      await handle(bot, message(WORKER, '/menu'));
+      expect(screensCalled).toEqual(['home']);
+      expect(sessions.setShop).toHaveBeenCalledWith(-100, SHOP_B);
+      // Ana menü dükkân satırını yalnız onun dükkânlarından kurar (tek → satır yok).
+      expect(homeShops[0]).toEqual([{ id: SHOP_B, name: 'Şube', permissions: readOnly }]);
+    });
+
+    it('üye olmadığı dükkânı düğmeyle seçemez', async () => {
+      const { bot, sessions } = buildBot([], {
+        [WORKER]: { role: 'employee', shops: [{ id: SHOP_B, name: 'Şube', permissions: readOnly }] },
+      });
+      await handle(bot, button(WORKER, `shop:${SHOP_A}`));
+      expect(sessions.setShop).not.toHaveBeenCalledWith(-100, SHOP_A);
+      expect(sessions.setShop).toHaveBeenCalledWith(-100, SHOP_B);
+    });
+
+    it('izni olmayan işi yapamaz (tahsilat yazma, stok, yedek)', async () => {
+      const { bot, screensCalled, api } = buildBot([], {
+        [WORKER]: { role: 'employee', shops: [{ id: SHOP_B, name: 'Şube', permissions: readOnly }] },
+      });
+      await handle(bot, button(WORKER, 'pay:c1'));
+      await handle(bot, button(WORKER, 'stk'));
+      await handle(bot, button(WORKER, 'bkp'));
+      expect(screensCalled).toEqual([]);
+      const texts = (api.editMessage.mock.calls as unknown as unknown[][]).map((c) => String(c[2]));
+      expect(texts.every((t) => t.includes('izniniz yok'))).toBe(true);
+      expect(texts).toHaveLength(3);
+    });
+
+    it('izni olan işi yapar', async () => {
+      const { bot, screensCalled } = buildBot([], {
+        [WORKER]: {
+          role: 'employee',
+          shops: [{ id: SHOP_B, name: 'Şube', permissions: { ...readOnly, payments: { read: true, write: true } } }],
+        },
+      });
+      await handle(bot, button(WORKER, 'pay:c1'));
+      expect(screensCalled).toEqual(['paymentAmountPrompt']);
+    });
+
+    it('sistemin yetkili listesindeki kişi eskisi gibi bütün dükkânlara girer', async () => {
+      const { bot, homeShops } = buildBot([String(ALLOWED)]);
+      await handle(bot, message(ALLOWED, '/menu'));
+      expect((homeShops[0] as unknown[]).length).toBe(2);
+    });
   });
 });

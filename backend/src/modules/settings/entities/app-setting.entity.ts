@@ -35,6 +35,15 @@ export class AppSetting extends ShopScopedEntity {
   @Column({ name: 'telegram_chat_id', default: '' })
   telegramChatId: string;
 
+  /**
+   * Konu başına Telegram hedefi: { sales: { chatId: '-100…' }, corel:
+   * { off: true }, ... }. Yazılmayan konu bildirim sohbetine (telegramChatId)
+   * gider. Birden çok dükkân aynı sohbeti kullanabilir; mesaja dükkân adı
+   * eklenir.
+   */
+  @Column({ name: 'telegram_routes', type: 'jsonb', default: {} })
+  telegramRoutes: Record<string, { chatId?: string; off?: boolean }>;
+
   /** Şifreli yedeğin gideceği sohbet. Boşsa yukarıdaki bildirim sohbeti. */
   @Column({ name: 'backup_telegram_chat_id', default: '' })
   backupTelegramChatId: string;
@@ -83,6 +92,32 @@ export class AppSetting extends ShopScopedEntity {
    */
   @Column({ name: 'corel_api_key', default: '' })
   corelApiKey: string;
+
+  // ── Klasör oluşturucu (dükkân bilgisayarındaki runner) ──
+  // Her dükkânın kendi ayarı: runner o dükkânın anahtarıyla bağlanınca
+  // bunları okur (GET /corel/folder-settings).
+  /** Kapalıyken runner bu dükkânın teklifleri için klasör açmaz. */
+  @Column({ name: 'folders_enabled', default: true })
+  foldersEnabled: boolean;
+
+  /**
+   * Klasör belirtecinde işletme malının sahibi olarak yazılan kısa kod
+   * (F23-10-2026.<kod>.pleksi-beyaz). Boşsa dükkân adından türetilir.
+   */
+  @Column({ name: 'folder_code', default: '' })
+  folderCode: string;
+
+  /** Malzeme satışına (kesimsiz) malzeme-F... klasörü açılsın mı. */
+  @Column({ name: 'material_sale_folders', default: true })
+  materialSaleFolders: boolean;
+
+  /**
+   * Bu dükkânın gün klasörü kökü (dükkân bilgisayarında). Boşsa runner
+   * kendi ayarını, Corel eklentisini ya da CDR Auto Renamer'ı kullanır.
+   * Bir bilgisayar iki dükkâna klasör açıyorsa her birine ayrı kök verilir.
+   */
+  @Column({ name: 'folder_day_root', default: '' })
+  folderDayRoot: string;
 
   // ── Kesim fiyatlandırması ──
   // Teklifte süreyle/m² ile fiyatın ücretleri ve asgarileri; Corel eklentisi

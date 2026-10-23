@@ -7,6 +7,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { ShopScope } from '../../common/shop/shop-access.decorator';
 import { PrimaryOnly, SyncSkip } from '../sync/sync.decorators';
+import { isTopic } from './enums/notification-topic';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
@@ -56,11 +57,11 @@ export class NotificationsController {
     return this.telegram.verify();
   }
 
-  /** Ayarlardaki sohbete deneme mesajı gönderir. */
+  /** Ayarlardaki sohbete (`?topic=corel`: o konunun sohbetine) deneme mesajı. */
   @PrimaryOnly()
   @Post('telegram/test')
-  testTelegram() {
-    return this.telegram.sendTest();
+  testTelegram(@Query('topic') topic?: string) {
+    return this.telegram.sendTest(topic && isTopic(topic) ? topic : null);
   }
 
   /** Sabah özetinin bugünkü hâli (göndermeden). */

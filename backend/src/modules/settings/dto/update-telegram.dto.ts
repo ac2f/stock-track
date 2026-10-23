@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
  * Telegram ayarları güncelleme.
@@ -26,4 +26,12 @@ export class UpdateTelegramDto {
   @IsString()
   @MaxLength(2000)
   telegramAllowedUserIds?: string;
+
+  /**
+   * Konu başına hedef: { sales: { chatId: '-100…' }, corel: { off: true } }.
+   * Verilen nesne öncekinin yerine geçer; tanınmayan konular atılır.
+   */
+  @IsOptional()
+  @IsObject()
+  telegramRoutes?: Record<string, { chatId?: string; off?: boolean }>;
 }

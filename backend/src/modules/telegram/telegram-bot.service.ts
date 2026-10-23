@@ -5,7 +5,10 @@ import { LedgerEntryType } from '../../common/enums/ledger-entry-type.enum';
 import { PaymentMethod } from '../../common/enums/payment-method.enum';
 import { SettingsService } from '../settings/settings.service';
 import { ShopAccessService } from '../shops/shop-access.service';
+import { UsersService } from '../users/users.service';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { ShopContext } from '../../common/shop/shop-context';
+import type { ShopModule, ShopPermissions } from '../../common/shop/shop-permissions';
 import {
   Keyboard,
   TelegramApiService,
@@ -16,6 +19,48 @@ import { TelegramSessionService } from './telegram-session.service';
 
 /** Kaç ms'de bir yeni mesaj/düğme olayı sorulur. */
 const POLL_MS = 2000;
+
+/**
+ * Telegram kullanıcısının botta girebildiği dükkânlar. Kimliği bir
+ * StockTrack hesabına yazılıysa (Ekip ekranı) o kişinin üyelikleri ve
+ * izinleri geçer; yalnız sistemin yetkili listesindeyse (sistem sahibinin
+ * eklediği kişi) bütün açık dükkânlar, tam yetkiyle.
+ */
+export interface BotAccess {
+  /** Hesaba bağlı: izinler uygulanır. */
+  linked: boolean;
+  isOwner: boolean;
+  shops: { id: string; name: string; permissions?: ShopPermissions }[];
+}
+
+/** Düğmenin gerektirdiği izin (hesaba bağlı kullanıcıda denetlenir). */
+const NEEDS: Record<string, [ShopModule, 'read' | 'write']> = {
+  cari: ['customers', 'read'],
+  cst: ['customers', 'read'],
+  ext: ['payments', 'read'],
+  pay: ['payments', 'write'],
+  pm: ['payments', 'write'],
+  emp: ['payments', 'write'],
+  bnk: ['payments', 'write'],
+  payok: ['payments', 'write'],
+  set: ['payments', 'write'],
+  setfull: ['payments', 'write'],
+  setpart: ['payments', 'write'],
+  setfree: ['payments', 'write'],
+  setfreeok: ['payments', 'write'],
+  led: ['payments', 'write'],
+  stk: ['stock', 'read'],
+  rep: ['reports', 'read'],
+};
+
+/** Yazılı girdi beklenen adımın gerektirdiği izin. */
+const AWAIT_NEEDS: Record<string, [ShopModule, 'read' | 'write']> = {
+  'customer-search': ['customers', 'read'],
+  'stock-search': ['stock', 'read'],
+  'payment-amount': ['payments', 'write'],
+  'settle-amount': ['payments', 'write'],
+  'ledger-amount': ['payments', 'write'],
+};
 
 /**
  * Telegram arayüzünün beyni: olayları çeker, GÖNDERENİ DOĞRULAR, ekranlara
@@ -37,6 +82,11 @@ export class TelegramBotService {
   private offset: number | null = null;
   private polling = false;
   private conflictLogged = false;
+  /**
+   * İşlenen olayın göndereninin erişimi. Olaylar sırayla işlenir (tek
+   * tüketici, `polling` kilidi), bu yüzden tek alan yeter.
+   */
+  private access: BotAccess | null = null;
 
   constructor(
     private readonly api: TelegramApiService,
@@ -45,6 +95,7 @@ export class TelegramBotService {
     private readonly settings: SettingsService,
     private readonly shopAccess: ShopAccessService,
     configService: ConfigService,
+    private readonly users?: UsersService,
   ) {
     this.enabled = configService.get<boolean>('scheduler.enabled') ?? true;
   }
@@ -109,18 +160,25 @@ export class TelegramBotService {
       return;
     }
 
-    // ⛔ Yetki denetimi — bundan sonrası yalnızca listedeki kullanıcılara.
-    if (!(await this.settings.isUserAllowed(fromId))) {
+    // ⛔ Yetki denetimi — bundan sonrası yalnızca hesabına Telegram kimliği
+    // yazılmış kullanıcılara ve sistemin yetkili listesindekilere.
+    const access = await this.accessFor(fromId);
+    if (!access) {
       if (callback) await this.api.answerCallback(callback.id, 'Yetkiniz yok.');
       await this.denyAccess(chatId, fromId);
       return;
     }
+    this.access = access;
 
-    // Sohbetin dükkânı: seçilmişse o (hâlâ açıksa), yoksa ilk açık dükkân.
+    // Sohbetin dükkânı: seçilmişse o (hâlâ girebiliyorsa), yoksa ilki.
     // Bundan sonraki her okuma/yazma o dükkânın bağlamında yapılır.
-    const shopId = await this.shopFor(chatId, callback?.data);
+    const shopId = this.shopFor(chatId, access, callback?.data);
     if (!shopId) {
-      await this.api.sendMessage(chatId, 'Açık bir dükkân yok.');
+      if (callback) await this.api.answerCallback(callback.id);
+      await this.api.sendMessage(
+        chatId,
+        access.linked ? 'Girebildiğiniz açık bir dükkân yok.' : 'Açık bir dükkân yok.',
+      );
       return;
     }
 
@@ -141,12 +199,55 @@ export class TelegramBotService {
   }
 
   /**
-   * Sohbetin dükkânı. Yetkili Telegram kullanıcıları (sistem sahibinin
-   * eklediği kişiler) bütün açık dükkânlara girebilir; "shop:<id>" düğmesi
-   * seçimi değiştirir.
+   * Gönderenin erişimi: hesabına yazılmış Telegram kimliği önce gelir
+   * (üyelikler ve izinler), sonra sistemin yetkili listesi (bütün açık
+   * dükkânlar). İkisi de değilse null.
    */
-  private async shopFor(chatId: number, data?: string): Promise<string | undefined> {
-    const shops = await this.shopAccess.activeShops();
+  private async accessFor(fromId: number): Promise<BotAccess | null> {
+    const user = await this.users?.findByTelegramId(String(fromId));
+    if (user) {
+      const shops = (await this.shopAccess.listFor({ id: user.id, role: user.role })).filter(
+        (s) => s.isActive,
+      );
+      return {
+        linked: true,
+        isOwner: user.role === UserRole.OWNER,
+        shops: shops.map((s) => ({ id: s.id, name: s.name, permissions: s.permissions })),
+      };
+    }
+    if (await this.settings.isUserAllowed(fromId)) {
+      const shops = await this.shopAccess.activeShops();
+      return { linked: false, isOwner: true, shops: shops.map((s) => ({ id: s.id, name: s.name })) };
+    }
+    return null;
+  }
+
+  /** Hesaba bağlı kullanıcı bu dükkânda bu işi yapabilir mi? */
+  private can(need: [ShopModule, 'read' | 'write'] | undefined): boolean {
+    const a = this.access;
+    if (!need || !a || !a.linked || a.isOwner) return true;
+    const shop = a.shops.find((s) => s.id === ShopContext.shopId());
+    return !!shop?.permissions?.[need[0]]?.[need[1]];
+  }
+
+  /** Ana menü: dükkân satırı yalnız birden çok dükkâna girebilene. */
+  private home(): Promise<Screen> {
+    return this.screens.home(this.access?.shops);
+  }
+
+  private noPermission(): Screen {
+    return {
+      text: '⛔ Bu dükkânda bu işlem için izniniz yok. İzinleri dükkân yöneticisi Ekip ekranından verir.',
+      keyboard: [[{ text: '⬅️ Ana menü', data: 'home' }]],
+    };
+  }
+
+  /**
+   * Sohbetin dükkânı, kişinin girebildikleri arasından. "shop:<id>" düğmesi
+   * seçimi değiştirir; tek dükkânı olan hep onu görür.
+   */
+  private shopFor(chatId: number, access: BotAccess, data?: string): string | undefined {
+    const shops = access.shops;
     const picked = data?.startsWith('shop:') ? data.slice(5) : undefined;
     if (picked && shops.some((s) => s.id === picked)) {
       this.sessions.setShop(chatId, picked);
@@ -156,7 +257,11 @@ export class TelegramBotService {
     const current = this.sessions.shopOf(chatId);
     if (current && shops.some((s) => s.id === current)) return current;
     const first = shops[0]?.id;
-    if (first) this.sessions.setShop(chatId, first);
+    if (first) {
+      this.sessions.setShop(chatId, first);
+      // Önceki seçim artık girilemeyen bir dükkândaydı: yarım akış kalmasın.
+      if (current) this.sessions.reset(chatId);
+    }
     return first;
   }
 
@@ -168,8 +273,9 @@ export class TelegramBotService {
       allowed.length
         ? '⛔ <b>Yetkiniz yok.</b>\n\n' +
             `Kullanıcı kimliğiniz: <code>${userId}</code>\n` +
-            'İşletme sahibinden bu kimliği web arayüzünde ' +
-            '<i>Ayarlar › Telegram › Yetkili kullanıcılar</i> listesine eklemesini isteyin.'
+            'Dükkân yöneticinizden bu kimliği web arayüzünde <i>Ekip</i> ekranında ' +
+            'hesabınıza yazmasını isteyin (yalnız sizin dükkânlarınızı görürsünüz) ya da ' +
+            'işletme sahibinden <i>Ayarlar › Telegram › Yetkili kullanıcılar</i> listesine eklemesini.'
         : '⚠️ <b>Yetkili kullanıcı listesi boş.</b>\n\n' +
             `Kullanıcı kimliğiniz: <code>${userId}</code>\n` +
             'Bu kimliği web arayüzünde <i>Ayarlar › Telegram › Yetkili kullanıcılar</i> ' +
@@ -186,7 +292,7 @@ export class TelegramBotService {
     const chat = update.message?.chat ?? update.callback_query?.message?.chat;
     const isGroup = chat && chat.type !== 'private';
     const name = chat?.title ?? 'bu sohbet';
-    const allowed = await this.settings.isUserAllowed(userId);
+    const allowed = !!(await this.accessFor(userId));
     await this.api.sendMessage(
       chatId,
       `🆔 <b>${TelegramApiService.escape(name)}</b>\n\n` +
@@ -195,7 +301,8 @@ export class TelegramBotService {
         (allowed
           ? '✅ Bu hesap işlem yapmaya yetkili. /menu ile başlayın.'
           : '⛔ Bu hesap henüz yetkili değil. Kullanıcı kimliğini web arayüzünde ' +
-            '<i>Ayarlar › Telegram › Yetkili kullanıcılar</i> alanına ekleyin.'),
+            '<i>Ekip</i> ekranında kişinin hesabına ya da ' +
+            '<i>Ayarlar › Telegram › Yetkili kullanıcılar</i> alanına yazın.'),
     );
   }
 
@@ -203,17 +310,21 @@ export class TelegramBotService {
   private async handleText(chatId: number, text: string): Promise<void> {
     if (/^\/(start|menu)(@[\w_]+)?$/i.test(text)) {
       this.sessions.reset(chatId);
-      return this.show(chatId, await this.screens.home());
+      return this.show(chatId, await this.home());
     }
     if (/^\/iptal(@[\w_]+)?$/i.test(text)) {
       this.sessions.reset(chatId);
-      return this.show(chatId, await this.screens.home());
+      return this.show(chatId, await this.home());
     }
     if (/^\/yardim(@[\w_]+)?$/i.test(text)) {
       return this.show(chatId, this.screens.help());
     }
 
     const session = this.sessions.get(chatId);
+    if (session.awaiting && !this.can(AWAIT_NEEDS[session.awaiting])) {
+      this.sessions.reset(chatId);
+      return this.show(chatId, this.noPermission());
+    }
     switch (session.awaiting) {
       case 'customer-search':
         this.sessions.clearAwaiting(chatId);
@@ -258,7 +369,7 @@ export class TelegramBotService {
 
       default:
         // Menüde beklenen bir girdi yoksa yönlendir.
-        return this.show(chatId, await this.screens.home());
+        return this.show(chatId, await this.home());
     }
   }
 
@@ -287,16 +398,19 @@ export class TelegramBotService {
     messageId?: number,
   ): Promise<void> {
     const [head, ...rest] = data.split(':');
+    if (!this.can(NEEDS[head]) || (head === 'bkp' && this.access?.linked && !this.access.isOwner)) {
+      return this.show(chatId, this.noPermission(), messageId);
+    }
 
     switch (head) {
       case 'home':
         this.sessions.reset(chatId);
-        return this.show(chatId, await this.screens.home(), messageId);
+        return this.show(chatId, await this.home(), messageId);
       case 'shops':
-        return this.show(chatId, await this.screens.shopPicker(), messageId);
+        return this.show(chatId, await this.screens.shopPicker(this.access?.shops), messageId);
       case 'shop':
         // Seçim shopFor'da yapıldı; yeni dükkânın ana menüsü.
-        return this.show(chatId, await this.screens.home(), messageId);
+        return this.show(chatId, await this.home(), messageId);
       case 'help':
         return this.show(chatId, this.screens.help(), messageId);
 
@@ -458,7 +572,7 @@ export class TelegramBotService {
         return this.show(chatId, await this.screens.backupMenu(), messageId);
 
       default:
-        return this.show(chatId, await this.screens.home(), messageId);
+        return this.show(chatId, await this.home(), messageId);
     }
   }
 

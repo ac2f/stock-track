@@ -5,17 +5,22 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, MoreThan, MoreThanOrEqual, Not, Repository } from 'typeorm';
-import { QuoteStatus } from '../../common/enums/quote-status.enum';
+import { QuoteLineKind, QuoteStatus } from '../../common/enums/quote-status.enum';
 import { MeasurementType } from '../../common/enums/measurement-type.enum';
 import { Customer } from '../customers/entities/customer.entity';
 import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { StockLevel } from '../materials/entities/stock-level.entity';
 import { Quote } from '../quotes/entities/quote.entity';
 import { QuoteItem } from '../quotes/entities/quote-item.entity';
-import { SettingsService } from '../settings/settings.service';
+import { FolderSettings, SettingsService } from '../settings/settings.service';
 import {
   CorelJob,
   customerFolderName,
+  materialOwner,
+  MaterialOwner,
+  ownerToken,
+  sheetItemsWithPurpose,
+  topLevelOwners,
   customerHaystack,
   customerLine,
   jobSheet,
@@ -50,6 +55,17 @@ function isSheetItem(item: QuoteItem): boolean {
 }
 
 /**
+ * Takım yolu klasörü olan tabaka kalemleri: malzeme satışı (kesimsiz)
+ * çıkar, aynı tabakanın satış + işleme kalemi bir kez sayılır. Eklentinin
+ * "kullanılan parça" işi bunları okur.
+ */
+function cutSheetItems(items: QuoteItem[] | undefined): QuoteItem[] {
+  return sheetItemsWithPurpose((items ?? []).filter(isSheetItem))
+    .filter((x) => x.purpose === 'cut')
+    .map((x) => x.item);
+}
+
+/**
  * CorelDRAW eklentisinin okuduğu listeler. Yanıtlar sekmeyle ayrılmış düz
  * metindir (VBA'da JSON ayrıştırıcı yok) ve tamamen ASCII'dir.
  *
@@ -76,10 +92,19 @@ export class CorelService {
     return tsvBody([pricingLine(await this.settings.getCutPricing())]);
   }
 
-  /** Bağlantı ve anahtar denemesi; işletme adını döner. */
+  /**
+   * Bağlantı ve anahtar denemesi: `ok, işletme adı, klasör kodu`. Eklenti
+   * kodu takım yolu klasörünün belirtecinde (işletme malı) kullanır.
+   */
   async ping(): Promise<string> {
     const business = await this.settings.getBusiness();
-    return tsvBody([tsvLine(['ok', business.name])]);
+    const folders = await this.settings.getFolderSettings();
+    return tsvBody([tsvLine(['ok', business.name, folders.code])]);
+  }
+
+  /** Runner'ın okuduğu, bu dükkânın klasör oluşturucu ayarları. */
+  folderSettings(): Promise<FolderSettings> {
+    return this.settings.getFolderSettings();
   }
 
   /**
@@ -205,11 +230,7 @@ export class CorelService {
       take: limit,
       ...WITH_SOLD_PLATES,
     });
-    return tsvBody(
-      quotes.map((q) =>
-        quoteLine(q, (q.items ?? []).filter(isSheetItem).length),
-      ),
-    );
+    return tsvBody(quotes.map((q) => quoteLine(q, cutSheetItems(q.items).length)));
   }
 
   /**
@@ -218,6 +239,9 @@ export class CorelService {
    * açar. `since` dahildir; runner aynı teklifi kimliğinden tanıyıp atlar.
    */
   async jobs(since?: string, limit = DEFAULT_JOBS): Promise<CorelJob[]> {
+    const folders = await this.settings.getFolderSettings();
+    // Dükkânın klasör oluşturucusu kapalı: runner bu dükkâna klasör açmaz.
+    if (!folders.enabled) return [];
     const where: Record<string, unknown> = { status: QuoteStatus.CONVERTED, deletedAt: IsNull() };
     if (since) where.convertedAt = MoreThanOrEqual(new Date(since));
     const quotes = await this.quotesRepo.find({
@@ -226,7 +250,7 @@ export class CorelService {
       take: limit,
       ...WITH_SOLD_PLATES,
     });
-    return quotes.filter((q) => q.convertedAt).map((q) => this.toJob(q));
+    return this.toJobs(quotes.filter((q) => q.convertedAt), folders);
   }
 
   /**
@@ -234,46 +258,109 @@ export class CorelService {
    * (runner bildirmemiş) işe dönüşmüş teklifler.
    */
   async requestedJobs(limit = DEFAULT_JOBS): Promise<CorelJob[]> {
+    const folders = await this.settings.getFolderSettings();
+    if (!folders.enabled) return [];
     const quotes = await this.quotesRepo.find({
       where: { status: QuoteStatus.CONVERTED, foldersRequestedAt: Not(IsNull()), deletedAt: IsNull() },
       order: { foldersRequestedAt: 'ASC' },
       take: 200,
       ...WITH_SOLD_PLATES,
     });
-    return quotes
+    const pending = quotes
       .filter(
         (q) =>
           q.convertedAt &&
           (!q.foldersCreatedAt || q.foldersCreatedAt < (q.foldersRequestedAt as Date)),
       )
-      .slice(0, limit)
-      .map((q) => this.toJob(q));
+      .slice(0, limit);
+    return this.toJobs(pending, folders);
   }
 
-  private toJob(q: Quote): CorelJob {
-    const c = q.buyerCustomer;
-    const label = customerLine({
-      id: q.buyerCustomerId,
-      name: c?.name ?? '',
-      companyName: c?.companyName,
-      phone: null,
-    }).split('\t')[2];
-    return {
-      id: q.id,
-      quoteNo: q.quoteNo,
-      createdAt: q.createdAt.toISOString(),
-      convertedAt: q.convertedAt!.toISOString(),
-      customerId: q.buyerCustomerId,
-      customerFolder: customerFolderName(c?.name, c?.companyName),
-      customerLabel: label,
-      sheets: (q.items ?? []).filter(isSheetItem).map(jobSheet),
-    };
+  /**
+   * Teklifler → runner işleri. Her tabakanın amacı (kesim / malzeme satışı)
+   * ve malzemenin sahibi: dönüşümde kaydedilen, eski kalemde stoktan ve
+   * satış kaleminden yeniden bulunan.
+   */
+  private async toJobs(quotes: Quote[], folders: FolderSettings): Promise<CorelJob[]> {
+    const sheetsOf = new Map(
+      quotes.map((q) => [q.id, sheetItemsWithPurpose((q.items ?? []).filter(isSheetItem))] as const),
+    );
+    const all = [...sheetsOf.values()].flat().map((x) => x.item);
+
+    // Sahibi kaydedilmemiş (eski) işleme kalemleri için stok seviyeleri.
+    const unknownPlates = [
+      ...new Set(all.filter((i) => !i.materialOwnerKind && i.plateId).map((i) => i.plateId!)),
+    ];
+    const levels = unknownPlates.length
+      ? await this.stockLevelsRepo.find({ where: { plateId: In(unknownPlates) } })
+      : [];
+    const levelOwner = topLevelOwners(levels);
+
+    const ownerOf = new Map<string, MaterialOwner>();
+    for (const q of quotes) {
+      const saleOnPlate = new Map(
+        (q.items ?? [])
+          .filter((i) => i.lineKind === QuoteLineKind.SALE && i.plateId)
+          .map((i) => [i.plateId!, i] as const),
+      );
+      for (const { item } of sheetsOf.get(q.id)!) {
+        ownerOf.set(
+          item.id,
+          item.materialOwnerKind
+            ? { kind: item.materialOwnerKind, customerId: item.materialOwnerId ?? null }
+            : materialOwner(item, q, saleOnPlate, levelOwner),
+        );
+      }
+    }
+
+    const ownerIds = [
+      ...new Set([...ownerOf.values()].map((o) => o.customerId).filter((x): x is string => !!x)),
+    ];
+    const owners = ownerIds.length
+      ? await this.customersRepo.find({
+          where: { id: In(ownerIds) },
+          select: ['id', 'name', 'companyName'],
+          withDeleted: true,
+        })
+      : [];
+    const ownerById = new Map(owners.map((c) => [c.id, c]));
+
+    return quotes.map((q) => {
+      const c = q.buyerCustomer;
+      const label = customerLine({
+        id: q.buyerCustomerId,
+        name: c?.name ?? '',
+        companyName: c?.companyName,
+        phone: null,
+      }).split('\t')[2];
+      const sheets = sheetsOf.get(q.id)!.map(({ item, purpose }) => {
+        const o = ownerOf.get(item.id)!;
+        const cust = o.customerId ? ownerById.get(o.customerId) : undefined;
+        const owner =
+          o.kind === 'customer'
+            ? ownerToken(cust?.name, cust?.companyName) || folders.code
+            : folders.code;
+        return jobSheet(item, { purpose, ownerKind: o.kind, owner });
+      });
+      return {
+        id: q.id,
+        quoteNo: q.quoteNo,
+        createdAt: q.createdAt.toISOString(),
+        convertedAt: q.convertedAt!.toISOString(),
+        customerId: q.buyerCustomerId,
+        customerFolder: customerFolderName(c?.name, c?.companyName),
+        customerLabel: label,
+        shopCode: folders.code,
+        materialSaleFolders: folders.materialSaleFolders,
+        sheets: folders.materialSaleFolders ? sheets : sheets.filter((s) => s.purpose === 'cut'),
+      };
+    });
   }
 
   /** Bir teklifin tabaka kalemleri ve her birinden kullanılan ölçü. */
   async quoteUsage(id: string): Promise<string> {
     const quote = await this.quotesRepo.findOne({ where: { id, deletedAt: IsNull() }, ...WITH_SOLD_PLATES });
     if (!quote) throw new NotFoundException('Teklif bulunamadı.');
-    return tsvBody((quote.items ?? []).filter(isSheetItem).map(usageLine));
+    return tsvBody(cutSheetItems(quote.items).map(usageLine));
   }
 }

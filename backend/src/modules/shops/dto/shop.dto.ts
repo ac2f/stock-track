@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -43,6 +44,12 @@ export class UpdateShopDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Telegram kullanıcı kimliği (yalnız rakam); boş = bağlantıyı kaldır. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\s*\d{0,20}\s*$/, { message: 'Telegram kimliği yalnız rakamlardan oluşur (botta /idx).' })
+  telegramUserId?: string;
 }
 
 /** Üye eklerken yeni hesap açmak için. */
@@ -118,4 +125,10 @@ export class UpdateMemberAccountDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Telegram kullanıcı kimliği (yalnız rakam); boş = bağlantıyı kaldır. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\s*\d{0,20}\s*$/, { message: 'Telegram kimliği yalnız rakamlardan oluşur (botta /idx).' })
+  telegramUserId?: string;
 }

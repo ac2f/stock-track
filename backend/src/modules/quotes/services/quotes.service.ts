@@ -38,6 +38,8 @@ import { QuoteItem } from '../entities/quote-item.entity';
 import { CreateQuoteDto, QuoteItemDto } from '../dto/create-quote.dto';
 import { QueryQuoteDto } from '../dto/query-quote.dto';
 import { ShopContext } from '../../../common/shop/shop-context';
+import { StockLevel } from '../../materials/entities/stock-level.entity';
+import { materialOwner, topLevelOwners } from '../../corel/corel-naming.util';
 
 export interface QuoteConversionResult {
   quote: Quote;
@@ -268,13 +270,25 @@ export class QuotesService {
     const events: { name: string; payload: unknown }[] = [];
 
     const outcome = await this.dataSource.transaction(async (manager) => {
-      // Tabakanın kesimden önceki ölçüsü: satış/işleme aşağıda plakanın kalan
-      // ölçüsünü düşürür, runner klasör adına tam ölçüyü yazar.
+      // Tabakanın kesimden önceki ölçüsü ve sahibi: satış/işleme aşağıda
+      // plakanın kalan ölçüsünü ve stoğunu düşürür, runner klasör adına tam
+      // ölçüyü ve malzemenin kimin olduğunu yazar.
+      const plateIds = [...new Set(quote.items.filter((i) => i.plateId).map((i) => i.plateId!))];
+      const levels = plateIds.length
+        ? await manager.find(StockLevel, { where: { plateId: In(plateIds) } })
+        : [];
+      const levelOwner = topLevelOwners(levels);
+      const saleOnPlate = new Map(
+        saleLines.filter((l) => l.plateId).map((l) => [l.plateId!, l] as const),
+      );
       for (const it of quote.items) {
         if (!it.plate) continue;
+        const owner = materialOwner(it, quote, saleOnPlate, levelOwner);
         await manager.update(QuoteItem, it.id, {
           sheetWidthMm: it.plate.widthMm ?? null,
           sheetHeightMm: it.plate.heightMm ?? null,
+          materialOwnerKind: owner.kind,
+          materialOwnerId: owner.customerId,
         });
       }
 
