@@ -232,6 +232,13 @@ alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
   Seçimler o cihazda hatırlanır. Yan menü « ile daraltılabilir.
 - **Telefonda** altta dört ana ekran ve *Menü*; filtreler "Filtreler"
   düğmesinin arkasında durur, arama kutusu her zaman görünür.
+- **Satın alma'da malzeme seçici:** stoğu tükenmemiş her kalem, ürün türüne →
+  aynı malzemeye göre gruplu, her satırda kalan ebat ve stok. Sunucu en çok
+  100 kalem getirir; fazlası varsa listenin altında "İlk 100 / N kalem
+  gösteriliyor" yazar — ürün türü seçerek ya da yazarak daraltılır. Son
+  tabakası satılan/kesilen kalem stoktan kalktığı için listede yoktur (yeniden
+  girmek için *Stok › Yeni stok kalemi*); alım geçmişinde yine adıyla görünür,
+  yanında "tükendi" rozeti olur.
 - Her kayıt, güncelleme ve silme sonucu köşede kısa bir bildirimle söylenir;
   silme gibi işlemler okunaklı bir onay penceresi ister.
 - Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,

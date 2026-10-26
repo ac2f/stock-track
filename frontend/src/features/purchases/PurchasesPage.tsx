@@ -23,7 +23,10 @@ import { SearchSelect } from '../../components/SearchSelect';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
 import { useDebounced } from '../../hooks/useDebounced';
-import { useSuppliers } from '../../hooks/useReferenceData';
+import { useMaterialCategories, useSuppliers } from '../../hooks/useReferenceData';
+import { keepWhileSearching } from '../../lib/placeholder';
+import { groupPlates } from '../../lib/plateGrouping';
+import { plateRemainingLabel } from '../../lib/plateLabel';
 import { mapLimit } from '../../lib/concurrency';
 import { GroupSection } from '../../components/GroupSection';
 import { confirmDialog } from '../../components/ConfirmDialog';
@@ -93,9 +96,30 @@ function priceUnitFor(plate?: Plate): SupplierPriceUnit {
   }
 }
 
+/** Seçici alt satırı: kalan ebat / uzunluk ve şu anki stok (ne kadar alındığını bilerek seçilsin). */
+function purchasePickSublabel(p: Plate): string {
+  const parts: string[] = [];
+  const qty = Number(p.quantityInStock);
+  if (p.measurementType === 'length') {
+    const h = Number(p.heightMm);
+    parts.push(`${h ? `${h}mm × ` : ''}stokta ${qty} m`);
+  } else {
+    const rem = plateRemainingLabel(p);
+    if (rem) parts.push(rem);
+    parts.push(`stokta ${qty} adet`);
+  }
+  if (p.owners?.length) parts.push(`👤 ${p.owners.join(', ')}`);
+  return parts.join(' · ');
+}
+
 /**
- * Alım kalemi için malzeme seçici: arama sunucuda yapılır (yazma bitince),
- * liste yalnız açıkken istenir — ilk 100 kalemle sınırlı kalmaz.
+ * Alım kalemi için malzeme seçici. Liste ürün türüne → aynı malzemeye göre
+ * gruplanır, her satırda kalan ebat ve stok görünür.
+ *
+ * Neyin listelendiği: stoğu tükenmemiş her kalem, ada göre A→Z. Sunucu en çok
+ * 100 kalem döndürür; fazlası varsa listenin altında uyarı çıkar — ürün türü
+ * seçerek ya da yazarak daraltılır. Stoğu tamamen tükenen kalem (son tabaka
+ * satıldı/kesildi) stoktan kalktığı için listede yoktur.
  */
 function PurchasePlatePicker({
   value,
@@ -106,34 +130,74 @@ function PurchasePlatePicker({
   selected?: Plate;
   onPick: (id: string, plate?: Plate) => void;
 }) {
+  const [categoryId, setCategoryId] = useState('');
+  const { data: categories } = useMaterialCategories();
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const search = useDebounced(term.trim());
+  const pickKey = ['plates', 'purchase-pick', categoryId, search];
   const { data, isFetching } = useQuery({
-    queryKey: ['plates', 'purchase-pick', search],
-    queryFn: () => fetchPlates({ search: search || undefined, page: 1, limit: 100 }),
+    queryKey: pickKey,
+    queryFn: () =>
+      fetchPlates({
+        categoryId: categoryId || undefined,
+        search: search || undefined,
+        page: 1,
+        limit: 100,
+      }),
     enabled: open,
-    placeholderData: keepPreviousData,
+    // Yalnız arama değişirken önceki sonuçlar kalır; tür değişince başka
+    // türün kalemleri seçilemesin.
+    placeholderData: keepWhileSearching(pickKey),
   });
   const items = data?.items ?? [];
+  const total = data?.meta.total ?? items.length;
   // Seçili malzeme listede yoksa da adı görünsün.
   const list = selected && !items.some((p) => p.id === selected.id) ? [selected, ...items] : items;
-  return (
-    <SearchSelect
-      placeholder="Malzeme/plaka ara/seç…"
-      value={value}
-      options={list.map((p) => ({
+  const options = groupPlates(list).flatMap((g) =>
+    g.materials.flatMap((m) =>
+      m.plates.map((p) => ({
         id: p.id,
         label: p.name,
-        group: p.template?.category?.name ?? 'Diğer',
-      }))}
-      filterLocally={false}
-      loading={isFetching}
-      stale={term.trim() !== search || isFetching}
-      onSearchChange={setTerm}
-      onOpenChange={setOpen}
-      onChange={(id) => onPick(id, list.find((p) => p.id === id))}
-    />
+        group: `${g.category} (${g.count})`,
+        subgroup: m.label,
+        sublabel: purchasePickSublabel(p),
+      })),
+    ),
+  );
+  return (
+    <div className="space-y-1">
+      <select
+        className="input"
+        aria-label="Ürün türü"
+        value={categoryId}
+        onChange={(e) => setCategoryId(e.target.value)}
+      >
+        <option value="">Tüm ürün türleri</option>
+        {categories?.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <SearchSelect
+        placeholder="Malzeme/plaka ara/seç…"
+        emptyText="Uygun malzeme yok. Stoğu tükenen kalem listeden kalkar; yeniden girmek için Stok › Yeni stok kalemi."
+        value={value}
+        options={options}
+        filterLocally={false}
+        loading={isFetching}
+        stale={term.trim() !== search || isFetching}
+        notice={
+          total > items.length
+            ? `İlk ${items.length} / ${total} kalem gösteriliyor (A→Z). Ürün türü seçin ya da yazarak arayın.`
+            : undefined
+        }
+        onSearchChange={setTerm}
+        onOpenChange={setOpen}
+        onChange={(id) => onPick(id, list.find((p) => p.id === id))}
+      />
+    </div>
   );
 }
 
@@ -673,6 +737,14 @@ export function PurchasesPage() {
                   <li key={idx} className="flex items-start justify-between gap-3 py-1.5">
                     <span className="min-w-0">
                       <span className="font-medium text-slate-700">{it.plate?.name ?? '—'}</span>
+                      {it.plate?.deletedAt && (
+                        <span
+                          className="badge ml-1.5 bg-slate-100 text-slate-500"
+                          title="Bu malzemenin stoğu tükendi; stok listesinden kalktı"
+                        >
+                          tükendi
+                        </span>
+                      )}
                       <span className="block text-slate-500 tabular-nums">
                         {formatNumber(it.quantity)}
                         {it.plate?.measurementType === 'length' ? ' m' : ' adet'} ×{' '}

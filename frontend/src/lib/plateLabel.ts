@@ -1,4 +1,4 @@
-import type { PlateBrief } from '../types';
+import type { Plate, PlateBrief } from '../types';
 
 /** Kalan (kesilmiş) m² — yalnızca tabaka (AREA) malzemede anlamlı. */
 export function plateRemainingM2(plate: Pick<PlateBrief, 'widthMm' | 'heightMm'>): number | null {
@@ -120,4 +120,26 @@ export function displayPlateName(
   const base = stripNamePlaceholders(plate.template?.name) || category || cleaned || 'Malzeme';
   const size = plateSizeSummary(plate);
   return size ? `${base} · ${size}` : base;
+}
+
+/** Bir plakanın sahip etiketi: konsinye ise müşteri adları, değilse "İşletme". */
+export function plateOwnerLabel(p: Plate): string {
+  return p.owners?.length ? p.owners.join(', ') : 'İşletme';
+}
+
+/**
+ * Seçici alt satırı — PARÇAYA özel bilgi: kalan ebat/uzunluk + sahibi.
+ * Tür ve malzeme adı grup başlıklarında olduğu için burada tekrarlanmaz.
+ */
+export function platePickSublabel(p: Plate): string {
+  const parts: string[] = [];
+  if (p.measurementType === 'length') {
+    const h = Number(p.heightMm);
+    parts.push(`${h ? `${h}mm × ` : ''}${Number(p.quantityInStock)} m`);
+  } else {
+    const rem = plateRemainingLabel(p);
+    if (rem) parts.push(rem);
+  }
+  parts.push(`👤 ${plateOwnerLabel(p)}`);
+  return parts.join(' · ');
 }

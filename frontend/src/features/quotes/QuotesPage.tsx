@@ -28,7 +28,7 @@ import {
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchQueuePlateIds } from '../../api/processing.api';
-import { isPartialSheet, plateRemainingLabel } from '../../lib/plateLabel';
+import { isPartialSheet, platePickSublabel, plateRemainingLabel } from '../../lib/plateLabel';
 import { groupPlates, plateCategory } from '../../lib/plateGrouping';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
@@ -95,28 +95,6 @@ function plateOwnerCustomerId(plate?: Plate): string | undefined {
  * Plaka seçici (gerekirse sahibe göre filtreli). Sahip verilirse yalnızca o
  * müşterinin malzemeleri listelenir (#1). Seçilen plaka nesnesi yukarı bildirilir.
  */
-/** Bir plakanın sahip etiketi: konsinye ise müşteri adları, değilse "İşletme". */
-function plateOwnerLabel(p: Plate): string {
-  return p.owners?.length ? p.owners.join(', ') : 'İşletme';
-}
-
-/**
- * Seçici alt satırı — PARÇAYA özel bilgi: kalan ebat/uzunluk + sahibi.
- * Tür ve malzeme adı artık grup başlıklarında olduğu için burada tekrarlanmaz.
- */
-function platePickSublabel(p: Plate): string {
-  const parts: string[] = [];
-  if (p.measurementType === 'length') {
-    const h = Number(p.heightMm);
-    parts.push(`${h ? `${h}mm × ` : ''}${Number(p.quantityInStock)} m`);
-  } else {
-    const rem = plateRemainingLabel(p);
-    if (rem) parts.push(rem);
-  }
-  parts.push(`👤 ${plateOwnerLabel(p)}`);
-  return parts.join(' · ');
-}
-
 function PlatePicker({
   ownerCustomerId,
   businessOnly,

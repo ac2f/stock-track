@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { groupChipClass } from './GroupSection';
 import { matchesSearch } from '../lib/search';
 
@@ -36,6 +36,7 @@ export function SearchSelect({
   filterLocally = true,
   loading = false,
   stale = false,
+  notice,
 }: {
   options: SearchOption[];
   value: string;
@@ -56,6 +57,11 @@ export function SearchSelect({
    * seçilirdi.
    */
   stale?: boolean;
+  /**
+   * Listenin altında sabit duran not (ör. "ilk 100 kalem gösteriliyor"):
+   * sunucu sonucu kısaltıyorsa kullanıcı bunu görsün.
+   */
+  notice?: ReactNode;
 }) {
   const [term, setTermState] = useState('');
   const [open, setOpenState] = useState(false);
@@ -242,6 +248,11 @@ export function SearchSelect({
           {filtered.length === 0 && (
             <li className="px-3 py-2 text-sm text-slate-400">
               {loading ? 'Aranıyor…' : emptyText}
+            </li>
+          )}
+          {notice && (
+            <li className="sticky bottom-0 border-t border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              {notice}
             </li>
           )}
         </ul>

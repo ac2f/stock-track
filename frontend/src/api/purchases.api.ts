@@ -4,7 +4,8 @@ import type { Supplier } from './suppliers.api';
 
 export interface PurchaseItemRow {
   plateId: string;
-  plate?: { name: string; measurementType?: string };
+  /** `deletedAt` doluysa malzemenin stoğu tükendi (stok listesinden kalktı). */
+  plate?: { name: string; measurementType?: string; deletedAt?: string | null };
   quantity: number;
   unitPrice: number;
   lineTotal: number;

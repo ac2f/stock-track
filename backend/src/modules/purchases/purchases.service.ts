@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import { Between, DataSource, FindOptionsWhere, IsNull, Repository } from 'typeorm';
 import {
   buildPaginatedResult,
   PaginatedResult,
@@ -96,7 +96,10 @@ export class PurchasesService {
   async findAll(
     query: QueryPurchaseDto,
   ): Promise<PaginatedResult<PurchaseOrder>> {
-    const where: FindOptionsWhere<PurchaseOrder> = {};
+    // Silinmiş alımlar listelenmez; ama tükenip stoktan düşen (soft-delete)
+    // malzemenin ve kaldırılan tedarikçinin adı geçmiş alımda görünmeye devam
+    // eder (aşağıda withDeleted) — yoksa kalem "—" olarak kalırdı.
+    const where: FindOptionsWhere<PurchaseOrder> = { deletedAt: IsNull() };
     if (query.supplierId) {
       where.supplierId = query.supplierId;
     }
@@ -114,6 +117,7 @@ export class PurchasesService {
       // kullanıcı/araç/depo ve plaka → şablon → katalog zinciri yüklenmez.
       relations: { supplier: true, items: { plate: true } },
       loadEagerRelations: false,
+      withDeleted: true,
     });
     return buildPaginatedResult(items, total, query.page, query.limit);
   }
