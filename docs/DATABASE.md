@@ -398,7 +398,7 @@ current_balance = opening_balance
 | Tablo | Amaç / Önemli alanlar |
 |-------|------------------------|
 | `warehouses` | Depo/lokasyon: `name`, `code` (unique), `is_active`. |
-| `stock_levels` | Depo + sahip bazlı stok: `plate_id`, `warehouse_id`, `owner_customer_id?` (NULL=işletme malı, dolu=konsinye), `quantity`. UNIQUE(plate, warehouse, owner). |
+| `stock_levels` | Depo + sahip bazlı stok: `plate_id`, `warehouse_id`, `owner_customer_id?` (NULL=işletme malı, dolu=konsinye), `quantity`. UNIQUE(plate, warehouse, owner). Tabakada (AREA) kayıt tükenince seviyeler **soft-delete** edilir; iptalde `restore` ile geri gelir. |
 | `exchange_rates` | Döviz kuru: `base_currency`, `quote_currency`, `rate` (1 quote = rate × base), `as_of`, `source`. |
 | `sales` | Satış: `buyer_customer_id`, `owner_customer_id?`, `sold_by_id`, `warehouse_id?`, `sale_total`, `owner_amount`, `business_margin`, `base_sale_total`, `base_owner_amount`, `currency`. |
 | `sale_items` | Satış kalemi: `plate_id`, `quantity`, `unit_price`, `line_total`, `stock_source` (business/consignment_tracked/third_party_untracked), `owner_settlement` (manual_amount/commission_percent), `commission_percent?`, `owner_amount`. |

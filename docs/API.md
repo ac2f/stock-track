@@ -232,6 +232,19 @@ Kalem: `{ plateId, quantity, unitPrice, widthMm?, heightMm? }`. Tabakada
 alınan parçanın ölçüsü verilirse alış maliyeti (m²) standart tabaka yerine bu
 ölçüden hesaplanır (kesilmiş parça alımı).
 
+**Tabaka stoku (AREA): bir kayıt = bir fiziksel tabaka.** Tabaka alımında
+`quantity` tam sayı olmalıdır ve her tabaka için ayrı stok kalemi (kendi
+stok kodu, kendi alış fiyatı) açılır; kalemin `plateId`'si ilk tabakadır.
+`POST /plates/batch` ve `POST /plates` (`quantityInStock` = N) da aynı kuralla
+N ayrı tabaka üretir. Tabakadan kesim/satış ebadı düşürür; tabaka bitince kayıt
+stoktan kalkar (soft-delete, stok seviyesi de). Tükenmiş tabakadan düşmek
+`400 "…bu tabaka stokta kalmadı"` verir — aynı son tabakayı eşzamanlı satan
+iki işlemden yalnız biri başarılı olur (satır kilidi). Satış/iş/teklif iptalinde
+tabaka ebadı, depo ve sahibiyle (stok seviyesi 1) geri gelir. Adet/metre
+malzemede stok seviyesi satırı transaction içinde kilitlenir; fazla satış olmaz.
+Eski sürümde `adet > 1` tek kayıt olarak girilmiş tabaka partileri açılışta
+otomatik ayrı tabakalara bölünür (`area-lots-migration`).
+
 ## Sync (Merkez ↔ yerel sunucu eşitlemesi)
 Ayrıntı ve tam biçimler: [`SYNC.md`](SYNC.md).
 
@@ -444,7 +457,7 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | GET | `/reports/dashboard` | KPI özeti (alacak/borç, tahsilat, ciro, kritik stok) |
 | GET | `/reports/aging` | Cari yaşlandırma (0–30/31–60/61–90/90+) |
 | GET | `/reports/profit-loss?from=&to=` | Gelir-gider / kâr-zarar |
-| GET | `/reports/stock-value?warehouseId=` | Stok değeri (depo + konsinye sahip kırılımı) |
+| GET | `/reports/stock-value?warehouseId=` | Stok değeri (depo + konsinye sahip kırılımı). Tabaka değeri = alış maliyeti × kalan m² (kayıt maliyeti yoksa ürün türünün maliyeti); maliyeti bilinmeyen kalemler `unvaluedItems` ile sayılır, değere katılmaz |
 | GET | `/reports/top-debtors`, `/reports/top-creditors` | En borçlu/alacaklı |
 
 ### Notifications (Bildirim — 👔 OWNER)

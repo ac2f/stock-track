@@ -239,6 +239,11 @@ alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
   tabakası satılan/kesilen kalem stoktan kalktığı için listede yoktur (yeniden
   girmek için *Stok › Yeni stok kalemi*); alım geçmişinde yine adıyla görünür,
   yanında "tükendi" rozeti olur.
+- Tabaka stokunda **her kayıt tek bir tabakadır**: "12 adet" alınan ya da
+  eklenen malzeme 12 ayrı tabaka olarak girer (her birinin ebadı kesildikçe
+  ayrı azalır). Liste "Grupla" ile aynı malzemeyi tek satırda toplar. Aynı son
+  tabakayı eşzamanlı satan iki kişiden yalnız biri satabilir; iptalde tabaka
+  geri gelir.
 - Her kayıt, güncelleme ve silme sonucu köşede kısa bir bildirimle söylenir;
   silme gibi işlemler okunaklı bir onay penceresi ister.
 - Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,
