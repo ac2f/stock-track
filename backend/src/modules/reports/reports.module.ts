@@ -9,6 +9,7 @@ import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { StockLevel } from '../materials/entities/stock-level.entity';
 import { Sale } from '../sales/entities/sale.entity';
 import { ExpensesModule } from '../expenses/expenses.module';
+import { MaterialsModule } from '../materials/materials.module';
 import { ReportsController } from './reports.controller';
 import { DashboardService } from './services/dashboard.service';
 import { FinancialReportsService } from './services/financial-reports.service';
@@ -31,6 +32,7 @@ import { InventoryReportsService } from './services/inventory-reports.service';
       Sale,
     ]),
     ExpensesModule, // mali borca bekleyen sürekli giderleri katmak için
+    MaterialsModule, // stok değeri: alış maliyeti (PlateCostService)
   ],
   controllers: [ReportsController],
   providers: [

@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { MeasurementType } from '../../common/enums/measurement-type.enum';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, FindOptionsWhere, IsNull, Repository } from 'typeorm';
@@ -49,9 +50,45 @@ export class PurchasesService {
             manager,
           );
 
-      const items: PurchaseOrderItem[] = dto.items.map((it) =>
+      // TABAKA (AREA) alışında bir kayıt = bir fiziksel tabaka: "4 adet" alınan
+      // tabaka 4 ayrı stok kaydı olur (kesimler kaydın en/boyunu düşürdüğü için
+      // tek kayıtta adet tutulamaz). Seçilen kalem yalnız ne alındığını (tür,
+      // marka, renk, kalınlık, ebat) söyler; tabakalar tam ebatlı açılır, alışta
+      // parça ölçüsü yazıldıysa o ölçüde. Alış kaleminin plakası ilk yeni tabakadır.
+      const purchased: { plateId: string; sheets: boolean }[] = [];
+      for (const it of dto.items) {
+        const plate = await this.platesService.findOne(it.plateId);
+        if (plate.measurementType !== MeasurementType.AREA) {
+          purchased.push({ plateId: it.plateId, sheets: false });
+          continue;
+        }
+        if (!Number.isInteger(it.quantity)) {
+          throw new BadRequestException(
+            `${plate.name}: tabaka alımında adet tam sayı olmalıdır (kesirli tabaka yok).`,
+          );
+        }
+        const first = await this.platesService.create(
+          {
+            templateId: plate.templateId,
+            brandId: plate.brandId ?? undefined,
+            colorId: plate.colorId ?? undefined,
+            sizeId: plate.sizeId ?? undefined,
+            thicknessId: plate.thicknessId ?? undefined,
+            variant: plate.variant ?? undefined,
+            widthMm: it.widthMm,
+            heightMm: it.heightMm,
+            quantityInStock: it.quantity,
+            warehouseId: warehouse.id,
+            addedAt: dto.purchaseDate?.slice(0, 10),
+          },
+          manager,
+        );
+        purchased.push({ plateId: first.id, sheets: true });
+      }
+
+      const items: PurchaseOrderItem[] = dto.items.map((it, i) =>
         manager.create(PurchaseOrderItem, {
-          plateId: it.plateId,
+          plateId: purchased[i].plateId,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
           lineTotal: roundMoney(it.quantity * it.unitPrice),
@@ -78,12 +115,14 @@ export class PurchasesService {
 
       const saved = await manager.save(order);
 
-      // Stoğa giriş — seçilen depoya, işletme stoğu olarak, aynı transaction'da.
-      for (const it of dto.items) {
+      // Stoğa giriş (tabaka dışı kalemler) — seçilen depoya, işletme stoğu
+      // olarak, aynı transaction'da. Tabakalar yukarıda kayıtla birlikte girdi.
+      for (let i = 0; i < dto.items.length; i++) {
+        if (purchased[i].sheets) continue;
         await this.platesService.adjustStock(
-          it.plateId,
+          dto.items[i].plateId,
           warehouse.id,
-          it.quantity,
+          dto.items[i].quantity,
           null,
           manager,
         );

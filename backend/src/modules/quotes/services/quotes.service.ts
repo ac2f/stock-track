@@ -37,6 +37,7 @@ import { Quote } from '../entities/quote.entity';
 import { QuoteItem } from '../entities/quote-item.entity';
 import { CreateQuoteDto, QuoteItemDto } from '../dto/create-quote.dto';
 import { QueryQuoteDto } from '../dto/query-quote.dto';
+import { foldedWords, sqlFold } from '../../../common/utils/search.util';
 import { ShopContext } from '../../../common/shop/shop-context';
 import { StockLevel } from '../../materials/entities/stock-level.entity';
 import { materialOwner, topLevelOwners } from '../../corel/corel-naming.util';
@@ -146,11 +147,14 @@ export class QuotesService {
     if (search) {
       // Müşteri teklifle aynı dükkândadır (yabancı anahtar denetimi), alt sorgu
       // başka dükkâna taşmaz.
-      qb.andWhere(
-        `(quote.quote_no ILIKE :search OR EXISTS (SELECT 1 FROM customers c
-           WHERE c.id = quote.buyer_customer_id AND c.name ILIKE :search))`,
-        { search: `%${search}%` },
-      );
+      foldedWords(search).forEach((word, i) => {
+        qb.andWhere(
+          `(${sqlFold('quote.quote_no')} LIKE :qs${i} OR EXISTS (SELECT 1 FROM customers c
+             WHERE c.id = quote.buyer_customer_id
+               AND (${sqlFold('c.name')} LIKE :qs${i} OR ${sqlFold('c.company_name')} LIKE :qs${i})))`,
+          { [`qs${i}`]: `%${word}%` },
+        );
+      });
     }
 
     const hasFilter = !!(

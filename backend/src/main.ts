@@ -17,6 +17,7 @@ import { installShopScope } from './common/shop/shop-scope.typeorm';
 import { ShopAccessGuard } from './modules/shops/shop-access.guard';
 import { ShopAccessService } from './modules/shops/shop-access.service';
 import { migrateToShops } from './modules/shops/shop-migration';
+import { splitAreaLots } from './modules/materials/area-lots-migration';
 import { installSyncCapture } from './modules/sync/sync-capture';
 import { SyncCaptureSubscriber } from './modules/sync/sync-capture.subscriber';
 import { SyncInterceptor } from './modules/sync/sync.interceptor';
@@ -40,7 +41,14 @@ async function bootstrap(): Promise<void> {
   // merkezden alır: dükkân göçü ve tohumlama ÇALIŞMAZ (merkezdekiyle çakışan
   // kayıtlar açılırdı); veritabanı ilk yüklemeye kadar boş kalır.
   const sync = configService.get<SyncConfig>('sync')!;
-  if (sync.role !== 'replica') await migrateToShops(dataSource);
+  if (sync.role !== 'replica') {
+    await migrateToShops(dataSource);
+    // Tabaka partilerini ayrı kayıtlara bölme: başarısız olursa uygulama yine
+    // açılır (bir sonraki açılışta yeniden denenir).
+    await splitAreaLots(dataSource).catch((err) =>
+      console.error('Tabaka partileri bölünemedi:', (err as Error).message),
+    );
+  }
   // Değişiklik günlüğü tetikleyicileri (her iki rolde).
   await installSyncCapture(dataSource, (m) => console.log(m));
   if (sync.role === 'replica') {

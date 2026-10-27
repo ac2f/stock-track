@@ -62,11 +62,12 @@ export class PlateIntakeService {
       const templateId = await this.resolveTemplate(item, autoCreated);
       const copies = Math.max(1, Math.floor(item.copies ?? 1));
       for (let i = 0; i < copies; i++) {
-        const plate = await this.plates.create({
-          ...this.plateFields(item),
-          templateId,
-        });
-        plateIds.push(plate.id);
+        plateIds.push(
+          ...(await this.plates.createSheets({
+            ...this.plateFields(item),
+            templateId,
+          })),
+        );
       }
     }
 

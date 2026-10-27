@@ -1,3 +1,4 @@
+import { foldedWords, sqlFold } from '../../../common/utils/search.util';
 import { randomBytes } from 'crypto';
 import {
   BadRequestException,
@@ -105,17 +106,17 @@ export class CustomersService {
   async findAll(query: QueryCustomerDto): Promise<PaginatedResult<Customer>> {
     const qb = this.customersRepo.createQueryBuilder('customer');
 
-    if (query.search) {
+    // Her sözcük ad, firma ya da telefonda geçmeli (Türkçe harf fark etmez,
+    // sözcük sırası önemsiz: "ozturk reklam", "reklam ali").
+    foldedWords(query.search).forEach((word, i) => {
       qb.andWhere(
         new Brackets((w) => {
-          w.where('customer.name ILIKE :s', { s: `%${query.search}%` })
-            .orWhere('customer.company_name ILIKE :s', {
-              s: `%${query.search}%`,
-            })
-            .orWhere('customer.phone ILIKE :s', { s: `%${query.search}%` });
+          for (const col of ['customer.name', 'customer.company_name', 'customer.phone']) {
+            w.orWhere(`${sqlFold(col)} LIKE :cs${i}`, { [`cs${i}`]: `%${word}%` });
+          }
         }),
       );
-    }
+    });
     if (query.hasDebt) {
       qb.andWhere('customer.current_balance > 0');
     }

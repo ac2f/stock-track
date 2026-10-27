@@ -30,6 +30,7 @@ import { MaterialThicknessesService } from './material-thicknesses.service';
 import { CustomersService } from '../../customers/services/customers.service';
 import { TransferOwnershipDto } from '../dto/transfer-ownership.dto';
 import { ShopContext } from '../../../common/shop/shop-context';
+import { foldTr, sqlFold } from '../../../common/utils/search.util';
 
 @Injectable()
 export class PlatesService {
@@ -61,7 +62,16 @@ export class PlatesService {
    * boyutlar opsiyoneldir. Açılış stoğu verilirse ilgili depoya işletme stoğu
    * olarak (StockLevel) atomik biçimde yazılır.
    */
-  async create(dto: CreatePlateDto): Promise<MaterialPlate> {
+  async create(dto: CreatePlateDto, outer?: EntityManager): Promise<MaterialPlate> {
+    const ids = await this.createSheets(dto, outer);
+    return (outer ?? this.dataSource.manager).findOneOrFail(MaterialPlate, { where: { id: ids[0] } });
+  }
+
+  /**
+   * `create` ile aynı; açılan TÜM kayıtların kimliklerini döner (tabakada
+   * "5 adet" → 5 kimlik).
+   */
+  async createSheets(dto: CreatePlateDto, outer?: EntityManager): Promise<string[]> {
     const template = await this.templatesService.findOne(dto.templateId);
     const measurementType =
       dto.measurementType ?? template.measurementType ?? MeasurementType.AREA;
@@ -129,54 +139,81 @@ export class PlatesService {
     const addedAt = dto.addedAt ?? ShopContext.now().toISOString().slice(0, 10);
 
     const initialQty = dto.quantityInStock ?? 0;
+    // TABAKA (AREA): bir kayıt = bir fiziksel tabaka (kesimler kaydın en/boyunu
+    // düşürür). "5 adet" girilirse 5 AYRI tabaka kaydı açılır; yoksa tek satış
+    // bütün partiyi silerdi. Dönen kayıt ilk tabakadır.
+    const sheets =
+      measurementType === MeasurementType.AREA && initialQty > 1
+        ? Math.floor(initialQty)
+        : 1;
 
-    return this.dataSource.transaction(async (manager) => {
-      const plate = manager.create(MaterialPlate, {
-        templateId: template.id,
-        measurementType,
-        unitOfMeasure,
-        name: dto.name ?? this.buildCatalogName(brand, color, size, thickness),
-        sku,
-        brand: brand?.name,
-        brandId: brand?.id ?? null,
-        color: color?.name,
-        colorCode: color?.code,
-        colorId: color?.id ?? null,
-        variant: dto.variant ?? template.defaultVariant,
-        widthMm,
-        heightMm,
-        sizeId: size?.id ?? null,
-        thicknessMm,
-        thicknessId: thickness?.id ?? null,
-        attributes: { ...template.defaultAttributes, ...(dto.attributes ?? {}) },
-        quantityInStock: 0,
-        reorderLevel: dto.reorderLevel,
-        addedAt,
-        processedAt: dto.processedAt ?? null,
-        // Satış fiyatı önerisi için perakende fiyat ve (varsa) özel kâr yüzdesi.
-        retailPrice: dto.retailPrice ?? null,
-        retailCurrency: (dto.retailCurrency ?? 'TRY').toUpperCase(),
-        markupPercent: dto.markupPercent ?? null,
-      });
-      const saved = await manager.save(plate);
+    // `outer`: çağıranın transaction'ı (ör. satın alma) — kayıtlar onunla birlikte
+    // yazılır ya da geri alınır.
+    const run = async (manager: EntityManager) => {
+      let warehouseId: string | null = null;
+      const ids: string[] = [];
+      for (let i = 0; i < sheets; i++) {
+        // Stok kodu tabaka başına benzersizdir: ilk kayıt asıl kodu, sonrakiler
+        // (aynı işlemde yazılanlar dahil) sıradaki boş kodu alır.
+        const plateSku =
+          i === 0
+            ? sku
+            : dto.sku
+              ? `${dto.sku}-${i + 1}`
+              : await this.buildSku(template, brand, color, thickness, size, manager);
+        const plate = manager.create(MaterialPlate, {
+          templateId: template.id,
+          measurementType,
+          unitOfMeasure,
+          name: dto.name ?? this.buildCatalogName(brand, color, size, thickness),
+          sku: plateSku,
+          brand: brand?.name,
+          brandId: brand?.id ?? null,
+          color: color?.name,
+          colorCode: color?.code,
+          colorId: color?.id ?? null,
+          variant: dto.variant ?? template.defaultVariant,
+          widthMm,
+          heightMm,
+          sizeId: size?.id ?? null,
+          thicknessMm,
+          thicknessId: thickness?.id ?? null,
+          attributes: { ...template.defaultAttributes, ...(dto.attributes ?? {}) },
+          quantityInStock: 0,
+          reorderLevel: dto.reorderLevel,
+          addedAt,
+          processedAt: dto.processedAt ?? null,
+          // Satış fiyatı önerisi için perakende fiyat ve (varsa) özel kâr yüzdesi.
+          retailPrice: dto.retailPrice ?? null,
+          retailCurrency: (dto.retailCurrency ?? 'TRY').toUpperCase(),
+          markupPercent: dto.markupPercent ?? null,
+        });
+        const saved = await manager.save(plate);
+        ids.push(saved.id);
 
-      if (initialQty > 0) {
-        const warehouse = dto.warehouseId
-          ? await this.warehousesService.findOne(dto.warehouseId)
-          : await this.warehousesService.resolveDefault(
-              this.defaultWarehouseCode,
-              manager,
-            );
-        await this.adjustStock(
-          saved.id,
-          warehouse.id,
-          initialQty,
-          ownerCustomerId,
-          manager,
-        );
+        if (initialQty > 0) {
+          if (!warehouseId) {
+            warehouseId = (
+              dto.warehouseId
+                ? await this.warehousesService.findOne(dto.warehouseId)
+                : await this.warehousesService.resolveDefault(
+                    this.defaultWarehouseCode,
+                    manager,
+                  )
+            ).id;
+          }
+          await this.adjustStock(
+            saved.id,
+            warehouseId,
+            sheets > 1 ? 1 : initialQty,
+            ownerCustomerId,
+            manager,
+          );
+        }
       }
-      return manager.findOneOrFail(MaterialPlate, { where: { id: saved.id } });
-    });
+      return ids;
+    };
+    return outer ? run(outer) : this.dataSource.transaction(run);
   }
 
   /**
@@ -618,8 +655,12 @@ export class PlatesService {
       allowNegative = false,
     } = opts;
 
+    // Kayıt kilitlenir: aynı tabakayı aynı anda iki işlem (iki satış) düşemez;
+    // ikincisi birincinin sonucunu (tükendi) görür. Kilit transaction sonuna kadar.
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
+      lock: { mode: 'pessimistic_write' },
+      loadEagerRelations: false,
       // Tükenip soft-delete olmuş tabaka da AREA yolundan (ebat) düşülmeli;
       // aksi halde null gelip adet yoluna düşüyor ve "Yetersiz stok" hatası
       // veriyordu (örn. aynı plaka teklifte hem satılıp hem işlendiğinde).
@@ -632,6 +673,13 @@ export class PlatesService {
       const qty = quantity || 1;
       const W = Number(plate.widthMm) || 0;
       const H = Number(plate.heightMm) || 0;
+      // Tükenmiş tabakadan düşülemez (aynı anda iki satış, eski liste ...). Taahhüt
+      // edilmiş işlemler (allowNegative: teklif dönüşümü, iş tamamlama) yine geçer.
+      if (!allowNegative && (plate.deletedAt || W <= 0 || H <= 0)) {
+        throw new BadRequestException(
+          `${plate.name}: bu tabaka stokta kalmadı (başka bir işlemde tükendi). Listeyi yenileyin.`,
+        );
+      }
       let cutW =
         opts.consumedWidthMm != null && Number(opts.consumedWidthMm) > 0
           ? Number(opts.consumedWidthMm)
@@ -708,11 +756,15 @@ export class PlatesService {
     if (next <= 0) {
       if (next < -tol && !allowNegative) {
         throw new BadRequestException(
-          `Yetersiz tabaka ${reduceWidth ? 'eni' : 'boyu'}. Kalan: ${current} mm, kesilen: ${reduceBy} mm.`,
+          `Yetersiz tabaka ${reduceWidth ? 'eni' : 'boyu'}. Kalan: ${current} mm, kesilen: ${reduceBy} mm.` +
+            (qty > 1
+              ? ' Her stok kalemi tek bir tabakadır; birden çok tabaka için her tabakayı ayrı kalem olarak ekleyin.'
+              : ''),
         );
       }
       // Tabaka tümüyle tükendi: stok seviyelerini sıfırla + listeden kaldır.
-      await manager.getRepository(StockLevel).delete({ plateId: plate.id });
+      // Seviyeler SOFT-delete: iptalde tabaka aynı depo/sahiple geri gelebilsin.
+      await manager.getRepository(StockLevel).softDelete({ plateId: plate.id });
       plate.quantityInStock = 0;
       if (reduceWidth) plate.widthMm = 0;
       else plate.heightMm = 0;
@@ -741,21 +793,51 @@ export class PlatesService {
     widthMm: number,
     heightMm: number,
     manager: EntityManager,
+    /** Tükenmiş tabakanın stok seviyesi kayıp/silinmişse açılacağı depo ve sahip. */
+    fallback?: { warehouseId?: string | null; ownerCustomerId?: string | null },
   ): Promise<void> {
     if (!widthMm && !heightMm) return;
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
+      lock: { mode: 'pessimistic_write' },
+      loadEagerRelations: false,
       withDeleted: true,
     });
     if (!plate) return;
     if (widthMm) plate.widthMm = (Number(plate.widthMm) || 0) + widthMm;
     if (heightMm) plate.heightMm = (Number(plate.heightMm) || 0) + heightMm;
-    if (plate.deletedAt) {
+    const wasDepleted = !!plate.deletedAt;
+    if (wasDepleted) {
       plate.deletedAt = null;
       plate.isActive = true;
-      plate.quantityInStock = Number(plate.quantityInStock) || 1;
     }
     await manager.save(MaterialPlate, plate);
+    if (wasDepleted) {
+      // Tükenirken seviyeler soft-delete edildi: aynı depo/sahiple geri açılır
+      // (tabaka = 1 adet). Eski sürümde fiziksel silinmişse yedek depo/sahip.
+      const levels = manager.getRepository(StockLevel);
+      await levels.restore({ plateId });
+      const restored = await levels.find({ where: { plateId } });
+      if (restored.length) {
+        for (const l of restored) {
+          l.quantity = 1;
+          await levels.save(l);
+        }
+      } else if (fallback?.warehouseId) {
+        await levels.save(
+          levels.create({
+            plateId,
+            warehouseId: fallback.warehouseId,
+            ownerCustomerId: fallback.ownerCustomerId ?? null,
+            quantity: 1,
+          }),
+        );
+      }
+      const business = await levels.find({ where: { plateId, ownerCustomerId: IsNull() } });
+      await manager.update(MaterialPlate, plateId, {
+        quantityInStock: business.reduce((n, l) => n + Number(l.quantity), 0),
+      });
+    }
   }
 
   /** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
@@ -804,7 +886,9 @@ export class PlatesService {
     color: { name: string; code?: string | null } | null,
     thickness: { valueMm: number } | null,
     size: { widthMm: number; heightMm: number } | null,
+    manager?: EntityManager,
   ): Promise<string> {
+    const repo = manager ? manager.getRepository(MaterialPlate) : this.platesRepo;
     const colorPart = color
       ? color.code
         ? `${color.name} ${color.code}`
@@ -822,7 +906,7 @@ export class PlatesService {
     let candidate = base;
     let n = 1;
     while (
-      await this.platesRepo.findOne({
+      await repo.findOne({
         where: { sku: candidate },
         withDeleted: true,
       })
@@ -913,7 +997,7 @@ export class PlatesService {
         throw new NotFoundException('Stok kalemi bulunamadı.');
       }
       // Tüm stok seviyelerini sıfırla (konsinye dahil) ve toplam cache'i temizle.
-      await manager.getRepository(StockLevel).delete({ plateId });
+      await manager.getRepository(StockLevel).softDelete({ plateId });
       plate.quantityInStock = 0;
       plate.isActive = false;
       await manager.save(plate);
@@ -942,22 +1026,7 @@ export class PlatesService {
   }
 }
 
-const TR_FOLD: Record<string, string> = {
-  Ç: 'C', Ğ: 'G', İ: 'I', I: 'I', Ö: 'O', Ş: 'S', Ü: 'U', Â: 'A', Î: 'I', Û: 'U',
-  ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u', â: 'a', î: 'i', û: 'u',
-};
-const TR_FROM = Object.keys(TR_FOLD).join('');
-const TR_TO = Object.values(TR_FOLD).join('');
-
-/** Türkçe harfsiz küçük harf: "Şeffaf" → "seffaf", "İŞLETME" → "isletme". */
-export function foldTr(s: string): string {
-  return s.replace(/[ÇĞİIÖŞÜÂÎÛçğıöşüâîû]/g, (c) => TR_FOLD[c] ?? c).toLowerCase();
-}
-
-/** foldTr'nin SQL karşılığı (bir sütun ifadesi için). */
-function sqlFold(expr: string): string {
-  return `lower(translate(coalesce(${expr}, ''), '${TR_FROM}', '${TR_TO}'))`;
-}
+export { foldTr };
 
 /**
  * Stok aramasının sözcükleri: "2,8" → "2.8", "1220x2440" → "1220", "2440";

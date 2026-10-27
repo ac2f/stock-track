@@ -81,9 +81,10 @@ export class ExportService {
       { header: 'Depo', key: 'warehouseName', width: 28 },
       { header: 'Miktar', key: 'quantity', width: 16 },
       { header: 'Değer', key: 'value', width: 18, style: this.money },
+      { header: 'Alış fiyatı olmayan kalem', key: 'unvaluedItems', width: 24 },
     ];
     report.byWarehouse.forEach((w) => ws.addRow(w));
-    ws.addRow({ warehouseName: 'TOPLAM', value: report.totalValue });
+    ws.addRow({ warehouseName: 'TOPLAM', value: report.totalValue, unvaluedItems: report.unvaluedItems });
     this.styleHeader(ws);
 
     if (report.consignmentByOwner.length) {

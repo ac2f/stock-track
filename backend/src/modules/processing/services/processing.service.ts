@@ -3,32 +3,33 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
-import { BusinessConfig } from '../../../config/configuration';
-import { LedgerSourceType } from '../../../common/enums/ledger-source-type.enum';
-import { MeasurementType } from '../../../common/enums/measurement-type.enum';
-import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
+import { DataSource, EntityManager, In, Repository } from "typeorm";
+import { BusinessConfig } from "../../../config/configuration";
+import { LedgerSourceType } from "../../../common/enums/ledger-source-type.enum";
+import { MeasurementType } from "../../../common/enums/measurement-type.enum";
+import { ProcessingStatus } from "../../../common/enums/processing-status.enum";
 import {
   buildPaginatedResult,
   PaginatedResult,
-} from '../../../common/dto/paginated-result';
-import { roundMoney } from '../../../common/utils/area.util';
-import { billedMinutes, computeQuantityValue } from '../processing-calc.util';
-import { PlatesService } from '../../materials/services/plates.service';
-import { WarehousesService } from '../../warehouses/warehouses.service';
-import { CurrencyService } from '../../currency/currency.service';
-import { SettingsService } from '../../settings/settings.service';
-import { CustomerAccountService } from '../../customers/services/customer-account.service';
-import { MaterialPlate } from '../../materials/entities/material-plate.entity';
-import { StockLevel } from '../../materials/entities/stock-level.entity';
-import { ProcessingJob } from '../entities/processing-job.entity';
-import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
-import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
-import { ProcessingRatesService } from './processing-rates.service';
-import { ShopContext } from '../../../common/shop/shop-context';
+} from "../../../common/dto/paginated-result";
+import { roundMoney } from "../../../common/utils/area.util";
+import { billedMinutes, computeQuantityValue } from "../processing-calc.util";
+import { PlatesService } from "../../materials/services/plates.service";
+import { WarehousesService } from "../../warehouses/warehouses.service";
+import { CurrencyService } from "../../currency/currency.service";
+import { SettingsService } from "../../settings/settings.service";
+import { CustomerAccountService } from "../../customers/services/customer-account.service";
+import { MaterialPlate } from "../../materials/entities/material-plate.entity";
+import { StockLevel } from "../../materials/entities/stock-level.entity";
+import { ProcessingJob } from "../entities/processing-job.entity";
+import { CreateProcessingJobDto } from "../dto/create-processing-job.dto";
+import { QueryProcessingJobDto } from "../dto/query-processing-job.dto";
+import { ProcessingRatesService } from "./processing-rates.service";
+import { foldedWords, sqlFold } from "../../../common/utils/search.util";
+import { ShopContext } from "../../../common/shop/shop-context";
 
 export interface ProcessingQueueGroup {
   machineId: string | null;
@@ -54,9 +55,9 @@ export class ProcessingService {
     private readonly dataSource: DataSource,
     configService: ConfigService,
   ) {
-    this.business = configService.get<BusinessConfig>('business')!;
+    this.business = configService.get<BusinessConfig>("business")!;
     this.defaultWarehouseCode =
-      configService.get<string>('business.defaultWarehouseCode') ?? 'MERKEZ';
+      configService.get<string>("business.defaultWarehouseCode") ?? "MERKEZ";
   }
 
   /**
@@ -94,7 +95,7 @@ export class ProcessingService {
       withDeleted: true,
     });
     if (!plate) {
-      throw new NotFoundException('Stok kalemi bulunamadı.');
+      throw new NotFoundException("Stok kalemi bulunamadı.");
     }
     const quantity = dto.quantity ?? 1;
     const billingUnit =
@@ -104,7 +105,7 @@ export class ProcessingService {
     const isTime = billingUnit === MeasurementType.TIME;
     if (isTime && dto.durationMinutes == null) {
       throw new BadRequestException(
-        'Süreyle faturalanan işte süre (dakika) girilmelidir.',
+        "Süreyle faturalanan işte süre (dakika) girilmelidir.",
       );
     }
     const minMinutes = isTime
@@ -117,8 +118,12 @@ export class ProcessingService {
     const extraCost = roundMoney(dto.extraCost ?? 0);
     const totalCost = roundMoney(laborCost + extraCost);
 
-    const currency = (dto.currency ?? this.business.defaultCurrency).toUpperCase();
-    const processedAt = dto.processedAt ? new Date(dto.processedAt) : ShopContext.now();
+    const currency = (
+      dto.currency ?? this.business.defaultCurrency
+    ).toUpperCase();
+    const processedAt = dto.processedAt
+      ? new Date(dto.processedAt)
+      : ShopContext.now();
     const { amount: baseTotalCost, rate: exchangeRate } =
       await this.currencyService.convert(
         totalCost,
@@ -132,7 +137,7 @@ export class ProcessingService {
     const willBillIntent = billIntent && !!dto.customerId;
     if (billIntent && !dto.customerId && totalCost > 0) {
       throw new BadRequestException(
-        'İşleme faturalanacaksa bir müşteri (customerId) seçilmelidir.',
+        "İşleme faturalanacaksa bir müşteri (customerId) seçilmelidir.",
       );
     }
 
@@ -261,11 +266,11 @@ export class ProcessingService {
     const saved = await this.dataSource.transaction(async (manager) => {
       const job = await manager.findOne(ProcessingJob, {
         where: { id },
-        lock: { mode: 'pessimistic_write' },
+        lock: { mode: "pessimistic_write" },
         loadEagerRelations: false,
       });
       if (!job) {
-        throw new NotFoundException('İşleme kaydı bulunamadı.');
+        throw new NotFoundException("İşleme kaydı bulunamadı.");
       }
 
       if (status === ProcessingStatus.COMPLETED) {
@@ -277,7 +282,7 @@ export class ProcessingService {
         }
         const completionDate = opts.completedAt
           ? new Date(opts.completedAt)
-          : job.completedAt ?? ShopContext.now();
+          : (job.completedAt ?? ShopContext.now());
 
         // Plaka (malzeme türü + ad) ekstre açıklaması için yüklenir.
         const plate = await manager.findOne(MaterialPlate, {
@@ -295,7 +300,7 @@ export class ProcessingService {
         ) {
           const lvl = await manager.findOne(StockLevel, {
             where: { plateId: job.plateId },
-            order: { quantity: 'DESC' },
+            order: { quantity: "DESC" },
           });
           offcutRef.value = {
             templateId: plate.templateId,
@@ -331,10 +336,12 @@ export class ProcessingService {
               warehouseId: job.warehouseId,
               quantity: Number(job.quantity),
               consumedWidthMm: job.widthMm != null ? Number(job.widthMm) : null,
-              consumedHeightMm: job.heightMm != null ? Number(job.heightMm) : null,
+              consumedHeightMm:
+                job.heightMm != null ? Number(job.heightMm) : null,
               // Süreyle işte quantityValue saattir, m² değil.
               areaM2:
-                job.billingUnit !== MeasurementType.TIME && job.quantityValue != null
+                job.billingUnit !== MeasurementType.TIME &&
+                job.quantityValue != null
                   ? Number(job.quantityValue)
                   : null,
               manager,
@@ -395,12 +402,19 @@ export class ProcessingService {
           const ch = Number(job.consumedHeightMm) || 0;
           if (cw > 0 || ch > 0) {
             // Tabaka işi: düşülen ekseni (en/boy) geri ekle (best-effort).
-            await this.platesService.restoreSheet(job.plateId, cw, ch, manager);
+            await this.platesService.restoreSheet(
+              job.plateId,
+              cw,
+              ch,
+              manager,
+              {
+                warehouseId: job.warehouseId,
+              },
+            );
             job.consumedWidthMm = null;
             job.consumedHeightMm = null;
           } else {
-            const refund =
-              Number(job.consumedQuantity) || Number(job.quantity);
+            const refund = Number(job.consumedQuantity) || Number(job.quantity);
             if (refund > 0) {
               await this.platesService.adjustStock(
                 job.plateId,
@@ -465,50 +479,57 @@ export class ProcessingService {
     // (Eager ilişkiler QB'de otomatik yüklenmediğinden açıkça join edilir; tükenip
     // soft-delete olmuş plakanın adı/kategorisi geçmişte de görünsün diye withDeleted.)
     const qb = this.jobsRepo
-      .createQueryBuilder('j')
+      .createQueryBuilder("j")
       .withDeleted()
-      .leftJoinAndSelect('j.customer', 'customer')
-      .leftJoinAndSelect('j.plate', 'plate')
-      .leftJoinAndSelect('plate.template', 'template')
-      .leftJoinAndSelect('template.category', 'category')
-      .leftJoinAndSelect('template.defaultSize', 'defaultSize')
+      .leftJoinAndSelect("j.customer", "customer")
+      .leftJoinAndSelect("j.plate", "plate")
+      .leftJoinAndSelect("plate.template", "template")
+      .leftJoinAndSelect("template.category", "category")
+      .leftJoinAndSelect("template.defaultSize", "defaultSize")
       // ÖNEMLİ: sayfalama (skip/take) + join ile orderBy, entity PROPERTY adıyla
       // verilmelidir ('processedAt') — ham kolon adı ('processed_at') TypeORM'un
       // select-birleştirmesinde "databaseName of undefined" hatası (500) veriyordu.
-      .orderBy('j.processedAt', 'DESC');
+      .orderBy("j.processedAt", "DESC");
 
     if (query.customerId) {
-      qb.andWhere('j.customer_id = :customerId', { customerId: query.customerId });
+      qb.andWhere("j.customer_id = :customerId", {
+        customerId: query.customerId,
+      });
     }
     if (query.plateId) {
-      qb.andWhere('j.plate_id = :plateId', { plateId: query.plateId });
+      qb.andWhere("j.plate_id = :plateId", { plateId: query.plateId });
     }
     if (query.machineId) {
-      qb.andWhere('j.machine_id = :machineId', { machineId: query.machineId });
+      qb.andWhere("j.machine_id = :machineId", { machineId: query.machineId });
     }
     if (query.status) {
-      qb.andWhere('j.status = :status', { status: query.status });
+      qb.andWhere("j.status = :status", { status: query.status });
     }
     if (query.categoryId) {
-      qb.andWhere('template.category_id = :categoryId', {
+      qb.andWhere("template.category_id = :categoryId", {
         categoryId: query.categoryId,
       });
     }
     if (query.search) {
-      qb.andWhere('(plate.name ILIKE :s OR customer.name ILIKE :s)', {
-        s: `%${query.search}%`,
+      foldedWords(query.search).forEach((word, i) => {
+        qb.andWhere(
+          `(${sqlFold("plate.name")} LIKE :ps${i} OR ${sqlFold("plate.brand")} LIKE :ps${i}
+            OR ${sqlFold("plate.color")} LIKE :ps${i} OR ${sqlFold("customer.name")} LIKE :ps${i}
+            OR ${sqlFold("customer.company_name")} LIKE :ps${i})`,
+          { [`ps${i}`]: `%${word}%` },
+        );
       });
     }
     // Tarih aralığı: sınırlar YEREL gün başlangıcı/bitişine göre uygulanır (yalnız
     // biri verilse de çalışır). Aksi halde "2026-07-06" UTC gece yarısı sayılıp
     // sınıra yakın işler listeden düşebiliyordu ("tarih filtresi çalışmıyor").
     if (query.from) {
-      qb.andWhere('j.processed_at >= :from', {
+      qb.andWhere("j.processed_at >= :from", {
         from: new Date(`${query.from.slice(0, 10)}T00:00:00`),
       });
     }
     if (query.to) {
-      qb.andWhere('j.processed_at <= :to', {
+      qb.andWhere("j.processed_at <= :to", {
         to: new Date(`${query.to.slice(0, 10)}T23:59:59.999`),
       });
     }
@@ -530,50 +551,55 @@ export class ProcessingService {
       : [ProcessingStatus.PENDING, ProcessingStatus.IN_PROGRESS];
 
     const qb = this.jobsRepo
-      .createQueryBuilder('j')
+      .createQueryBuilder("j")
       // withDeleted: tabaka tükenip soft-delete olsa bile plaka adı görünsün
       // (aksi halde tamamlanan/bekleyen işin adı "—" oluyordu).
       .withDeleted()
-      .leftJoinAndSelect('j.machine', 'machine')
-      .leftJoinAndSelect('j.plate', 'plate')
+      .leftJoinAndSelect("j.machine", "machine")
+      .leftJoinAndSelect("j.plate", "plate")
       // Kategori (malzeme türü) kuyruk gruplamasında görünsün — QueryBuilder
       // eager ilişkileri otomatik yüklemez. defaultSize: kalan ebadın standart
       // tabakadan küçük olduğunu vurgulamak için.
-      .leftJoinAndSelect('plate.template', 'template')
-      .leftJoinAndSelect('template.category', 'category')
-      .leftJoinAndSelect('template.defaultSize', 'defaultSize')
-      .leftJoinAndSelect('j.customer', 'customer')
-      .where('j.status IN (:...statuses)', { statuses })
-      .andWhere('j.deleted_at IS NULL')
-      .orderBy('j.processed_at', 'ASC');
+      .leftJoinAndSelect("plate.template", "template")
+      .leftJoinAndSelect("template.category", "category")
+      .leftJoinAndSelect("template.defaultSize", "defaultSize")
+      .leftJoinAndSelect("j.customer", "customer")
+      .where("j.status IN (:...statuses)", { statuses })
+      .andWhere("j.deleted_at IS NULL")
+      .orderBy("j.processed_at", "ASC");
     if (query.machineId) {
-      qb.andWhere('j.machine_id = :machineId', { machineId: query.machineId });
+      qb.andWhere("j.machine_id = :machineId", { machineId: query.machineId });
     }
     // #4 Malzeme türüne, sahibe (müşteri) ve serbest metne göre filtreleme.
     if (query.categoryId) {
-      qb.andWhere('template.category_id = :categoryId', {
+      qb.andWhere("template.category_id = :categoryId", {
         categoryId: query.categoryId,
       });
     }
     if (query.customerId) {
-      qb.andWhere('j.customer_id = :customerId', {
+      qb.andWhere("j.customer_id = :customerId", {
         customerId: query.customerId,
       });
     }
     if (query.search) {
-      qb.andWhere('(plate.name ILIKE :s OR customer.name ILIKE :s)', {
-        s: `%${query.search}%`,
+      foldedWords(query.search).forEach((word, i) => {
+        qb.andWhere(
+          `(${sqlFold("plate.name")} LIKE :ps${i} OR ${sqlFold("plate.brand")} LIKE :ps${i}
+            OR ${sqlFold("plate.color")} LIKE :ps${i} OR ${sqlFold("customer.name")} LIKE :ps${i}
+            OR ${sqlFold("customer.company_name")} LIKE :ps${i})`,
+          { [`ps${i}`]: `%${word}%` },
+        );
       });
     }
     const jobs = await qb.getMany();
 
     const groups = new Map<string, ProcessingQueueGroup>();
     for (const job of jobs) {
-      const key = job.machineId ?? 'unassigned';
+      const key = job.machineId ?? "unassigned";
       if (!groups.has(key)) {
         groups.set(key, {
           machineId: job.machineId ?? null,
-          machineName: job.machine?.name ?? 'Atanmamış',
+          machineName: job.machine?.name ?? "Atanmamış",
           jobs: [],
         });
       }
@@ -588,8 +614,8 @@ export class ProcessingService {
    */
   async queueCount(): Promise<{ count: number }> {
     const count = await this.jobsRepo
-      .createQueryBuilder('j')
-      .where('j.status IN (:...statuses)', {
+      .createQueryBuilder("j")
+      .where("j.status IN (:...statuses)", {
         statuses: [ProcessingStatus.PENDING, ProcessingStatus.IN_PROGRESS],
       })
       .getCount();
@@ -602,9 +628,9 @@ export class ProcessingService {
    */
   async queuePlateIds(): Promise<string[]> {
     const rows = await this.jobsRepo
-      .createQueryBuilder('j')
-      .select('DISTINCT j.plate_id', 'plateId')
-      .where('j.status IN (:...statuses)', {
+      .createQueryBuilder("j")
+      .select("DISTINCT j.plate_id", "plateId")
+      .where("j.status IN (:...statuses)", {
         statuses: [ProcessingStatus.PENDING, ProcessingStatus.IN_PROGRESS],
       })
       .getRawMany<{ plateId: string }>();
@@ -617,7 +643,7 @@ export class ProcessingService {
       withDeleted: true, // tükenmiş plakanın adı fiş/PDF'te de görünsün
     });
     if (!job) {
-      throw new NotFoundException('İşleme kaydı bulunamadı.');
+      throw new NotFoundException("İşleme kaydı bulunamadı.");
     }
     return job;
   }
@@ -637,7 +663,7 @@ export class ProcessingService {
         loadEagerRelations: false,
       });
       if (!job) {
-        throw new NotFoundException('İşleme kaydı bulunamadı.');
+        throw new NotFoundException("İşleme kaydı bulunamadı.");
       }
       if (dto.processedAt !== undefined) {
         job.processedAt = new Date(dto.processedAt);
@@ -680,10 +706,10 @@ export class ProcessingService {
         where: { id },
         withDeleted: true,
         loadEagerRelations: false,
-        lock: { mode: 'pessimistic_write' },
+        lock: { mode: "pessimistic_write" },
       });
       if (!job) {
-        throw new NotFoundException('İşleme kaydı bulunamadı.');
+        throw new NotFoundException("İşleme kaydı bulunamadı.");
       }
       const customerId = job.customerId;
       await this.reverseJobEffects(manager, job);
@@ -712,7 +738,9 @@ export class ProcessingService {
       const ch = Number(job.consumedHeightMm) || 0;
       if (cw > 0 || ch > 0) {
         // Tabaka işi: düşülen ekseni (en/boy) tabakaya geri ekle.
-        await this.platesService.restoreSheet(job.plateId, cw, ch, manager);
+        await this.platesService.restoreSheet(job.plateId, cw, ch, manager, {
+          warehouseId: job.warehouseId,
+        });
       } else {
         // Adet/metre işi: fiilen düşülen miktarı işletme stoğuna geri ekle.
         const refund = Number(job.consumedQuantity) || Number(job.quantity);
@@ -784,15 +812,15 @@ export class ProcessingService {
     // kullanılan parçadır (stoktan düşülecek), verilmezse boş kalır.
     const widthMm =
       billingUnit === MeasurementType.AREA
-        ? dto.widthMm ?? plate.widthMm ?? null
+        ? (dto.widthMm ?? plate.widthMm ?? null)
         : isTime
-          ? dto.widthMm ?? null
+          ? (dto.widthMm ?? null)
           : null;
     const heightMm =
       billingUnit === MeasurementType.AREA
-        ? dto.heightMm ?? plate.heightMm ?? null
+        ? (dto.heightMm ?? plate.heightMm ?? null)
         : isTime
-          ? dto.heightMm ?? null
+          ? (dto.heightMm ?? null)
           : null;
     const durationMinutes = isTime
       ? billedMinutes(dto.durationMinutes, minMinutes)
@@ -810,7 +838,9 @@ export class ProcessingService {
       widthMm,
       heightMm,
       lengthM:
-        billingUnit === MeasurementType.LENGTH ? dto.lengthMeters ?? null : null,
+        billingUnit === MeasurementType.LENGTH
+          ? (dto.lengthMeters ?? null)
+          : null,
       durationMinutes,
     };
   }
@@ -836,16 +866,19 @@ export class ProcessingService {
    * "İşleme (Pleksi): Şeffaf Levha 1,5 m² — Teklif TKF-2026-0001: ivedi".
    */
   private processingDescription(
-    plate: { name?: string; template?: { category?: { name?: string } } } | null,
+    plate: {
+      name?: string;
+      template?: { category?: { name?: string } };
+    } | null,
     quantityValue: number,
     billingUnit: MeasurementType,
     note?: string | null,
   ): string {
     const type = plate?.template?.category?.name;
-    const head = type ? `İşleme (${type}): ` : 'İşleme: ';
-    const name = plate?.name ?? 'Malzeme';
-    const fmt = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
-    const noteStr = note?.trim() ? ` — ${note.trim()}` : '';
+    const head = type ? `İşleme (${type}): ` : "İşleme: ";
+    const name = plate?.name ?? "Malzeme";
+    const fmt = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 });
+    const noteStr = note?.trim() ? ` — ${note.trim()}` : "";
     // Süreyle işte saat yerine dakika okunur: "30 dk".
     const measure =
       billingUnit === MeasurementType.TIME
@@ -857,15 +890,15 @@ export class ProcessingService {
   private unitLabel(unit: MeasurementType): string {
     switch (unit) {
       case MeasurementType.TIME:
-        return 'saat';
+        return "saat";
       case MeasurementType.AREA:
-        return 'm²';
+        return "m²";
       case MeasurementType.LENGTH:
-        return 'm';
+        return "m";
       case MeasurementType.WEIGHT:
-        return 'kg';
+        return "kg";
       default:
-        return 'adet';
+        return "adet";
     }
   }
 }

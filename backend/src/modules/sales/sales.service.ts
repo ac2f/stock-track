@@ -440,13 +440,17 @@ export class SalesService {
         // Tabaka: izlenen düşülen ekseni geri ekle. Eski (izlenmemiş) satışlarda
         // en iyi tahminle satılan boyu geri ekle (tam-en yatay şerit varsayımı).
         if (cw > 0 || ch > 0) {
-          await this.platesService.restoreSheet(it.plateId, cw, ch, manager);
+          await this.platesService.restoreSheet(it.plateId, cw, ch, manager, {
+            warehouseId: sale.warehouseId,
+            ownerCustomerId: owner,
+          });
         } else {
           await this.platesService.restoreSheet(
             it.plateId,
             0,
             Number(it.heightMm) || 0,
             manager,
+            { warehouseId: sale.warehouseId, ownerCustomerId: owner },
           );
         }
       } else if (sale.warehouseId) {
