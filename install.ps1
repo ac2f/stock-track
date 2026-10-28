@@ -42,6 +42,29 @@ function Get-EnvValue($file, $key) {
   return ''
 }
 
+# Derleme basarisiz olunca: sorun internet mi, baska bir sey mi? Docker'in ICINDEN
+# npm kayit sunucusuna ulasmayi dener ve duruma gore ne yapilacagini soyler.
+function Show-BuildHelp {
+  Write-Host ''
+  Say 'Docker icinden internet erisimi denetleniyor...'
+  $js = "fetch('https://registry.npmjs.org/-/ping',{signal:AbortSignal.timeout(20000)}).then(r=>{console.log('npm kayit sunucusu: HTTP '+r.status);process.exit(r.ok?0:1)}).catch(e=>{console.log('ULASILAMADI: '+((e.cause&&e.cause.code)||e.message));process.exit(1)})"
+  docker run --rm node:20-alpine node -e $js
+  if ($LASTEXITCODE -eq 0) {
+    Warn 'Internet erisimi var gorunuyor; hata aginizdan degil, derlemeden geliyor.'
+    Write-Host 'Yukaridaki ilk "error" satirina bakin ve o satiri bize iletin.' -ForegroundColor Yellow
+  } else {
+    Warn 'Docker, npm kayit sunucusuna ulasamiyor (internet/DNS sorunu). Sirayla deneyin:'
+    Write-Host '  1) Docker Desktop > Settings > Docker Engine, JSON icine su satiri ekleyin:' -ForegroundColor Yellow
+    Write-Host '       "dns": ["8.8.8.8", "1.1.1.1"]' -ForegroundColor White
+    Write-Host '     (virgulle ayirmayi unutmayin) > Apply & restart' -ForegroundColor Yellow
+    Write-Host '  2) VPN, proxy veya antivirus guvenlik duvari aciksa kapatip deneyin.' -ForegroundColor Yellow
+    Write-Host '     Kurumsal proxy varsa: Docker Desktop > Settings > Resources > Proxies.' -ForegroundColor Yellow
+    Write-Host '  3) Mumkunse Wi-Fi yerine kablolu baglanti kullanin.' -ForegroundColor Yellow
+    Write-Host '  4) install.bat dosyasini yeniden calistirin. Indirilenler onbellekte kalir,' -ForegroundColor Yellow
+    Write-Host '     kurulum kaldigi yerden devam eder.' -ForegroundColor Yellow
+  }
+}
+
 # --reset argümanı (bat üzerinden gelebilir)
 if ($args -contains '--reset') { $Reset = $true }
 
@@ -92,7 +115,25 @@ Ok 'Kok .env yazildi.'
 
 # 5) Derle + baslat
 Say 'Imajlar derleniyor ve servisler baslatiliyor (ilk sefer birkac dakika surebilir)...'
-docker @prod up -d --build
+# Imajlar sirayla derlenir: iki imaj ayni anda internetten paket indirince kararsiz
+# aglarda zaman asimi olusuyordu. Basarisiz olursa 3 kez denenir; indirilenler
+# derleme onbelleginde kalir, her deneme kaldigi yerden devam eder.
+$env:COMPOSE_PARALLEL_LIMIT = '1'
+$built = $false
+for ($try = 1; $try -le 3; $try++) {
+  docker @prod build
+  if ($LASTEXITCODE -eq 0) { $built = $true; break }
+  if ($try -lt 3) {
+    Warn "Derleme basarisiz oldu (deneme $try/3). 15 saniye sonra yeniden denenecek..."
+    Start-Sleep -Seconds 15
+  }
+}
+if (-not $built) {
+  Fail 'Imajlar derlenemedi.'
+  Show-BuildHelp
+  Read-Host 'Cikmak icin Enter'; exit 1
+}
+docker @prod up -d
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose basarisiz oldu.'; Read-Host 'Cikmak icin Enter'; exit 1 }
 Ok 'Container''lar baslatildi.'
 

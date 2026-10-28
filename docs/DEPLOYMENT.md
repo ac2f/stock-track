@@ -35,6 +35,27 @@ der. Temiz başlangıç için (veritabanı SİLİNİR):
 Script artık API hazır olana kadar bekler ve ilk hesabı görünür biçimde
 (idempotent) oluşturur; sorun varsa son API kayıtlarını ekrana basar.
 
+### Sorun giderme: derleme sırasında "npm error network"
+
+Kurulum `npm ci` adımında "In most cases you are behind a proxy or have bad
+network settings" ile düşüyorsa Docker'ın içinden internete (npm kayıt
+sunucusuna) ulaşılamıyordur; kodla ilgili değildir. Sık nedenler: Docker
+Desktop'ın DNS'i, VPN/proxy, antivirüs güvenlik duvarı, Wi-Fi.
+
+Kurulum scriptleri bunu kendileri karşılar: imajları sırayla derler, başarısız
+olursa 3 kez dener (indirilenler önbellekte kalır, kaldığı yerden devam eder),
+yine olmazsa Docker içinden erişimi ölçüp ne yapılacağını yazar. Elle düzeltmek
+için sırayla:
+
+1. Docker Desktop › Settings › **Docker Engine**; JSON'a şunu ekleyin
+   (virgüle dikkat), **Apply & restart**:
+   ```json
+   "dns": ["8.8.8.8", "1.1.1.1"]
+   ```
+2. VPN, proxy ya da antivirüs güvenlik duvarını kapatıp deneyin. Kurumsal proxy
+   varsa Docker Desktop › Settings › Resources › **Proxies**.
+3. Kablolu bağlantı deneyin; sonra `install.bat` dosyasını yeniden çalıştırın.
+
 ## 1) Geliştirme (sadece veritabanı Docker'da)
 
 ```bash

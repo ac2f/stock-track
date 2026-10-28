@@ -1,8 +1,16 @@
 # ── Build aşaması ──────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
+# Kararsız ağda npm kısa kopmalarda pes etmesin; indirilenler önbellekte kalır
+# (kurulum yarıda kesilirse yeniden denemede kaldığı yerden devam eder).
+ENV NPM_CONFIG_FETCH_RETRIES=6 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=300000 \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false
 COPY package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 # VITE_API_URL derleme zamanında gömülür. BOŞ bırakılırsa istemci, arayüze
 # hangi host üzerinden erişiliyorsa backend'i de o host'un 3000 portunda varsayar

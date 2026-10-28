@@ -92,7 +92,27 @@ ok "Kök .env yazıldı (compose ↔ API eşleşmesi)."
 
 # 6) Derle + başlat ─────────────────────────────────────────────────────────
 say "İmajlar derleniyor ve servisler başlatılıyor (ilk sefer birkaç dakika sürebilir)…"
-$PROD up -d --build
+# İmajlar sırayla derlenir (iki imaj aynı anda internetten paket indirince kararsız
+# ağlarda zaman aşımı oluşuyordu) ve başarısız olursa 3 kez denenir; indirilenler
+# derleme önbelleğinde kalır, her deneme kaldığı yerden devam eder.
+export COMPOSE_PARALLEL_LIMIT=1
+BUILT=0
+for try in 1 2 3; do
+  if $PROD build; then BUILT=1; break; fi
+  [ "$try" -lt 3 ] && { warn "Derleme başarısız oldu (deneme $try/3). 15 sn sonra yeniden denenecek…"; sleep 15; }
+done
+if [ "$BUILT" -ne 1 ]; then
+  err "İmajlar derlenemedi. Docker içinden internet erişimi denetleniyor…"
+  if docker run --rm node:20-alpine node -e "fetch('https://registry.npmjs.org/-/ping',{signal:AbortSignal.timeout(20000)}).then(r=>{console.log('npm kayıt sunucusu: HTTP '+r.status);process.exit(r.ok?0:1)}).catch(e=>{console.log('ULAŞILAMADI: '+((e.cause&&e.cause.code)||e.message));process.exit(1)})"; then
+    warn "İnternet erişimi var görünüyor; hata ağınızdan değil, derlemeden geliyor. Yukarıdaki ilk 'error' satırına bakın."
+  else
+    warn "Docker, npm kayıt sunucusuna ulaşamıyor (internet/DNS). Deneyin: Docker Engine ayarına"
+    warn '  "dns": ["8.8.8.8", "1.1.1.1"]  ekleyin (Docker Desktop > Settings > Docker Engine), VPN/proxy/güvenlik'
+    warn "  duvarını kapatın, sonra ./install.sh'i yeniden çalıştırın (indirilenler önbellekte kalır)."
+  fi
+  exit 1
+fi
+$PROD up -d
 ok "Container'lar başlatıldı."
 
 # 7) API hazır olana kadar bekle (DB bağlı + şema + OWNER tohumlandı) ────────
