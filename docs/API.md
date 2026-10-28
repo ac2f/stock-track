@@ -180,6 +180,7 @@ verilmeden adlarla) aynı özellikli tür varsa o kullanılır.
 | GET | `/plates/:id` | 👥 | Plaka + güncel piyasa fiyatları |
 | PATCH | `/plates/:id` | 🧑‍🔧 | Kalan ebat, tarihler (`addedAt/processedAt`), ad, `sku`, `variant` güncellenir; kalan ebat türün standart tabaka ebadını aşamaz |
 | POST | `/plates/:id/transfer-ownership` | 👔 | Sahipliği taraflar arasında serbestçe aktarır (işletme↔müşteri, müşteri↔müşteri) — `{ fromOwnerCustomerId?, toOwnerCustomerId?, warehouseId?, quantity? }`. Boş taraf işletmedir; miktar verilmezse kaynaktaki tümü |
+| POST | `/plates/ensure-template` | 🧑‍🔧 | Ürün türü yoksa **açar**, varsa mevcut olanı döner (kopya açmaz): `{ categoryName, brandName?, colorName?, colorCode?, thicknessMm?, sheetWidthMm?, sheetHeightMm?, variant?, measurementType?, templateName? }` → `{ template, created, autoCreated }`. Tür/marka/renk/kalınlık/ebat katalogda yoksa kendiliğinden açılır. Stok ekleme ve teklif formundaki "ürün türünü kaydet ve kullan" bu uçtan geçer |
 | POST | `/plates/:id/deplete` | 🧑‍🔧 | "Tamamını sat" / stoktan tamamen çıkar: tüm seviyeleri sıfırlar ve plakayı soft-delete eder (kalan m² 0 olunca düzenlemede otomatik tetiklenir) |
 
 ## Expenses — Giderler (👔 yalnızca İşletme Sahibi)
@@ -532,7 +533,7 @@ ister.
 ### Quotes (Teklif/Proforma)
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
-| POST | `/quotes` | 🧑‍🔧 | Karışık teklif (satış + işleme kalemleri); yalnızca hesap, cari/stok hareketi yok |
+| POST | `/quotes` | 🧑‍🔧 | Karışık teklif (satış + işleme kalemleri); yalnızca hesap, cari/stok hareketi yok — **`finalize` verilmedikçe**. Geriye dönük giriş alanları aşağıda |
 | GET | `/quotes`, `/quotes/:id` | 👥 | Filtre: `?status=&buyerCustomerId=&plateId=&from=&to=&search=` (`search`: teklif no ya da müşteri adı). Karara bağlanmamış (taslak/gönderildi) teklifler daima en üstte; filtre yoksa son 1 hafta. Birim fiyat ölçü birimine göre uygulanır (m² malzemede tabaka kalan en×boy üzerinden) |
 | PATCH | `/quotes/:id` | 🧑‍🔧 | Teklifi yeniden yazar (DRAFT/SENT iken) |
 | PATCH | `/quotes/:id/status` | 🧑‍🔧 | `{ status: draft\|sent\|accepted\|rejected\|expired }` |
@@ -551,12 +552,34 @@ ister.
 }
 ```
 
+**Geriye dönük giriş** (`POST /quotes`, `PATCH /quotes/:id` gövdesine ek alanlar):
+
+| Alan | Açıklama |
+|------|----------|
+| `quoteDate` | Teklif tarihi (ISO). Liste/filtre/yazdırma `COALESCE(quoteDate, createdAt)` ile çalışır; dönüşümde satış tarihi ve işleme tarihleri bundan gelir |
+| `skipFolders` | `true` ise runner bu teklif için **bugüne klasör açmaz** (`/corel/jobs` listesine girmez). Verilmezse `quoteDate` bugünden önceyse `true` kabul edilir. Sonradan teklif kartındaki "Klasörü teklif gününe aç" `/corel/jobs/requested` üzerinden klasörü teklifin **gerçek gününe** açtırır |
+| `finalize` | `convert` → kaydeder, kabul eder, satış/işlemeye dönüştürür; `complete` → ek olarak işleme işlerini **kalem tarihleriyle tamamlanmış** ekler. Yanıt: teklif + `conversion: { saleId, processingJobIds, completed }`. Dönüşüm hata verirse teklif taslak kalır |
+| `items[].itemDate` | Kalemin tamamlanma/işlenme tarihi; boşsa `quoteDate`. Tamamlanan işte işlenme ve tamamlanma tarihi bu gündür, cari ekstre de bu tarihi izler |
+| `items[].newMaterial` | Stokta olmayan / müşterinin X tarihinde getirdiği malzeme: `{ templateId, widthMm?, heightMm?, quantityInStock?, ownerCustomerId?, addedAt?, warehouseId? }` (şablon yoksa `categoryName/brandName/colorName/thicknessMm…` adlarıyla da verilebilir). Teklif kaydedilirken **aynı işlemde** tek parça olarak stoğa eklenir (`addedAt` boşsa `quoteDate`) ve kalemin plakası olur |
+
+```json
+{
+  "buyerCustomerId": "…", "quoteDate": "2026-03-02", "finalize": "complete",
+  "items": [
+    { "lineKind": "processing", "quantity": 1, "unitPrice": 300, "billingUnit": "area",
+      "widthMm": 100, "heightMm": 200, "itemDate": "2026-03-05",
+      "newMaterial": { "templateId": "…", "widthMm": 100, "heightMm": 200, "addedAt": "2026-02-28" } }
+  ]
+}
+```
+
 ### Processing — Üretim Kuyruğu & Makineler
 | Metot | Yol | Yetki | Açıklama |
 |-------|-----|-------|----------|
 | GET | `/processing/queue` | 👥 | Aktif (pending/in_progress) işler, makineye göre gruplu; `?status=&machineId=` |
 | GET | `/processing/queue/count` | 👥 | Aktif iş sayısı → `{ count }` (menü rozeti; kuyruğun tamamını indirmez) |
 | GET | `/processing/queue/plate-ids` | 👥 | Aktif işlerdeki kalem kimlikleri → `string[]` (teklif formu) |
+| PATCH | `/processing/bulk` | 🧑‍🔧 | **Toplu tarih/not düzenleme** (geçmiş işler): `{ ids[1..500], processedAt?, completedAt?, sameDay?, note? }`. Verilmeyen alana dokunulmaz; `sameDay: true` tamamlanmayı işlenme gününe eşitler (yeni `processedAt` yoksa işin kendi gününe). Tutar/stok değişmez, ekstre tarihi yeni güne taşınır. Yanıt `{ updated, failed: [{id, reason}] }` — biri başarısız olursa diğerleri sürer |
 | PATCH | `/processing/:id/status` | 🧑‍🔧 | `{ status }` — COMPLETED: stok düşer + (ertelenmişse) cari DEBIT (idempotent); CANCELLED: iade |
 | POST/PATCH/DELETE | `/machines(/:id)` | 👔 | Makine tanımları |
 | GET | `/machines` | 👥 | |

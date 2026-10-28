@@ -4,7 +4,10 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { FacetChips, useFacets } from '../../components/ui/FacetChips';
 import { groupChipClass } from '../../components/GroupSection';
 import { TEMPLATE_FACETS, templateSearchText } from '../../lib/catalogKey';
-import { matchesSearch } from '../../lib/search';
+import { rankBySearch, suggestQuery } from '../../lib/search';
+import { useAuth } from '../../context/AuthContext';
+import { NewTemplatePanel } from './NewTemplatePanel';
+import type { EnsureTemplateResult } from '../../api/materials.api';
 import { formatNumber } from '../../lib/format';
 import { stripNamePlaceholders } from '../../lib/plateLabel';
 import type { MaterialTemplate } from '../../types';
@@ -20,13 +23,26 @@ export function TemplateFinder({
   templates,
   selectedId,
   onPick,
+  onCreated,
+  createLabel = 'Ürün türünü kaydet ve seç',
+  createHint,
 }: {
   templates: MaterialTemplate[];
   selectedId?: string;
   onPick: (id: string) => void;
+  /**
+   * Arama boş çıkınca "bu ürün türünü kaydet" paneli açılır; kaydedilince
+   * çağrılır. Verilmezse yeni türün kimliğiyle `onPick` çağrılır.
+   */
+  onCreated?: (result: EnsureTemplateResult) => void;
+  createLabel?: string;
+  createHint?: string;
 }) {
+  const { can } = useAuth();
+  const canCreate = can('stock', 'write');
   const [term, setTerm] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const categories = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
@@ -38,27 +54,66 @@ export function TemplateFinder({
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   }, [templates]);
 
+  // Arama: yazım hatası, sözcük sırası, Türkçe karakter fark etmez; en iyi
+  // eşleşme üstte. Arama yokken tür → kalınlık → ada göre sıralanır.
   const searched = useMemo(
     () =>
-      templates.filter(
-        (t) => (!categoryId || t.categoryId === categoryId) && matchesSearch(templateSearchText(t), term),
+      rankBySearch(
+        templates.filter((t) => !categoryId || t.categoryId === categoryId),
+        term,
+        templateSearchText,
       ),
     [templates, categoryId, term],
   );
   const facets = useFacets(searched, TEMPLATE_FACETS);
+  const hasTerm = !!term.trim();
   const results = useMemo(
     () =>
-      [...facets.filtered].sort(
-        (a, b) =>
-          (a.category?.name ?? '').localeCompare(b.category?.name ?? '', 'tr') ||
-          (Number(a.defaultThickness?.valueMm) || 0) - (Number(b.defaultThickness?.valueMm) || 0) ||
-          a.name.localeCompare(b.name, 'tr', { numeric: true }),
-      ),
-    [facets.filtered],
+      hasTerm
+        ? facets.filtered
+        : [...facets.filtered].sort(
+            (a, b) =>
+              (a.category?.name ?? '').localeCompare(b.category?.name ?? '', 'tr') ||
+              (Number(a.defaultThickness?.valueMm) || 0) - (Number(b.defaultThickness?.valueMm) || 0) ||
+              a.name.localeCompare(b.name, 'tr', { numeric: true }),
+          ),
+    [facets.filtered, hasTerm],
+  );
+  // Sonuç yoksa: "Bunu mu demek istediniz?" (katalogdaki yazımla).
+  const didYouMean = useMemo(
+    () => (hasTerm && !results.length ? suggestQuery(term, templates.map(templateSearchText)) : null),
+    [hasTerm, results.length, term, templates],
   );
 
-  if (!templates.length) {
+  const finishCreate = (res: EnsureTemplateResult) => {
+    setCreating(false);
+    setTerm('');
+    if (onCreated) onCreated(res);
+    else onPick(res.template.id);
+  };
+
+  if (creating) {
     return (
+      <NewTemplatePanel
+        query={term}
+        submitLabel={createLabel}
+        hint={createHint}
+        onCreated={finishCreate}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  }
+
+  if (!templates.length) {
+    return canCreate ? (
+      <NewTemplatePanel
+        query=""
+        submitLabel={createLabel}
+        hint={createHint ?? 'Henüz ürün türü yok: ilkini oluşturun.'}
+        onCreated={finishCreate}
+        onCancel={() => undefined}
+      />
+    ) : (
       <p className="text-sm text-slate-500">
         Önce bir ürün türü tanımlayın:{' '}
         <Link to="/material-templates?new=1" className="font-medium text-blue-600 underline">
@@ -155,6 +210,35 @@ export function TemplateFinder({
           );
         })}
         {!results.length && <p className="py-2 text-center text-xs text-slate-400">Uyan ürün türü yok.</p>}
+        {didYouMean && (
+          <button
+            type="button"
+            className="block w-full rounded-lg bg-amber-50 px-3 py-2 text-left text-sm text-amber-900 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-100"
+            onClick={() => setTerm(didYouMean)}
+          >
+            Bunu mu demek istediniz: <b>{didYouMean}</b>
+          </button>
+        )}
+        {canCreate && (
+          <button
+            type="button"
+            className={`block w-full rounded-lg border-2 border-dashed px-3 py-2 text-left text-sm font-medium ${
+              results.length
+                ? 'border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-700 dark:border-slate-700'
+                : 'border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200'
+            }`}
+            onClick={() => setCreating(true)}
+          >
+            {hasTerm ? (
+              <>
+                ➕ {results.length ? 'Aradığınız yok mu?' : 'Ürün türü yok.'} <b>“{term.trim()}”</b> için yeni ürün türü
+                oluştur
+              </>
+            ) : (
+              <>➕ Listede olmayan yeni ürün türü oluştur</>
+            )}
+          </button>
+        )}
         {results.length > MAX_RESULTS && (
           <p className="py-1 text-center text-xs text-slate-400">
             {results.length - MAX_RESULTS} sonuç daha — çiplerle ya da aramayla daraltın.

@@ -25,6 +25,7 @@ import {
   computeQuantityValue,
 } from '../../processing/processing-calc.util';
 import { PlatesService } from '../../materials/services/plates.service';
+import { PlateIntakeService } from '../../materials/services/plate-intake.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { CustomersService } from '../../customers/services/customers.service';
 import { CustomerAccountService } from '../../customers/services/customer-account.service';
@@ -48,6 +49,27 @@ export interface QuoteConversionResult {
   processingJobIds: string[];
 }
 
+/** Kaydederken tek adımda ilerletilen teklifin döndürdüğü ek bilgi. */
+export type QuoteWithConversion = Quote & {
+  conversion?: { saleId?: string; processingJobIds: string[]; completed: boolean };
+};
+
+/** Kalem tarihi (yoksa teklif tarihi) → ISO gün/zaman; ikisi de yoksa undefined. */
+function lineDateIso(
+  itemDate?: Date | string | null,
+  quoteDate?: Date | string | null,
+): string | undefined {
+  const d = itemDate ?? quoteDate;
+  return d ? new Date(d).toISOString() : undefined;
+}
+
+/** Bugünün başlangıcı (dükkân saati): bundan önceki teklif tarihi "geriye dönük". */
+function startOfToday(): Date {
+  const d = ShopContext.now();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 @Injectable()
 export class QuotesService {
   private readonly defaultCurrency: string;
@@ -58,6 +80,7 @@ export class QuotesService {
     @InjectRepository(QuoteItem)
     private readonly itemsRepo: Repository<QuoteItem>,
     private readonly platesService: PlatesService,
+    private readonly plateIntake: PlateIntakeService,
     private readonly currencyService: CurrencyService,
     private readonly customersService: CustomersService,
     private readonly accountService: CustomerAccountService,
@@ -72,20 +95,30 @@ export class QuotesService {
       configService.get<string>('business.defaultCurrency') ?? 'TRY';
   }
 
-  /** Teklif oluşturur (yalnızca hesap; cari/stok hareketi yok). */
-  async create(dto: CreateQuoteDto): Promise<Quote> {
-    const built = await this.buildQuoteData(dto);
+  /**
+   * Teklif oluşturur (yalnızca hesap; cari/stok hareketi yok). `finalize`
+   * verilmişse (geriye dönük giriş) aynı çağrıda kabul edilip satış/işlemeye
+   * dönüştürülür ve istenirse tamamlanmış yapılır.
+   */
+  async create(dto: CreateQuoteDto, userId?: string): Promise<QuoteWithConversion> {
+    const prepared = await this.materializeNewMaterials(dto);
+    const built = await this.buildQuoteData(prepared);
     const quote = this.quotesRepo.create({
       ...built.fields,
       quoteNo: await this.nextQuoteNo(),
       status: QuoteStatus.DRAFT,
       items: built.items,
     });
-    return this.quotesRepo.save(quote);
+    const saved = await this.quotesRepo.save(quote);
+    return this.finalizeIfAsked(saved, dto, userId);
   }
 
   /** Teklifi tümüyle yeniden yazar (DRAFT/SENT/REJECTED iken). */
-  async update(id: string, dto: CreateQuoteDto): Promise<Quote> {
+  async update(
+    id: string,
+    dto: CreateQuoteDto,
+    userId?: string,
+  ): Promise<QuoteWithConversion> {
     const quote = await this.findOne(id);
     if (
       quote.status === QuoteStatus.CONVERTED ||
@@ -95,12 +128,73 @@ export class QuotesService {
         'Kabul edilmiş veya dönüştürülmüş teklif düzenlenemez.',
       );
     }
-    const built = await this.buildQuoteData(dto);
-    return this.dataSource.transaction(async (manager) => {
+    const prepared = await this.materializeNewMaterials(dto);
+    const built = await this.buildQuoteData(prepared);
+    const saved = await this.dataSource.transaction(async (manager) => {
       await manager.delete(QuoteItem, { quoteId: quote.id });
       Object.assign(quote, built.fields, { items: built.items });
       return manager.save(quote);
     });
+    return this.finalizeIfAsked(saved, dto, userId);
+  }
+
+  /**
+   * Geriye dönük giriş kolaylığı: teklif kaydedilir kaydedilmez kabul edilir ve
+   * satış/işlemeye dönüştürülür (`complete` ise işleme işleri kalem
+   * tarihleriyle tamamlanmış olur). Dönüşüm başarısız olursa teklif taslak
+   * olarak kalır ve hata kullanıcıya gösterilir; listeden yeniden denenebilir.
+   */
+  private async finalizeIfAsked(
+    quote: Quote,
+    dto: CreateQuoteDto,
+    userId?: string,
+  ): Promise<QuoteWithConversion> {
+    if (!dto.finalize) return quote;
+    if (!userId) {
+      throw new BadRequestException('Dönüştürme için kullanıcı gerekli.');
+    }
+    await this.quotesRepo.update(quote.id, { status: QuoteStatus.ACCEPTED });
+    const res = await this.convert(quote.id, userId, {
+      completeProcessing: dto.finalize === 'complete',
+    });
+    return Object.assign(res.quote, {
+      conversion: {
+        saleId: res.saleId,
+        processingJobIds: res.processingJobIds,
+        completed: dto.finalize === 'complete',
+      },
+    });
+  }
+
+  /**
+   * Kalemlerdeki `newMaterial` (işe özel / yeni gelen malzeme) stoğa eklenir
+   * ve kalemin plakası olur. Ürün türü yoksa adlardan açılır. Teklif tarihi
+   * verildiyse malzeme o tarihte gelmiş sayılır (addedAt boşsa).
+   */
+  private async materializeNewMaterials(dto: CreateQuoteDto): Promise<CreateQuoteDto> {
+    if (!dto.items.some((i) => i.newMaterial)) return dto;
+    const items: QuoteItemDto[] = [];
+    for (const it of dto.items) {
+      if (!it.newMaterial) {
+        items.push(it);
+        continue;
+      }
+      const m = it.newMaterial;
+      const { plateIds } = await this.plateIntake.createBatch({
+        items: [
+          {
+            ...m,
+            // Bir kalem tek parçadır: tabakada her kayıt tek tabaka olduğundan
+            // kopya/adet burada tek parçaya indirilir.
+            copies: 1,
+            addedAt: m.addedAt ?? dto.quoteDate ?? undefined,
+          },
+        ],
+      });
+      const { newMaterial: _drop, ...rest } = it;
+      items.push({ ...rest, plateId: plateIds[0], itemName: undefined });
+    }
+    return { ...dto, items };
   }
 
   /**
@@ -141,8 +235,10 @@ export class QuotesService {
         { categoryId: query.categoryId },
       );
     }
-    if (query.from) qb.andWhere('quote.created_at >= :from', { from: query.from });
-    if (query.to) qb.andWhere('quote.created_at <= :to', { to: query.to });
+    // Teklif tarihi: geriye dönük girişte girilen tarih, yoksa kayıt tarihi.
+    const dateExpr = 'COALESCE(quote.quote_date, quote.created_at)';
+    if (query.from) qb.andWhere(`${dateExpr} >= :from`, { from: query.from });
+    if (query.to) qb.andWhere(`${dateExpr} <= :to`, { to: query.to });
     const search = query.search?.trim();
     if (search) {
       // Müşteri teklifle aynı dükkândadır (yabancı anahtar denetimi), alt sorgu
@@ -169,13 +265,14 @@ export class QuotesService {
     if (!hasFilter) {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      qb.andWhere('quote.created_at >= :weekAgo', { weekAgo });
+      qb.andWhere(`${dateExpr} >= :weekAgo`, { weekAgo });
     }
 
     qb.orderBy(
       `CASE WHEN quote.status IN ('draft','sent') THEN 0 ELSE 1 END`,
       'ASC',
     )
+      .addOrderBy(dateExpr, 'DESC')
       .addOrderBy('quote.created_at', 'DESC')
       .skip(query.skip)
       .take(query.limit);
@@ -305,9 +402,12 @@ export class QuotesService {
           ownerCustomerId: quote.ownerCustomerId ?? undefined,
           warehouseId: quote.warehouseId ?? undefined,
           currency: quote.currency,
+          // Kalem tarihi yoksa geriye dönük girilen teklif tarihi geçerlidir.
           saleDate: saleLineDate
             ? new Date(saleLineDate).toISOString()
-            : undefined,
+            : quote.quoteDate
+              ? new Date(quote.quoteDate).toISOString()
+              : undefined,
           // Teklif (tümü) notu cari ekstre açıklamasına yansır.
           note: quote.note?.trim()
             ? `Teklif ${quote.quoteNo}: ${quote.note.trim()}`
@@ -347,6 +447,7 @@ export class QuotesService {
       }
 
       const processingJobIds: string[] = [];
+      const processingDates: (string | undefined)[] = [];
       for (const l of procLines) {
         const procDto: CreateProcessingJobDto = {
           // İşleme kalemi fiziksel bir malzeme gerektirir (plaka zorunlu).
@@ -366,10 +467,8 @@ export class QuotesService {
           // Dönüşen işler kuyruğa PENDING girer, tamamlanınca faturalanır.
           billOnCompletion: true,
           quoteId: quote.id,
-          // Kaleme özel işlenme tarihi verilmişse işe yansır.
-          processedAt: l.itemDate
-            ? new Date(l.itemDate).toISOString()
-            : undefined,
+          // Kaleme özel işlenme tarihi (yoksa teklif tarihi) işe yansır.
+          processedAt: lineDateIso(l.itemDate, quote.quoteDate),
           // Teklif notu (tümü) ve kalem notu → işleme tamamlanınca cari ekstre
           // açıklamasına yansır.
           note: [
@@ -387,6 +486,7 @@ export class QuotesService {
           soldById,
         );
         processingJobIds.push(job.id);
+        processingDates.push(lineDateIso(l.itemDate, quote.quoteDate));
       }
 
       await manager.update(Quote, quote.id, {
@@ -395,7 +495,7 @@ export class QuotesService {
         convertedAt: ShopContext.now(),
       });
 
-      return { saleId, processingJobIds };
+      return { saleId, processingJobIds, processingDates };
     });
 
     // Olaylar commit sonrası.
@@ -407,10 +507,14 @@ export class QuotesService {
     // (stok düşer + faturalanır). Her biri kendi transaction'ında; biri hata
     // verirse diğerlerini engellemesin (iş yine kuyrukta tamamlanabilir).
     if (opts.completeProcessing) {
-      for (const jobId of outcome.processingJobIds) {
+      for (const [k, jobId] of outcome.processingJobIds.entries()) {
+        // Kalem (yoksa teklif) tarihi hem işlenme hem tamamlanma tarihidir:
+        // geriye dönük iş bugün tamamlanmış görünmez.
+        const day = outcome.processingDates[k];
         await this.processingService.setStatus(
           jobId,
           ProcessingStatus.COMPLETED,
+          day ? { processedAt: day, completedAt: day } : {},
         );
       }
     }
@@ -536,6 +640,12 @@ export class QuotesService {
         ownerCustomerId: dto.ownerCustomerId ?? null,
         warehouseId: dto.warehouseId ?? null,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
+        quoteDate: dto.quoteDate ? new Date(dto.quoteDate) : null,
+        // Geriye dönük teklif (tarihi bugünden önce): runner kendiliğinden
+        // "bugün" için klasör açmaz. Açıkça verilirse o değer geçerlidir.
+        skipFolders:
+          dto.skipFolders ??
+          (!!dto.quoteDate && new Date(dto.quoteDate) < startOfToday()),
         currency,
         exchangeRate: conv.rate,
         subtotal,

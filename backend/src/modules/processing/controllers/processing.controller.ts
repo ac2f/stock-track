@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { CreateProcessingJobDto } from '../dto/create-processing-job.dto';
 import { QueryProcessingJobDto } from '../dto/query-processing-job.dto';
+import { BulkUpdateProcessingJobsDto } from '../dto/bulk-update-processing-jobs.dto';
 import { UpdateProcessingStatusDto } from '../dto/update-processing-status.dto';
 import { UpdateProcessingJobDto } from '../dto/update-processing-job.dto';
 import { ProcessingService } from '../services/processing.service';
@@ -56,6 +57,12 @@ export class ProcessingController {
   @Get()
   findAll(@Query() query: QueryProcessingJobDto) {
     return this.processingService.findAll(query);
+  }
+
+  // Geçmiş işlerin toplu düzenlemesi (tarih/not). `:id` yolundan ÖNCE tanımlı.
+  @Patch('bulk')
+  bulkUpdate(@Body() dto: BulkUpdateProcessingJobsDto) {
+    return this.processingService.bulkUpdate(dto);
   }
 
   @Get(':id')

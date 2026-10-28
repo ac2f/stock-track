@@ -31,7 +31,8 @@ import {
   templateKey,
   templateSearchText,
 } from '../../lib/catalogKey';
-import { matchesSearch } from '../../lib/search';
+import { fold, matchesSearch, suggestQuery } from '../../lib/search';
+import { parseTemplateQuery } from '../../lib/templateDraft';
 import { GroupSection } from '../../components/GroupSection';
 import { ColorPicker } from '../../components/ColorPicker';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -144,6 +145,10 @@ export function MaterialTemplatesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  // Aramadan/ekli olmayan türden açılan formun doldurulacak metni ve katalogda
+  // bulunamayan (forma "ekle" olarak yazılan) öğeler.
+  const [prefill, setPrefill] = useState<{ categoryId: string; query: string } | null>(null);
+  const [prefillNote, setPrefillNote] = useState<string[]>([]);
   const formRef = useRef<HTMLDivElement>(null);
   const formOpen = !!form;
   const [nameTouched, setNameTouched] = useState(false);
@@ -358,7 +363,90 @@ export function MaterialTemplatesPage() {
     setEditingId(null);
     setForm(EMPTY);
     setNameTouched(false);
+    setPrefill(null);
+    setPrefillNote([]);
   };
+
+  // Ekli olmayan türe tıklayınca / sonuçsuz aramada: form seçili kategori ve
+  // (varsa) aranan metinden çıkarılan marka/renk/kalınlık/ebatla DOLU açılır.
+  const openCreateFor = (catId: string, query = '') => {
+    const cat = categories?.find((c) => c.id === catId);
+    setEditingId(null);
+    setNameTouched(false);
+    setPrefillNote([]);
+    setForm({
+      ...EMPTY,
+      categoryId: catId,
+      measurementType: cat?.defaultMeasurementType ?? EMPTY.measurementType,
+      name: cat?.name ? `${cat.name} ` : '',
+    });
+    setPrefill(catId && query.trim() ? { categoryId: catId, query } : null);
+  };
+  const openCreateFromSearch = () => {
+    const catNames = (categories ?? []).map((c) => ({ name: c.name }));
+    const guessed = parseTemplateQuery(search, { categories: catNames }).categoryName;
+    const cat =
+      categories?.find((c) => c.id === categoryFilter) ??
+      categories?.find((c) => fold(c.name) === fold(guessed));
+    openCreateFor(cat?.id ?? '', search);
+  };
+
+  // Katalog (marka/renk/ebat/kalınlık) yüklenince aranan metni forma uygular:
+  // katalogda olanlar seçilir, olmayanlar "ekle" kutularına yazılır.
+  useEffect(() => {
+    if (!prefill || !form || form.categoryId !== prefill.categoryId) return;
+    if (!brands || !colors || !sizes || !thicknesses) return;
+    const draft = parseTemplateQuery(prefill.query, {
+      categories: (categories ?? []).map((c) => ({ name: c.name })),
+      brands: brands.map((b) => b.name),
+      colors: colors.map((c) => c.name),
+    });
+    const same = (a?: string | null, b?: string | null) => fold(a) === fold(b);
+    const brand = draft.brandName ? brands.find((b) => same(b.name, draft.brandName)) : undefined;
+    const color = draft.colorName
+      ? (colors.find((c) => same(c.name, draft.colorName) && (!draft.colorCode || c.code === draft.colorCode)) ??
+        colors.find((c) => same(c.name, draft.colorName)))
+      : undefined;
+    const hasSize = !!draft.sheetWidthMm && !!draft.sheetHeightMm;
+    const size = hasSize
+      ? sizes.find(
+          (z) => Number(z.widthMm) === draft.sheetWidthMm && Number(z.heightMm) === draft.sheetHeightMm,
+        )
+      : undefined;
+    const thickness =
+      draft.thicknessMm != null ? thicknesses.find((t) => Number(t.valueMm) === draft.thicknessMm) : undefined;
+    patchCatalog(
+      {
+        ...(brand ? { defaultBrandId: brand.id } : {}),
+        ...(color ? { defaultColorId: color.id } : {}),
+        ...(size ? { defaultSizeId: size.id } : {}),
+        ...(thickness ? { defaultThicknessId: thickness.id } : {}),
+        ...(draft.variant ? { defaultVariant: draft.variant } : {}),
+      },
+      { brand, color, size, thickness },
+    );
+    const missing: string[] = [];
+    if (draft.brandName && !brand) {
+      setNewBrandName(draft.brandName);
+      missing.push(`marka “${draft.brandName}”`);
+    }
+    if (draft.colorName && !color) {
+      setNewColorName(draft.colorName);
+      setNewColorCode(draft.colorCode);
+      missing.push(`renk “${draft.colorName}${draft.colorCode ? ` ${draft.colorCode}` : ''}”`);
+    }
+    if (hasSize && !size) {
+      setNewSizeWidth(String(draft.sheetWidthMm));
+      setNewSizeHeight(String(draft.sheetHeightMm));
+      missing.push(`ebat ${draft.sheetWidthMm}×${draft.sheetHeightMm}`);
+    }
+    if (draft.thicknessMm != null && !thickness) {
+      setNewThicknessValue(String(draft.thicknessMm));
+      missing.push(`kalınlık ${draft.thicknessMm} mm`);
+    }
+    setPrefillNote(missing);
+    setPrefill(null);
+  }, [prefill, form?.categoryId, brands, colors, sizes, thicknesses]);
 
   // Hızlı arama bağlantıları: ?new=1 yeni ürün türü formunu açar (yazma izni
   // varsa), ?q=metin listeyi süzer.
@@ -389,6 +477,17 @@ export function MaterialTemplatesPage() {
   );
   const facets = useFacets(searched, TEMPLATE_FACETS);
   const visible = facets.filtered;
+  // Tür başına ürün türü sayısı: 0 olanlar ("ekli olmayan") çipte işaretlenir.
+  const templateCountByCategory = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of data ?? []) m.set(t.categoryId, (m.get(t.categoryId) ?? 0) + 1);
+    return m;
+  }, [data]);
+  const canCreate = can('catalog', 'write');
+  const didYouMean = useMemo(
+    () => (search.trim() ? suggestQuery(search, (data ?? []).map(templateSearchText)) : null),
+    [data, search],
+  );
 
   // Formdaki özelliklerle zaten bir ür. türü var mı (kaydetmeden önce uyar).
   const duplicateOf =
@@ -466,6 +565,12 @@ export function MaterialTemplatesPage() {
           <h2 className="font-semibold">
             {editingId ? 'Ürün türünü düzenle' : 'Yeni ürün türü'}
           </h2>
+          {prefillNote.length > 0 && (
+            <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+              Aramanızdan dolduruldu. Katalogda henüz yok: <b>{prefillNote.join(', ')}</b> — aşağıdaki
+              ilgili bölümde “Ekle”ye basarak kaydedin, sonra ürün türünü kaydedin.
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block min-w-0">
               <span className="label">
@@ -1088,22 +1193,36 @@ export function MaterialTemplatesPage() {
         >
           <div className="space-y-2">
             <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-              {[{ id: '', name: 'Tümü' }, ...(categories ?? [])].map((c) => (
-                <button
-                  key={c.id}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
-                    categoryFilter === c.id
-                      ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
-                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                  }`}
-                  onClick={() => {
-                    setCategoryFilter(c.id);
-                    facets.clear();
-                  }}
-                >
-                  {c.name}
-                </button>
-              ))}
+              {[{ id: '', name: 'Tümü' }, ...(categories ?? [])].map((c) => {
+                // Bu türde hiç ürün türü yok: tıklayınca form tür seçili ve
+                // aramadan doldurulmuş açılır.
+                const empty = !!c.id && !templateCountByCategory.get(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
+                      categoryFilter === c.id
+                        ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                        : empty
+                          ? 'border border-dashed border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-200'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                    }`}
+                    title={
+                      empty && canCreate
+                        ? `${c.name} türünde henüz ürün türü yok — tıklayınca ekleme formu bu türle dolu açılır`
+                        : undefined
+                    }
+                    onClick={() => {
+                      setCategoryFilter(c.id);
+                      facets.clear();
+                      if (empty && canCreate) openCreateFor(c.id, search);
+                    }}
+                  >
+                    {empty && canCreate ? '＋ ' : ''}
+                    {c.name}
+                  </button>
+                );
+              })}
             </div>
             <FacetChips facets={TEMPLATE_FACETS} state={facets} hideClear />
           </div>
@@ -1132,18 +1251,37 @@ export function MaterialTemplatesPage() {
           compact
           icon="🔍"
           title="Aramaya uyan ürün türü yok"
-          hint="Farklı bir kelime deneyin."
+          hint={
+            didYouMean ? (
+              <>
+                Bunu mu demek istediniz:{' '}
+                <button className="font-semibold underline" onClick={() => setSearch(didYouMean)}>
+                  {didYouMean}
+                </button>
+                ?
+              </>
+            ) : (
+              'Farklı bir kelime deneyin ya da bu ürün türünü yeni olarak ekleyin.'
+            )
+          }
           action={
-            <button
-              className="btn-secondary btn-sm"
-              onClick={() => {
-                setSearch('');
-                setCategoryFilter('');
-                facets.clear();
-              }}
-            >
-              Süzgeci temizle
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              {canCreate && (
+                <button className="btn-primary btn-sm" onClick={openCreateFromSearch}>
+                  ➕ {search.trim() ? `“${search.trim()}” için` : 'Bu süzgeçle'} yeni ürün türü
+                </button>
+              )}
+              <button
+                className="btn-secondary btn-sm"
+                onClick={() => {
+                  setSearch('');
+                  setCategoryFilter('');
+                  facets.clear();
+                }}
+              >
+                Süzgeci temizle
+              </button>
+            </div>
           }
         />
       ) : (

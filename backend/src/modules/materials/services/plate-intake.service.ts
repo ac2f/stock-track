@@ -8,6 +8,7 @@ import {
   BatchCreateResult,
   BatchPlateItemDto,
 } from '../dto/batch-create-plates.dto';
+import { EnsureTemplateDto } from '../dto/ensure-template.dto';
 import { MaterialTemplate } from '../entities/material-template.entity';
 import { MaterialBrandsService } from './material-brands.service';
 import { MaterialCategoriesService } from './material-categories.service';
@@ -79,6 +80,32 @@ export class PlateIntakeService {
   }
 
   /**
+   * Ürün türünü özelliklerinden bulur ya da açar ve ŞABLONU döner. Arama
+   * sonucu boş çıkan ürün için "türü kaydet" ucu bunu kullanır: katalog
+   * kayıtları (tür, marka, renk, kalınlık, ebat) yoksa açılır; aynı
+   * özellikte bir tür varsa o döner. Alt tür, türde varsayılan olarak durur.
+   */
+  async ensureTemplate(
+    dto: EnsureTemplateDto,
+  ): Promise<{ template: MaterialTemplate; created: boolean; autoCreated: AutoLog }> {
+    const autoCreated: AutoLog = {
+      categories: [],
+      brands: [],
+      colors: [],
+      sizes: [],
+      thicknesses: [],
+      templates: [],
+    };
+    const id = await this.resolveTemplate(
+      { ...dto } as unknown as BatchPlateItemDto,
+      autoCreated,
+      true,
+    );
+    const template = await this.templatesRepo.findOneOrFail({ where: { id } });
+    return { template, created: autoCreated.templates.length > 0, autoCreated };
+  }
+
+  /**
    * Kalemin bu dükkândaki şablonunu ADLARDAN bulur ya da açar (tür, marka,
    * renk, kalınlık, ebat). Dükkânlar arası satışta karşı dükkânın kataloğunda
    * aynı malzemenin karşılığını bulmak için kullanılır.
@@ -119,6 +146,7 @@ export class PlateIntakeService {
   private async resolveTemplate(
     item: BatchPlateItemDto,
     log: AutoLog,
+    variantOnTemplate = false,
   ): Promise<string> {
     if (item.templateId) return item.templateId;
 
@@ -231,6 +259,10 @@ export class PlateIntakeService {
         defaultColorId: color?.id ?? null,
         defaultThicknessId: thickness?.id ?? null,
         defaultSizeId: size?.id ?? null,
+        // "Türü kaydet" yolunda alt tür türün kendi varsayılanıdır.
+        ...(variantOnTemplate && item.variant?.trim()
+          ? { defaultVariant: item.variant.trim() }
+          : {}),
       }),
     );
     log.templates.push(created.name);

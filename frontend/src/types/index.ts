@@ -345,6 +345,24 @@ export type MeasurementType = 'area' | 'length' | 'piece' | 'weight' | 'time';
 /** Bir malzemenin ölçülebileceği tipler — süre yalnız işleme faturalamasında. */
 export type MaterialMeasurementType = Exclude<MeasurementType, 'time'>;
 
+/**
+ * Teklifi kaydederken AYNI İŞLEMDE stoğa eklenecek malzeme ("işe özel malzeme",
+ * müşterinin X tarihinde getirdiği levha…). Kalemin plakası olur.
+ */
+export interface NewMaterialInput {
+  templateId: string;
+  /** Kalan ebat (tabaka) — verilmezse türün standart tabakası. */
+  widthMm?: number;
+  heightMm?: number;
+  /** Şerit/rulo: uzunluk (metre); adetli malzeme: adet. Tabakada 1. */
+  quantityInStock?: number;
+  /** Müşterinin malıysa sahibi; boşsa işletme stoğu. */
+  ownerCustomerId?: string;
+  /** Malzemenin geliş (stoğa giriş) tarihi, YYYY-MM-DD. */
+  addedAt?: string;
+  warehouseId?: string;
+}
+
 export interface QuoteItemInput {
   lineKind: QuoteLineKind;
   // Stoktan seçilen malzemede plaka kimliği; serbest (stoksuz) kalemde boş.
@@ -365,6 +383,8 @@ export interface QuoteItemInput {
   // fiyat saatliktir; sunucu asgari süreyi uygular.
   durationMinutes?: number;
   stockSource?: 'business' | 'consignment_tracked' | 'third_party_untracked';
+  /** Kaydederken stoğa eklenecek yeni malzeme; plateId yerine geçer. */
+  newMaterial?: NewMaterialInput;
   // Konsinye (sahibin malı) satışında sahip payı yöntemi.
   ownerSettlement?: 'manual_amount' | 'commission_percent';
   ownerAmount?: number;
@@ -389,6 +409,12 @@ export interface Quote {
   note?: string | null;
   validUntil?: string | null;
   createdAt: string;
+  /** Geriye dönük girişte girilen teklif tarihi; yoksa createdAt geçerlidir. */
+  quoteDate?: string | null;
+  /** Geriye dönük kayıt: runner kendiliğinden klasör açmaz. */
+  skipFolders?: boolean;
+  /** Kaydederken tek adımda dönüştürüldüyse sonuç (yalnız oluşturma yanıtında). */
+  conversion?: { saleId?: string; processingJobIds: string[]; completed: boolean };
   convertedAt?: string | null;
   /** Dükkân bilgisayarındaki runner'ın açtığı müşteri klasörü ve zamanı. */
   foldersCreatedAt?: string | null;

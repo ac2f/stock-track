@@ -23,6 +23,7 @@ import { PlateCostService } from '../services/plate-cost.service';
 import { PlateIntakeService } from '../services/plate-intake.service';
 import { SetRetailPriceDto } from '../dto/set-retail-price.dto';
 import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
+import { EnsureTemplateDto } from '../dto/ensure-template.dto';
 import { SupplierPricesService } from '../services/supplier-prices.service';
 import { ShopScope } from '../../../common/shop/shop-access.decorator';
 
@@ -47,6 +48,15 @@ export class PlatesController {
     private readonly plateCostService: PlateCostService,
     private readonly intakeService: PlateIntakeService,
   ) {}
+
+  /**
+   * Ürün türünü özelliklerinden bul/aç ("bu ürün türü yok, kaydet"). Stok
+   * eklemede ve teklif formunda arama boş çıkınca kullanılır.
+   */
+  @Post('ensure-template')
+  ensureTemplate(@Body() dto: EnsureTemplateDto) {
+    return this.intakeService.ensureTemplate(dto);
+  }
 
   /**
    * Tek istekte birden çok stok kalemi. Katalog kayıtları (tür/marka/renk/

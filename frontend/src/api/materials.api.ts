@@ -633,6 +633,36 @@ export interface BatchCreateResult {
   };
 }
 
+/** Ürün türü (şablon) özelliklerden bulunur ya da açılır. */
+export interface EnsureTemplateInput {
+  categoryName: string;
+  brandName?: string;
+  colorName?: string;
+  colorCode?: string;
+  thicknessMm?: number;
+  sheetWidthMm?: number;
+  sheetHeightMm?: number;
+  variant?: string;
+  templateName?: string;
+  measurementType?: MeasurementType;
+}
+
+export interface EnsureTemplateResult {
+  template: MaterialTemplate;
+  /** false → aynı özellikte tür zaten vardı, o döndü (kopya açılmadı). */
+  created: boolean;
+  autoCreated: BatchCreateResult['autoCreated'];
+}
+
+/**
+ * "Bu ürün türü yok, kaydet": katalog kayıtları (tür/marka/renk/kalınlık/ebat)
+ * yoksa açılır; aynı özellikte tür varsa o döner.
+ */
+export async function ensureTemplate(input: EnsureTemplateInput): Promise<EnsureTemplateResult> {
+  const { data } = await api.post<EnsureTemplateResult>('/plates/ensure-template', input);
+  return data;
+}
+
 /** Tek istekte birden çok stok kalemi ekler. */
 export async function createPlatesBatch(
   items: BatchPlateItem[],

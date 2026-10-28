@@ -694,6 +694,47 @@ export class ProcessingService {
   }
 
   /**
+   * Geçmiş işlerin toplu düzenlemesi (tarih/not). Her iş kendi transaction'ında
+   * güncellenir; biri bulunamazsa diğerleri yine uygulanır ve sonuç sayılır.
+   * `sameDay`: tamamlanma tarihi işlenme tarihine eşitlenir (geriye dönük
+   * girişte "işlendiği gün tamamlandı").
+   */
+  async bulkUpdate(dto: {
+    ids: string[];
+    processedAt?: string;
+    completedAt?: string;
+    sameDay?: boolean;
+    note?: string;
+  }): Promise<{ updated: number; failed: { id: string; reason: string }[] }> {
+    let updated = 0;
+    const failed: { id: string; reason: string }[] = [];
+    for (const id of [...new Set(dto.ids)]) {
+      try {
+        const patch: { processedAt?: string; completedAt?: string; note?: string } = {};
+        if (dto.processedAt) patch.processedAt = dto.processedAt;
+        if (dto.completedAt && !dto.sameDay) patch.completedAt = dto.completedAt;
+        if (dto.note !== undefined) patch.note = dto.note;
+        if (dto.sameDay) {
+          // Yeni işlenme tarihi verilmişse o, yoksa işin kendi işlenme tarihi.
+          const day =
+            dto.processedAt ?? (await this.findOne(id)).processedAt.toISOString();
+          patch.processedAt = day;
+          patch.completedAt = day;
+        }
+        if (!Object.keys(patch).length) continue;
+        await this.update(id, patch);
+        updated++;
+      } catch (e) {
+        failed.push({
+          id,
+          reason: e instanceof Error ? e.message : 'Güncellenemedi.',
+        });
+      }
+    }
+    return { updated, failed };
+  }
+
+  /**
    * #2 Geçmiş bir işleme kaydını TAMAMEN siler:
    *  - tüketilen stoğu iade eder (tabaka boyu / adet),
    *  - bağlı cari hareketini defterden kaldırır (ekstreden düşer),

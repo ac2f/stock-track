@@ -38,6 +38,15 @@ export interface CreateQuoteInput {
   currency?: string;
   note?: string;
   validUntil?: string;
+  /** Teklif tarihi (geriye dönük giriş), YYYY-MM-DD. */
+  quoteDate?: string;
+  /** Runner bu teklif için kendiliğinden klasör açmasın. */
+  skipFolders?: boolean;
+  /**
+   * Kaydederken tek adımda ilerlet: 'convert' kabul + satış/işlemeye dönüştür,
+   * 'complete' bunlara ek olarak işlemeleri kalem tarihleriyle tamamla.
+   */
+  finalize?: 'convert' | 'complete';
   items: QuoteItemInput[];
 }
 

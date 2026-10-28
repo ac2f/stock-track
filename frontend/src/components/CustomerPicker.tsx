@@ -3,6 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { fetchCustomers } from '../api/customers.api';
 import { formatMoney } from '../lib/format';
 import { useDebounced } from '../hooks/useDebounced';
+import { SelectedCard } from './ui/SelectedCard';
 
 /**
  * Arama tabanlı müşteri seçici. Veritabanı büyüdüğünde tüm listeyi getirmek
@@ -50,35 +51,24 @@ export function CustomerPicker({
   // ile yeni arama açılır. Dokunulmazsa üst formdaki mevcut id korunur.
   if (picked && (picked.id || picked.name)) {
     return (
-      <div
-        className="flex min-h-[44px] items-center justify-between gap-2 rounded-xl border border-blue-300 bg-blue-50/60 px-3 py-1.5 dark:border-blue-800 dark:bg-blue-950/30"
-        // Seçici bir <label> içindeyse ada tıklamak etiketin ilk düğmesini
-        // ("değiştir") tetikleyip seçimi kaldırmasın. Düğmenin kendi onClick'i
-        // yine çalışır.
-        onClick={(e) => e.preventDefault()}
-      >
-        <span className="flex min-w-0 items-center gap-2">
+      <SelectedCard
+        tone="blue"
+        icon={
           <span
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white"
+            className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white"
             aria-hidden
           >
             ✓
           </span>
-          <span className="truncate text-sm font-semibold">{picked.name}</span>
-        </span>
-        <button
-          type="button"
-          className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-blue-700 underline-offset-2 hover:bg-blue-100 hover:underline dark:text-blue-300 dark:hover:bg-blue-900/40"
-          title="Başka müşteri seç"
-          onClick={() => {
-            setPicked(null);
-            setTerm('');
-            onChange('');
-          }}
-        >
-          değiştir
-        </button>
-      </div>
+        }
+        title={picked.name}
+        titleHint="Başka müşteri seçmek için karta tıklayın"
+        onChange={() => {
+          setPicked(null);
+          setTerm('');
+          onChange('');
+        }}
+      />
     );
   }
 

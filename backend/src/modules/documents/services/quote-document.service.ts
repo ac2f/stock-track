@@ -60,7 +60,7 @@ export class QuoteDocumentService {
       businessPhone: esc(business.phone || ''),
       businessAddress: esc(business.address || ''),
       quoteNo: esc(q.quoteNo),
-      date: this.date(q.createdAt),
+      date: this.date(q.quoteDate ?? q.createdAt),
       validUntil: q.validUntil ? this.date(q.validUntil) : '—',
       statusLabel: STATUS_LABELS[q.status] ?? q.status,
       customerName: esc(c?.name ?? '—'),

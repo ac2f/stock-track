@@ -194,6 +194,8 @@ export function QuoteFolders({
 }: {
   quote: {
     status: string;
+    /** Geriye dönük kayıt: bugün için klasör açılmaz. */
+    skipFolders?: boolean;
     convertedAt?: string | null;
     foldersCreatedAt?: string | null;
     foldersPath?: string | null;
@@ -221,9 +223,19 @@ export function QuoteFolders({
     (!quote.foldersCreatedAt || quote.foldersCreatedAt < quote.foldersRequestedAt);
   const requestBtn = canRequest && (
     <button type="button" className="font-semibold underline" disabled={requesting} onClick={onRequest}>
-      {requesting ? 'İsteniyor…' : 'Klasörleri yeniden iste'}
+      {requesting ? 'İsteniyor…' : quote.skipFolders ? 'Klasörü teklif gününe aç' : 'Klasörleri yeniden iste'}
     </button>
   );
+
+  // Geriye dönük teklifte klasör BUGÜN açılmaz; istenirse teklifin gerçek gününe açılır.
+  if (quote.skipFolders && !quote.foldersCreatedAt && !requested) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+        <span>📁 Geriye dönük kayıt — bugün için klasör açılmadı.</span>
+        {!compact && <span className="text-slate-600">{requestBtn}</span>}
+      </div>
+    );
+  }
 
   if (quote.foldersCreatedAt && !requested) {
     return (

@@ -106,6 +106,28 @@ export async function updateProcessingJob(
   return data;
 }
 
+export interface BulkUpdateProcessingInput {
+  ids: string[];
+  processedAt?: string;
+  completedAt?: string;
+  /** Tamamlanma tarihi her işin işlenme gününe eşitlensin. */
+  sameDay?: boolean;
+  note?: string;
+}
+
+export interface BulkUpdateProcessingResult {
+  updated: number;
+  failed: { id: string; reason: string }[];
+}
+
+/** Seçilen işlerin tarihlerini/notunu tek seferde düzenler (tutar ve stok değişmez). */
+export async function bulkUpdateProcessingJobs(
+  input: BulkUpdateProcessingInput,
+): Promise<BulkUpdateProcessingResult> {
+  const { data } = await api.patch<BulkUpdateProcessingResult>('/processing/bulk', input);
+  return data;
+}
+
 /** Geçmiş işi sil: stoğu iade eder + cari hareketini ekstreden düşer. */
 export async function deleteProcessingJob(id: string): Promise<void> {
   await api.delete(`/processing/${id}`);

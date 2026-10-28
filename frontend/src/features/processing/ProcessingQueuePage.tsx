@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  bulkUpdateProcessingJobs,
   deleteProcessingJob,
   fetchProcessingHistory,
   fetchQueue,
@@ -35,6 +36,7 @@ import { useMaterialCategories } from '../../hooks/useReferenceData';
 import { useDebounced } from '../../hooks/useDebounced';
 import { mapLimit } from '../../lib/concurrency';
 import { keepWhileSearching } from '../../lib/placeholder';
+import { apiErrorMessage, toast } from '../../lib/toast';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
 /** Kuyruk/geçmiş işini "Müşteri · Kategori" ile gruplar. */
@@ -293,6 +295,26 @@ function ProcessingHistory() {
     setPageSize(n);
     setPage(1);
   };
+  // Toplu düzenleme için seçilen işler. Süzgeç değişince seçim sıfırlanır
+  // (görünmeyen bir işe yanlışlıkla toplu işlem uygulanmasın); sayfa
+  // değişince korunur (birkaç sayfadan seçilebilsin).
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setSelected(new Set());
+  }, [from, to, status, categoryId, customerId, search]);
+  const toggleJob = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const setMany = (ids: string[], on: boolean) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const id of ids) (on ? n.add(id) : n.delete(id));
+      return n;
+    });
 
   // Varsayılandan (son 30 gün · tamamlananlar) farklı olan süzgeçler sayılır;
   // "Filtreleri temizle" hepsini varsayılana döndürür.
@@ -346,7 +368,25 @@ function ProcessingHistory() {
     <section className="space-y-2" aria-label="Geçmiş işler">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-slate-700">📜 Geçmiş işler</h2>
-        <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Can module="processing" level="write">
+            {!!data?.items.length && (
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => {
+                  const ids = data.items.map((j) => j.id);
+                  setMany(ids, !ids.every((id) => selected.has(id)));
+                }}
+              >
+                {data.items.every((j) => selected.has(j.id))
+                  ? 'Seçimi kaldır'
+                  : `Görünenlerin tümünü seç (${data.items.length})`}
+              </button>
+            )}
+          </Can>
+          <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+        </div>
       </div>
       <Filters
         className="!mb-2"
@@ -412,15 +452,51 @@ function ProcessingHistory() {
       {isLoading ? (
         <LoadingBlock rows={2} label="Geçmiş işler yükleniyor…" />
       ) : grouped ? (
-        groupJobs(data?.items ?? []).map(([key, jobs]) => (
-          <GroupSection key={key} title={key} count={jobs.length} countLabel="iş">
-            {jobs.map((job) => (
-              <HistoryJobCard key={job.id} job={job} />
-            ))}
-          </GroupSection>
-        ))
+        groupJobs(data?.items ?? []).map(([key, jobs]) => {
+          const allOn = jobs.every((j) => selected.has(j.id));
+          return (
+            <GroupSection
+              key={key}
+              title={key}
+              count={jobs.length}
+              countLabel="iş"
+              actions={
+                <Can module="processing" level="write">
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-blue-700 underline dark:text-blue-300"
+                    onClick={() =>
+                      setMany(
+                        jobs.map((j) => j.id),
+                        !allOn,
+                      )
+                    }
+                  >
+                    {allOn ? 'Grup seçimini kaldır' : 'Grubu seç'}
+                  </button>
+                </Can>
+              }
+            >
+              {jobs.map((job) => (
+                <HistoryJobCard
+                  key={job.id}
+                  job={job}
+                  selected={selected.has(job.id)}
+                  onToggle={() => toggleJob(job.id)}
+                />
+              ))}
+            </GroupSection>
+          );
+        })
       ) : (
-        data?.items.map((job) => <HistoryJobCard key={job.id} job={job} />)
+        data?.items.map((job) => (
+          <HistoryJobCard
+            key={job.id}
+            job={job}
+            selected={selected.has(job.id)}
+            onToggle={() => toggleJob(job.id)}
+          />
+        ))
       )}
       {!isLoading && !data?.items.length && (
         <EmptyState
@@ -447,7 +523,131 @@ function ProcessingHistory() {
           onPageSize={changePageSize}
         />
       )}
+      {selected.size > 0 && (
+        <BulkEditBar ids={[...selected]} onClear={() => setSelected(new Set())} />
+      )}
     </section>
+  );
+}
+
+/**
+ * Seçilen geçmiş işlere toplu tarih/not uygulayan alt çubuk. Boş bırakılan
+ * alan dokunulmaz; "aynı gün" tamamlanmayı işlenme gününe eşitler.
+ */
+function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
+  const qc = useQueryClient();
+  const [processedAt, setProcessedAt] = useState('');
+  const [completedAt, setCompletedAt] = useState('');
+  const [sameDay, setSameDay] = useState(false);
+  const [note, setNote] = useState('');
+  const [noteOn, setNoteOn] = useState(false);
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const nothing = !processedAt && !completedAt && !sameDay && !noteOn;
+  const mut = useMutation({
+    mutationFn: () =>
+      bulkUpdateProcessingJobs({
+        ids,
+        processedAt: processedAt || undefined,
+        completedAt: sameDay ? undefined : completedAt || undefined,
+        sameDay: sameDay || undefined,
+        note: noteOn ? note : undefined,
+      }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['sales'] });
+      if (res.failed.length) {
+        toast.warning(
+          `${res.updated} iş güncellendi, ${res.failed.length} iş güncellenemedi`,
+          res.failed[0]?.reason,
+        );
+      } else {
+        toast.success(`${res.updated} işin tarihi güncellendi`);
+        onClear();
+      }
+    },
+    onError: (e) => toast.error('Toplu düzenleme yapılamadı', apiErrorMessage(e)),
+  });
+
+  const quick = (label: string, set: () => void) => (
+    <button type="button" className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300" onClick={set}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div
+      role="region"
+      aria-label="Toplu düzenleme"
+      className="sticky bottom-20 z-20 md:bottom-2 space-y-2 rounded-2xl border border-blue-300 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-blue-800 dark:bg-slate-900/95"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+          ✎ {ids.length} iş seçili — toplu düzenle
+        </p>
+        <button type="button" className="ml-auto text-xs underline text-slate-500" onClick={onClear}>
+          Seçimi temizle
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[11rem_11rem_auto_minmax(0,1fr)_auto] lg:items-end">
+        <MiniField label="İşlenme tarihi">
+          <input
+            className="input"
+            type="date"
+            max={todayStr}
+            value={processedAt}
+            onChange={(e) => setProcessedAt(e.target.value)}
+          />
+        </MiniField>
+        <MiniField label="Tamamlanma tarihi">
+          <input
+            className="input"
+            type="date"
+            max={todayStr}
+            disabled={sameDay}
+            value={sameDay ? '' : completedAt}
+            onChange={(e) => setCompletedAt(e.target.value)}
+          />
+        </MiniField>
+        <label className="flex min-h-[44px] items-center gap-2 text-sm">
+          <input type="checkbox" checked={sameDay} onChange={(e) => setSameDay(e.target.checked)} />
+          Aynı gün tamamlandı
+        </label>
+        <MiniField label="Not (boş bırakırsanız not silinir)">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              aria-label="Notu değiştir"
+              checked={noteOn}
+              onChange={(e) => setNoteOn(e.target.checked)}
+            />
+            <input
+              className="input"
+              placeholder="Notu değiştir…"
+              disabled={!noteOn}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+        </MiniField>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={nothing || mut.isPending}
+          onClick={() => mut.mutate()}
+        >
+          {mut.isPending && <Spinner />}
+          Seçilenlere uygula
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+        Hızlı:
+        {quick('İşlenme = bugün', () => setProcessedAt(todayStr))}
+        {quick('İşlenme = dün', () => setProcessedAt(new Date(Date.now() - 864e5).toISOString().slice(0, 10)))}
+        {quick('Tamamlanma = işlenme günü', () => setSameDay(true))}
+      </div>
+    </div>
   );
 }
 
@@ -455,7 +655,16 @@ function ProcessingHistory() {
  * Geçmiş iş kartı — tamamlandıktan sonra da düzenlenebilir: işlenme ve
  * TAMAMLANMA tarihi ile not. (Tutar/stok değişmez.)
  */
-function HistoryJobCard({ job }: { job: ProcessingJob }) {
+function HistoryJobCard({
+  job,
+  selected = false,
+  onToggle,
+}: {
+  job: ProcessingJob;
+  selected?: boolean;
+  /** Verilirse karta toplu seçim kutusu eklenir. */
+  onToggle?: () => void;
+}) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [processedAt, setProcessedAt] = useState(job.processedAt?.slice(0, 10) ?? '');
@@ -500,9 +709,25 @@ function HistoryJobCard({ job }: { job: ProcessingJob }) {
   }
 
   return (
-    <div className="card space-y-2">
+    <div className={`card space-y-2 ${selected ? 'ring-2 ring-blue-400' : ''}`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        {onToggle && (
+          <Can module="processing" level="write">
+            <label
+              className="-m-2 flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center"
+              title="Toplu düzenleme için seç"
+            >
+              <input
+                type="checkbox"
+                className="h-5 w-5"
+                checked={selected}
+                onChange={onToggle}
+                aria-label={`${job.plate?.name ?? 'İş'} seç`}
+              />
+            </label>
+          </Can>
+        )}
+        <div className="min-w-0 flex-1">
           <p className="break-words font-semibold">{job.plate?.name ?? '—'}</p>
           <p className="truncate text-sm text-slate-600">
             {job.customer?.name ?? 'Müşterisiz'} · {jobMeasure(job)}

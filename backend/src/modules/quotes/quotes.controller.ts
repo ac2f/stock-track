@@ -26,8 +26,8 @@ import { ShopScope } from '../../common/shop/shop-access.decorator';
 export class QuotesController {
   constructor(private readonly quotesService: QuotesService) {}
   @Post()
-  create(@Body() dto: CreateQuoteDto) {
-    return this.quotesService.create(dto);
+  create(@Body() dto: CreateQuoteDto, @CurrentUser('id') userId: string) {
+    return this.quotesService.create(dto, userId);
   }
 
   @Get()
@@ -41,8 +41,12 @@ export class QuotesController {
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateQuoteDto) {
-    return this.quotesService.update(id, dto);
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateQuoteDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.quotesService.update(id, dto, userId);
   }
 
   @Patch(':id/status')

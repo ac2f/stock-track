@@ -270,6 +270,8 @@ export interface CorelQuoteLike {
   quoteNo: string;
   status: string;
   createdAt: Date;
+  /** Geriye dönük girişte girilen teklif tarihi (yoksa kayıt tarihi). */
+  quoteDate?: Date | null;
 }
 
 /** Teklif satırı: id, teklif no, tarih (YYYY-AA-GG), durum, tabaka kalemi sayısı. */
@@ -277,7 +279,7 @@ export function quoteLine(q: CorelQuoteLike, sheetLines: number): string {
   return tsvLine([
     q.id,
     q.quoteNo,
-    q.createdAt.toISOString().slice(0, 10),
+    (q.quoteDate ?? q.createdAt).toISOString().slice(0, 10),
     q.status,
     sheetLines,
   ]);

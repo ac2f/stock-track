@@ -41,6 +41,7 @@ import { useDebounced } from '../../hooks/useDebounced';
 import { mapLimit } from '../../lib/concurrency';
 import { TemplateFinder } from './TemplateFinder';
 import { groupPlates } from '../../lib/plateGrouping';
+import { stackPlates, type PlateStack } from '../../lib/plateStack';
 import { UnitConverter } from '../../components/UnitConverter';
 import { GroupSection, groupChipClass } from '../../components/GroupSection';
 import { Pagination } from '../../components/Pagination';
@@ -56,6 +57,7 @@ import { confirmDialog } from '../../components/ConfirmDialog';
 import { formatDate, formatMoney, formatNumber } from '../../lib/format';
 import { useUrlParam } from '../../hooks/useUrlParam';
 import { useAuth } from '../../context/AuthContext';
+import { SelectedCard } from '../../components/ui/SelectedCard';
 import {
   useListDensity,
   useListGrouping,
@@ -431,8 +433,8 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
 
   // Ürün türü seçilince özellikler (varyant/standart ebat) türden miras alınır.
   // Ad ve SKU canlı türetildiği için burada SABİTLENMEZ (yeniden seçim gerekmez).
-  const applyTemplateDefaults = (templateId: string) => {
-    const t = templates?.find((x) => x.id === templateId);
+  const applyTemplateDefaults = (templateId: string, known?: MaterialTemplate) => {
+    const t = known ?? templates?.find((x) => x.id === templateId);
     setSkuTouched(false);
     setNameTouched(false);
     setForm((f) => ({
@@ -495,17 +497,12 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
         </span>
         {/* Seçilince özet kart; değiştirmek için bulucu yeniden açılır. */}
         {tpl && !picking ? (
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-900/20">
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold">
-                {stripNamePlaceholders(tpl.name) || tpl.name}
-              </span>
-              <span className="block truncate text-xs text-slate-500">{tpl.category?.name}</span>
-            </span>
-            <button type="button" className="btn-secondary btn-sm shrink-0" onClick={() => setPicking(true)}>
-              Değiştir
-            </button>
-          </div>
+          <SelectedCard
+            title={stripNamePlaceholders(tpl.name) || tpl.name}
+            subtitle={tpl.category?.name}
+            titleHint="Başka ürün türü seçmek için karta tıklayın"
+            onChange={() => setPicking(true)}
+          />
         ) : (
           <TemplateFinder
             templates={templates ?? []}
@@ -514,6 +511,14 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
               applyTemplateDefaults(id);
               setPicking(false);
             }}
+            // Aranan ürün türü yoksa: kaydedilir ve hemen seçilir; kalan alanlar
+            // (miktar, ebat, tarih, sahip) doldurulup stoğa eklenir.
+            onCreated={(res) => {
+              applyTemplateDefaults(res.template.id, res.template);
+              setPicking(false);
+            }}
+            createLabel="Ürün türünü kaydet ve stoğa ekle"
+            createHint="Alanlar aramanızdan dolduruldu. Kaydedince ürün türü seçilir; sonra miktar, ebat ve tarihi girip stoğa eklersiniz."
           />
         )}
       </div>
@@ -1750,6 +1755,185 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
   );
 }
 
+/** Yığının temsilci parçası, toplam miktarla (rozet ve özet için). */
+function stackAsPlate(stack: PlateStack): Plate {
+  return { ...stack.first, quantityInStock: stack.totalQty, reorderLevel: undefined };
+}
+
+/** Yığın başlığındaki giriş tarihi: tek tarih ya da aralık. */
+function stackDates(stack: PlateStack): string {
+  if (!stack.addedFrom) return '';
+  return stack.addedFrom === stack.addedTo
+    ? `Stok: ${formatDate(stack.addedFrom)}`
+    : `Stok: ${formatDate(stack.addedFrom)} – ${formatDate(stack.addedTo)}`;
+}
+
+/**
+ * İstif: birebir aynı N parça tek kartta "×N" olarak görünür (arkada üst üste
+ * dizilmiş kart katmanları). Karta tıklayınca parçalar tek tek açılır; düzenleme
+ * ve dükkâna satış parça düzeyinde yapılır.
+ */
+function PlateStackCard({ stack, mini }: { stack: PlateStack; mini: boolean }) {
+  const [open, setOpen] = useState(false);
+  const plate = stack.first;
+  const total = stackAsPlate(stack);
+  const partial = isPartialSheet(plate);
+  const dims = plateDimsText(plate);
+  const specs = [
+    plate.brand,
+    plate.color ? (plate.colorCode ? `${plate.color} (${plate.colorCode})` : plate.color) : plate.colorCode,
+    plate.variant,
+  ].filter(Boolean);
+  const toggle = () => setOpen((o) => !o);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle();
+    }
+  };
+  const stackBadge = (
+    <span
+      className="badge shrink-0 bg-indigo-100 font-bold text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200"
+      title={`${stack.count} birebir aynı parça istiflendi`}
+    >
+      ×{stack.count}
+    </span>
+  );
+
+  const opened = open && (
+    <div
+      className={
+        mini
+          ? 'divide-y divide-slate-100 border-t border-slate-200 bg-slate-50/60 pl-4 dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-900/30'
+          : 'col-span-full grid grid-cols-1 gap-3 rounded-xl border border-dashed border-indigo-300 bg-indigo-50/40 p-2 sm:grid-cols-2 lg:grid-cols-3 dark:border-indigo-800 dark:bg-indigo-950/20'
+      }
+    >
+      {stack.plates.map((p) =>
+        mini ? <PlateMiniRow key={p.id} plate={p} /> : <PlateCard key={p.id} plate={p} />,
+      )}
+    </div>
+  );
+
+  if (mini) {
+    return (
+      <>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          aria-label={`${displayPlateName(plate)} — ${stack.count} parça, ${open ? 'gizle' : 'göster'}`}
+          className="flex cursor-pointer items-center justify-between gap-2 bg-white px-3 py-2 text-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 dark:bg-slate-800 dark:hover:bg-slate-800/70"
+          onClick={toggle}
+          onKeyDown={onKey}
+        >
+          <span className="shrink-0 text-slate-400">{open ? '▾' : '▸'}</span>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words font-semibold">{displayPlateName(plate)}</span>
+            {partial ? (
+              <span className="inline-block rounded bg-amber-100 px-1 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                {remainingText(plate)}
+              </span>
+            ) : (
+              dims && <span className="text-xs text-slate-500">{dims}</span>
+            )}
+            <OwnerChip plate={plate} />
+            <OriginChip plate={plate} />
+          </div>
+          {stackBadge}
+          <QtyBadge plate={total} />
+        </div>
+        {opened}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="relative mb-2 mr-2 pb-0">
+        {/* Arkadaki katmanlar: üst üste dizilmiş parçaların görüntüsü. */}
+        <span
+          aria-hidden
+          className="absolute inset-0 translate-x-2 translate-y-2 rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/70"
+        />
+        {stack.count > 2 && (
+          <span
+            aria-hidden
+            className="absolute inset-0 translate-x-1 translate-y-1 rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+          />
+        )}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          aria-label={`${displayPlateName(plate)} — ${stack.count} parça, ${open ? 'gizle' : 'göster'}`}
+          className="card relative cursor-pointer select-none outline-none transition hover:border-indigo-300 focus-visible:ring-2 focus-visible:ring-indigo-400"
+          onClick={toggle}
+          onKeyDown={onKey}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="min-w-0 break-words font-semibold leading-snug">{displayPlateName(plate)}</h3>
+            <span className="flex shrink-0 items-center gap-1">
+              {stackBadge}
+              <QtyBadge plate={total} />
+            </span>
+          </div>
+          {(specs.length > 0 || plate.sku) && (
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-slate-500">
+              {specs.length > 0 && <span>{specs.join(' · ')}</span>}
+            </p>
+          )}
+          {partial ? (
+            <p className="mt-1.5">
+              <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 text-sm font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                {remainingText(plate)}
+              </span>
+            </p>
+          ) : (
+            dims && <p className="mt-1 text-xs text-slate-500">📐 {dims}</p>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+            <OwnerChip plate={plate} />
+            <OriginChip plate={plate} />
+            {stackDates(stack) && <span>{stackDates(stack)}</span>}
+          </div>
+          <p className="mt-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+            {open ? '▴ Parçaları gizle' : `▾ ${stack.count} parçayı göster`}
+          </p>
+        </div>
+      </div>
+      {opened}
+    </>
+  );
+}
+
+/**
+ * Parça listesi: birebir aynı parçalar istiflenir (×N); tekil parça normal
+ * kart/satır olarak kalır. `mini` → tek satırlık görünüm.
+ */
+function StackedPlates({ plates, mini, className = '' }: { plates: Plate[]; mini: boolean; className?: string }) {
+  const stacks = stackPlates(plates);
+  const items = stacks.map((st) =>
+    st.count === 1 ? (
+      mini ? (
+        <PlateMiniRow key={st.first.id} plate={st.first} />
+      ) : (
+        <PlateCard key={st.first.id} plate={st.first} />
+      )
+    ) : (
+      <PlateStackCard key={st.key} stack={st} mini={mini} />
+    ),
+  );
+  return mini ? (
+    <div
+      className={`divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 dark:divide-slate-700 dark:border-slate-700 ${className}`}
+    >
+      {items}
+    </div>
+  ) : (
+    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 ${className}`}>{items}</div>
+  );
+}
+
 /**
  * Toplu işlemler: yukarıdaki filtreye uyan malzemeler checkbox ile seçilip
  * (1) topluca SAHİPLİK AKTARILIR (kimden→kime; işletme↔müşteri) veya
@@ -2070,19 +2254,7 @@ function MaterialGroupRow({
 
       {open && (
         <div className="p-2">
-          {miniView ? (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
-              {plates.map((plate) => (
-                <PlateMiniRow key={plate.id} plate={plate} />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {plates.map((plate) => (
-                <PlateCard key={plate.id} plate={plate} />
-              ))}
-            </div>
-          )}
+          <StackedPlates plates={plates} mini={miniView} />
         </div>
       )}
     </div>
@@ -2392,18 +2564,8 @@ export function PlatesListPage() {
             </GroupSection>
           ))}
         </div>
-      ) : miniView ? (
-        <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
-          {data.items.map((plate) => (
-            <PlateMiniRow key={plate.id} plate={plate} />
-          ))}
-        </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {data.items.map((plate) => (
-            <PlateCard key={plate.id} plate={plate} />
-          ))}
-        </div>
+        <StackedPlates plates={data.items} mini={miniView} />
       )}
 
       {data?.meta && (

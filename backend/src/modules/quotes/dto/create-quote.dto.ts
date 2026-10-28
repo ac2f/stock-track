@@ -3,7 +3,9 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsBoolean,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -19,6 +21,7 @@ import {
   SaleStockSource,
 } from '../../../common/enums/sale-source.enum';
 import { QuoteLineKind } from '../../../common/enums/quote-status.enum';
+import { BatchPlateItemDto } from '../../materials/dto/batch-create-plates.dto';
 
 export class QuoteItemDto {
   @IsEnum(QuoteLineKind)
@@ -48,11 +51,24 @@ export class QuoteItemDto {
   @Min(0)
   unitPrice: number;
 
-  // Kaleme özel işlenme/teslim tarihi (opsiyonel). Dönüşümde işleme işinin
-  // processedAt'ine / satışın saleDate'ine yansır.
+  // Kaleme özel işlenme/tamamlanma tarihi (opsiyonel). Dönüşümde işleme işinin
+  // processedAt'ine (ve tamamlanmış eklenirse completedAt'ine) / satışın
+  // saleDate'ine yansır.
   @IsOptional()
   @IsDateString()
   itemDate?: string;
+
+  /**
+   * Teklifi kaydederken AYNI İŞLEMDE stoğa eklenecek malzeme ("işe özel
+   * malzeme", müşterinin X tarihinde getirdiği levha…). Ürün türü kimlikle ya
+   * da adla verilir (yoksa açılır); `addedAt` malzemenin geliş tarihidir.
+   * Verilirse plateId yerine kullanılır: oluşan stok kalemi bu kalemin
+   * malzemesi olur.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BatchPlateItemDto)
+  newMaterial?: BatchPlateItemDto;
 
   // ── PROCESSING kalemi ──
   @IsOptional()
@@ -125,6 +141,29 @@ export class CreateQuoteDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  /** Teklif tarihi (geriye dönük giriş). Boşsa şimdi. */
+  @IsOptional()
+  @IsDateString()
+  quoteDate?: string;
+
+  /**
+   * Runner bu teklif için kendiliğinden klasör açmasın. Verilmezse: teklif
+   * tarihi bugünden önceyse true (geriye dönük kayıt), değilse false.
+   */
+  @IsOptional()
+  @IsBoolean()
+  skipFolders?: boolean;
+
+  /**
+   * Kaydederken tek adımda ilerlet (yeni teklifte): 'convert' → kabul et ve
+   * satış/işleme kayıtlarına dönüştür; 'complete' → bunlara ek olarak işleme
+   * işlerini kalem tarihleriyle TAMAMLANMIŞ yap. Geriye dönük girişte üç
+   * ayrı tıklama yerine tek tık.
+   */
+  @IsOptional()
+  @IsIn(['convert', 'complete'])
+  finalize?: 'convert' | 'complete';
 
   @IsArray()
   @ArrayMinSize(1)

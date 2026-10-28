@@ -244,10 +244,48 @@ alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
   ayrı azalır). Liste "Grupla" ile aynı malzemeyi tek satırda toplar. Aynı son
   tabakayı eşzamanlı satan iki kişiden yalnız biri satabilir; iptalde tabaka
   geri gelir.
+- **İstif:** stok listesinde birebir aynı parçalar (aynı malzeme, kalan ebat,
+  sahip ve kaynak) tek kartta **×N** olarak görünür; karta dokunmak parçaları
+  tek tek açar (düzenleme parça düzeyindedir). Biten parça yığına karışmaz.
+- **Arama (stok, ürün türleri, teklif):** yazım hatası, sözcük sırası, büyük/küçük
+  harf ve Türkçe karakter fark etmez ("bayaz akpolimr", "plexi"). Sonuç yoksa
+  *Bunu mu demek istediniz* önerir; ürün türü kayıtlı değilse aramadan **dolu bir
+  "yeni ürün türü" formu** açar (tür/marka/renk/kalınlık/ebat çıkarılır; katalogda
+  olmayanlar kaydederken açılır) ve stok ekleme ya da teklif formu kaldığı
+  yerden devam eder. *Ürün Türleri*'nde hiç türü olmayan tür çipine (＋) dokunmak
+  formu o türle dolu açar.
+- Seçilmiş kutular (müşteri, ürün türü, malzeme…) **tümüyle tıklanabilir**;
+  sağdaki *Değiştir* yalnız ipucudur.
 - Her kayıt, güncelleme ve silme sonucu köşede kısa bir bildirimle söylenir;
   silme gibi işlemler okunaklı bir onay penceresi ister.
 - Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,
   Son 30 gün, Bu yıl*.
+
+## Geriye dönük kayıt
+
+Geçmişte yapılmış işi sonradan girerken (*Teklif › Yeni teklif*):
+
+1. **Teklif tarihi**ni seçin (Bugün / Dün / 1 hafta önce / 1 ay önce ya da
+   takvim). Tarih bugünden önceyse form kendiliğinden *geriye dönük* olur:
+   **klasör açılmaz** (dükkân bilgisayarı bugüne klasör oluşturmaz) ve "kabul
+   et, dönüştür, işlemeleri **tamamlanmış** ekle" seçilir. Tek dokunuşla
+   yalnız teklif de kaydedilebilir.
+2. Her kalemde **tamamlanma / işlenme tarihi** girilir (boşsa teklif tarihi).
+   Satış tarihi, işin tamamlanma günü ve cari ekstre bu tarihleri izler.
+   *Tüm kalemlere toplu uygula*da ortak tarih de verilir.
+3. Malzeme stokta yoksa kalemde **➕ Yeni malzeme ekle**: ürün türü (yoksa
+   aramadan kaydedilir), ebat (örn. 100×200), **geliş tarihi** ve sahiplik
+   (müşterinin malı / işletme) girilir; malzeme teklif kaydedilirken geliş
+   tarihiyle stoğa girer ve kalemin plakası olur.
+4. **Stoksuz satış kalemi**nde ürün türü (marka/renk/kalınlık) seçilip ebat
+   yazılır (stoktan düşülmez); **⚙ İşleme olarak da belirt** aynı malzemeyle
+   bir işleme kalemi ekler.
+5. Klasör sonradan gerekirse teklif kartında **Klasörü teklif gününe aç**
+   (klasör bugüne değil işin gerçek gününe açılır).
+6. Hatalı tarihler *Kuyruk › Geçmiş işler*de düzeltilir: işleri tek tek ya da
+   *Görünenlerin tümünü seç / Grubu seç* ile işaretleyip alttaki çubuktan
+   işlenme/tamamlanma tarihini (*Aynı gün tamamlandı* dahil) ya da notu toplu
+   değiştirin. Tutar ve stok değişmez.
 
 ## Fiyatlar ve fiyat çatıları
 

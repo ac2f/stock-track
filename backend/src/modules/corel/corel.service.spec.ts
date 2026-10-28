@@ -329,5 +329,38 @@ describe('CorelService', () => {
       expect(job.materialSaleFolders).toBe(false);
       expect(job.sheets.map((x) => x.itemId)).toEqual(['k1']);
     });
+
+    describe('geriye dönük kayıt (skipFolders)', () => {
+      const items = [
+        { id: 'k1', lineKind: 'processing', plateId: 'p1', quantity: '1', plate: sheet('p1', 'Beyaz') },
+      ];
+      const backdated = () =>
+        quote(items, {
+          skipFolders: true,
+          quoteDate: new Date('2026-03-02T09:00:00Z'),
+          foldersRequestedAt: new Date('2026-10-18T09:00:00Z'),
+        });
+
+      it('otomatik iş listesi geriye dönük teklifleri hiç sorgulamaz', async () => {
+        const svc = build({ quotes: [quote(items)] });
+        await svc.jobs();
+        const repo = (svc as unknown as { quotesRepo: { find: jest.Mock } }).quotesRepo;
+        expect(repo.find.mock.calls[0][0].where.skipFolders).toBe(false);
+      });
+
+      it('elle istenen geriye dönük teklifin klasörü teklifin GERÇEK gününe açılır', async () => {
+        const svc = build({ quotes: [backdated()] });
+        const [job] = await svc.requestedJobs();
+        expect(job.createdAt).toBe('2026-03-02T09:00:00.000Z');
+        expect(job.convertedAt).toBe('2026-03-02T09:00:00.000Z');
+      });
+
+      it('bugünün teklifinde tarihler dönüşüm anıdır', async () => {
+        const svc = build({ quotes: [quote(items)] });
+        const [job] = await svc.jobs();
+        expect(job.createdAt).toBe('2026-10-17T10:00:00.000Z');
+        expect(job.convertedAt).toBe('2026-10-18T08:30:00.000Z');
+      });
+    });
   });
 });

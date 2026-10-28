@@ -51,6 +51,23 @@ export class Quote extends ShopScopedEntity {
   @Column({ name: 'valid_until', type: 'timestamptz', nullable: true })
   validUntil?: Date | null;
 
+  /**
+   * Teklifin tarihi. Geriye dönük girişte (eski bir iş sisteme sonradan
+   * işlenirken) gerçek tarih buraya yazılır; boşsa kayıt tarihi (createdAt)
+   * geçerlidir. Liste, süzgeç, yazdırma ve dönüşümde oluşan satış/iş tarihleri
+   * bunu kullanır.
+   */
+  @Column({ name: 'quote_date', type: 'timestamptz', nullable: true })
+  quoteDate?: Date | null;
+
+  /**
+   * true → dükkân bilgisayarındaki runner bu teklif için KENDİLİĞİNDEN klasör
+   * açmaz (geriye dönük kayıt: "bugün" için klasör oluşmasın). Klasör yine de
+   * elle istenebilir (request-folders).
+   */
+  @Column({ name: 'skip_folders', default: false })
+  skipFolders: boolean;
+
   @Column({ length: 3, default: 'TRY' })
   currency: string;
 

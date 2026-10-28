@@ -55,11 +55,14 @@ export function GroupSection({
   title,
   count,
   countLabel = 'kayıt',
+  actions,
   children,
 }: {
   title: string;
   count: number;
   countLabel?: string;
+  /** Başlığın sağındaki küçük eylemler (ör. "Grubu seç"). */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const tone = toneOf(title);
@@ -74,6 +77,7 @@ export function GroupSection({
         <span className="text-xs text-slate-400">
           {count} {countLabel}
         </span>
+        {actions && <span className="ml-auto">{actions}</span>}
       </div>
       {children}
     </div>

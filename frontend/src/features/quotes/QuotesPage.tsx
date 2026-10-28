@@ -28,18 +28,21 @@ import {
 } from '../../api/materials.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
 import { fetchQueuePlateIds } from '../../api/processing.api';
-import { isPartialSheet, platePickSublabel, plateRemainingLabel } from '../../lib/plateLabel';
+import { isPartialSheet, platePickSublabel, plateRemainingLabel, stripNamePlaceholders } from '../../lib/plateLabel';
 import { groupPlates, plateCategory } from '../../lib/plateGrouping';
 import { SearchSelect } from '../../components/SearchSelect';
 import { quoteLinePreview, UNIT_LABEL } from '../../lib/quoteCalc';
 import { CustomerPicker } from '../../components/CustomerPicker';
+import { SelectedCard } from '../../components/ui/SelectedCard';
+import { TemplateFinder } from '../materials/TemplateFinder';
+import { QuickMaterialPanel, draftSummary, draftToInput, type NewMaterialDraft } from './QuickMaterialPanel';
 import { groupChipClass } from '../../components/GroupSection';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { requestQuoteFolders, updateQuote } from '../../api/quotes.api';
 import { QuoteFolders, RunnerBadge, folderPending, runnerSummary, useRunners } from '../../components/RunnerStatus';
-import { useCutPricing, useMaterialCategories } from '../../hooks/useReferenceData';
+import { useCutPricing, useMaterialCategories, useMaterialTemplates } from '../../hooks/useReferenceData';
 import { useDebounced } from '../../hooks/useDebounced';
 import { keepWhileSearching } from '../../lib/placeholder';
 import { confirmDialog } from '../../components/ConfirmDialog';
@@ -78,7 +81,31 @@ type FormItem = QuoteItemInput & {
   ownerFilterId?: string;
   // Serbest (stoksuz) satış kalemi: plaka seçmeden ad/ölçü/fiyat ile satış.
   adhoc?: boolean;
+  /** Stoksuz kalemin ürün türü (yalnız tarif: marka/renk/kalınlık; stok hareketi yok). */
+  adhocTemplateId?: string;
+  /** Stoksuz kalemden "işleme olarak da belirt" ile işleme kalemi eklendi. */
+  linkedProcessing?: boolean;
+  /** Yeni malzeme: teklif kaydedilince stoğa eklenir, kalemin plakası olur. */
+  material?: NewMaterialDraft;
 };
+
+/** Bugünün yerel tarihi (YYYY-MM-DD) — tarih alanları için. */
+function todayStr(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/** Stoksuz kalemin fişte görünen adı: ürün türü adı + (varsa) özel ebat. */
+function adhocDisplayName(it: Pick<FormItem, 'itemName' | 'adhocTemplateId' | 'widthMm' | 'heightMm' | 'billingUnit'>): string {
+  const base = it.itemName?.trim() || 'Malzeme';
+  const dims =
+    it.adhocTemplateId && (it.billingUnit ?? 'area') === 'area' && it.widthMm && it.heightMm
+      ? `${it.widthMm}×${it.heightMm}`
+      : '';
+  return dims && !base.includes(dims) ? `${base} (${dims} mm)` : base;
+}
 
 /**
  * Seçilen malzemenin (tek) konsinye sahibi: işletmenin de stoğu varsa ya da
@@ -289,31 +316,17 @@ function SalePlatePicker({
     placeholderData: keepPreviousData,
   });
 
-  // Seçili malzeme: kart olarak özetlenir.
+  // Seçili malzeme: kart olarak özetlenir; TÜM KART tıklanınca seçim açılır.
   if (!open && selectedPlate) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-900/20">
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">
-            {selectedPlate.name}
-          </span>
-          <span className="block truncate text-xs text-slate-500">
-            {[
-              plateCategory(selectedPlate),
-              platePickSublabel(selectedPlate),
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
-        </span>
-        <button
-          type="button"
-          className="btn-secondary btn-sm shrink-0"
-          onClick={() => setOpen(true)}
-        >
-          Değiştir
-        </button>
-      </div>
+      <SelectedCard
+        title={selectedPlate.name}
+        subtitle={[plateCategory(selectedPlate), platePickSublabel(selectedPlate)]
+          .filter(Boolean)
+          .join(' · ')}
+        titleHint="Başka malzeme seçmek için karta tıklayın"
+        onChange={() => setOpen(true)}
+      />
     );
   }
 
@@ -854,9 +867,36 @@ export function QuotesPage() {
       {showForm && (
         <div ref={newFormRef} className="scroll-mt-4">
           <NewQuoteForm
-            onDone={() => {
+            onDone={(saved) => {
               setShowForm(false);
-              qc.invalidateQueries({ queryKey: ['quotes'] });
+              for (const k of ['quotes', 'queue', 'customers', 'plates', 'processing-history', 'sales'])
+                qc.invalidateQueries({ queryKey: [k] });
+              // Varsayılan liste son 1 haftayı gösterir: daha eski tarihli (geriye
+              // dönük) teklif kaydedilince liste o güne odaklanır, kayıt görünsün.
+              const qd = saved?.quoteDate?.slice(0, 10);
+              if (qd && qd < new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)) {
+                setFilter({ from: qd, to: qd });
+              }
+              const c = saved?.conversion;
+              if (c) {
+                const parts: string[] = [];
+                if (c.saleId) parts.push('satış oluşturuldu');
+                if (c.processingJobIds.length)
+                  parts.push(
+                    c.completed
+                      ? `${c.processingJobIds.length} işleme tamamlanmış olarak işlendi`
+                      : `${c.processingJobIds.length} işleme kuyruğa eklendi`,
+                  );
+                parts.push(
+                  saved?.skipFolders
+                    ? 'geriye dönük kayıt: bugün için klasör açılmadı'
+                    : 'klasörler dükkân bilgisayarında açılıyor',
+                );
+                setConvertMsg({
+                  text: `${saved?.quoteNo ?? 'Teklif'} kaydedildi ve dönüştürüldü: ${parts.join(' · ')}.`,
+                  queued: c.completed ? 0 : c.processingJobIds.length,
+                });
+              }
             }}
             onCancel={() => setShowForm(false)}
           />
@@ -1018,12 +1058,20 @@ export function QuotesPage() {
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="font-semibold text-slate-900">{q.quoteNo}</span>
                       <span className={`badge ${st.cls}`}>{st.label}</span>
+                      {q.skipFolders && (
+                        <span
+                          className="badge bg-slate-100 text-slate-600"
+                          title="Geriye dönük kayıt: bugün için klasör açılmaz"
+                        >
+                          🕘 geriye dönük
+                        </span>
+                      )}
                     </div>
                     <p className={`truncate font-medium text-slate-700 ${mini ? 'text-xs' : 'mt-0.5 text-sm'}`}>
                       {q.buyerCustomer?.name ?? '—'}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {q.items.length} kalem{kinds && ` (${kinds})`} · {formatDate(q.createdAt)}
+                      {q.items.length} kalem{kinds && ` (${kinds})`} · {formatDate(q.quoteDate ?? q.createdAt)}
                       {!mini && q.validUntil && ` · geçerlilik ${formatDate(q.validUntil)}`}
                     </p>
                   </div>
@@ -1045,7 +1093,7 @@ export function QuotesPage() {
                       );
                     })()}
                     {!mini && (
-                      <p className="text-xs text-slate-500">{relativeDay(q.createdAt)}</p>
+                      <p className="text-xs text-slate-500">{relativeDay(q.quoteDate ?? q.createdAt)}</p>
                     )}
                   </div>
                 </div>
@@ -1575,7 +1623,8 @@ function NewQuoteForm({
   onCancel,
   editQuote,
 }: {
-  onDone: () => void;
+  /** Kaydedildi; tek adımda dönüştürüldüyse sonuç da gelir. */
+  onDone: (saved?: Quote) => void;
   /** Kaydetmeden kapat (başlıktaki ✕ / Vazgeç). */
   onCancel: () => void;
   editQuote?: Quote;
@@ -1593,6 +1642,26 @@ function NewQuoteForm({
     editQuote?.buyerCustomer?.name ?? '',
   );
   const [quoteNote, setQuoteNote] = useState(editQuote?.note ?? '');
+  // Geriye dönük giriş: teklif tarihi, kaydederken ilerletme ve klasör.
+  const [quoteDate, setQuoteDate] = useState(() => editQuote?.quoteDate?.slice(0, 10) ?? todayStr());
+  const [finalizeMode, setFinalizeMode] = useState<'none' | 'convert' | 'complete'>('none');
+  const [skipFolders, setSkipFolders] = useState(editQuote?.skipFolders ?? false);
+  const [modeTouched, setModeTouched] = useState(!!editQuote);
+  const backdated = !!quoteDate && quoteDate < todayStr();
+  // Geçmiş bir tarih seçilince önerilen ayarlar (kullanıcı dokunmadıysa):
+  // doğrudan tamamlanmış olarak ekle + klasör açma.
+  const changeQuoteDate = (v: string) => {
+    setQuoteDate(v);
+    if (modeTouched) return;
+    const past = !!v && v < todayStr();
+    setFinalizeMode(past ? 'complete' : 'none');
+    setSkipFolders(past);
+  };
+  // Hangi kalemin "yeni malzeme" paneli açık (kalem sırası).
+  const [materialPanel, setMaterialPanel] = useState<number | null>(null);
+  // Stoksuz kalemde ürün türü bulucusu açık olan kalem.
+  const [adhocPick, setAdhocPick] = useState<number | null>(null);
+  const { data: allTemplates } = useMaterialTemplates();
   const [items, setItems] = useState<FormItem[]>(
     () => editQuote?.items.map((it) => quoteItemToForm(it, editQuote)) ?? [],
   );
@@ -1614,6 +1683,7 @@ function NewQuoteForm({
   // #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygulama.
   const [applyPrice, setApplyPrice] = useState('');
   const [applyNote, setApplyNote] = useState('');
+  const [applyDate, setApplyDate] = useState('');
 
   const cachePlate = (p?: Plate) =>
     p && setPlateCache((c) => (c[p.id] ? c : { ...c, [p.id]: p }));
@@ -1725,7 +1795,7 @@ function NewQuoteForm({
   const createMut = useMutation({
     mutationFn: (input: CreateQuoteInput) =>
       editQuote ? updateQuote(editQuote.id, input) : createQuote(input),
-    onSuccess: onDone,
+    onSuccess: (res) => onDone(res),
   });
 
 
@@ -1743,6 +1813,91 @@ function NewQuoteForm({
       ...it,
       { lineKind: 'processing', plateId, quantity: 1, unitPrice: 0, billingUnit: 'area' },
     ]);
+
+  // "Yeni malzemeli işleme": stokta olmayan / müşterinin getirdiği malzeme için
+  // boş bir işleme kalemi ekler ve malzeme panelini açar.
+  const addNewMaterialLine = () => {
+    setItems((it) => [
+      ...it,
+      { lineKind: 'processing', plateId: '', quantity: 1, unitPrice: 0, billingUnit: 'area' },
+    ]);
+    setMaterialPanel(items.length);
+  };
+
+  // Panelden gelen yeni malzemeyi kaleme bağlar; ölçü/birim malzemeden gelir.
+  const attachMaterial = (i: number, d: NewMaterialDraft) => {
+    const it = items[i];
+    if (!it) return;
+    const unit: MeasurementType = d.measurementType === 'weight' ? 'piece' : d.measurementType;
+    const base: Partial<FormItem> = {
+      material: d,
+      plateId: '',
+      adhoc: false,
+      ownerMode: 'auto',
+      ownerFilterId: undefined,
+      ownerCustomerId: undefined,
+      billingUnit: unit,
+      itemName: undefined,
+      widthMm: unit === 'area' ? d.widthMm : undefined,
+      heightMm: unit === 'area' ? d.heightMm : undefined,
+    };
+    if (unit === 'area') base.quantity = 1;
+    if (it.lineKind === 'processing' && unit === 'length') base.lengthMeters = d.quantityInStock;
+    if (it.lineKind === 'sale' && (unit === 'length' || unit === 'piece')) base.quantity = d.quantityInStock ?? 1;
+    patch(i, base);
+    setMaterialPanel(null);
+  };
+
+  // Stoksuz kalemde ürün türünden malzeme tarifi: ad, ölçü birimi türden gelir;
+  // ebat (örn. 100×200) kalemde elle yazılır. Stok hareketi OLMAZ.
+  const pickAdhocTemplate = (i: number, templateId: string, known?: (typeof allTemplates extends (infer T)[] | undefined ? T : never)) => {
+    const t = known ?? allTemplates?.find((x) => x.id === templateId);
+    if (!t) return;
+    const unit = (t.measurementType === 'weight' ? 'piece' : t.measurementType) as MeasurementType;
+    patch(i, {
+      adhocTemplateId: templateId,
+      itemName: stripNamePlaceholders(t.name) || t.name,
+      billingUnit: unit,
+      quantity: 1,
+      linkedProcessing: false,
+    });
+    setAdhocPick(null);
+  };
+
+  // Stoksuz kalemi "işleme olarak da belirt": aynı malzemeyle (ürün türü +
+  // özel ebat) bir işleme kalemi ekler; malzeme teklif kaydedilince stoğa
+  // girer ve işleme onu kullanır.
+  const addProcessingFromAdhoc = (i: number) => {
+    const it = items[i];
+    const t = allTemplates?.find((x) => x.id === it?.adhocTemplateId);
+    if (!it || !t) return;
+    const unit = (t.measurementType === 'weight' ? 'piece' : t.measurementType) as MeasurementType;
+    const draft: NewMaterialDraft = {
+      templateId: t.id,
+      label: t.name,
+      measurementType: unit,
+      widthMm: unit === 'area' ? it.widthMm : undefined,
+      heightMm: unit === 'area' || unit === 'length' ? it.heightMm : undefined,
+      quantityInStock: unit === 'area' ? 1 : Number(it.quantity) || 1,
+      ownerLabel: 'işletme stoğu',
+      addedAt: it.itemDate ?? (quoteDate || undefined),
+    };
+    setItems((all) => [
+      ...all.map((x, idx) => (idx === i ? { ...x, linkedProcessing: true } : x)),
+      {
+        lineKind: 'processing' as const,
+        plateId: '',
+        quantity: 1,
+        unitPrice: 0,
+        billingUnit: unit,
+        widthMm: draft.widthMm,
+        heightMm: unit === 'area' ? draft.heightMm : undefined,
+        lengthMeters: unit === 'length' ? Number(it.quantity) || undefined : undefined,
+        itemDate: it.itemDate,
+        material: draft,
+      },
+    ]);
+  };
 
   const patch = (i: number, p: Partial<FormItem>) =>
     setItems((it) => it.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
@@ -1832,8 +1987,9 @@ function NewQuoteForm({
   const canSubmit =
     buyerCustomerId &&
     items.length > 0 &&
-    // Her kalem ya bir plaka seçmeli ya da serbest (stoksuz) kalemde ad girmeli.
-    items.every((i) => i.plateId || (i.adhoc && i.itemName?.trim())) &&
+    // Her kalem ya bir plaka seçmeli, yeni malzeme tanımlamalı ya da serbest
+    // (stoksuz) kalemde ad girmeli.
+    items.every((i) => i.plateId || i.material || (i.adhoc && i.itemName?.trim())) &&
     !ownerConflict;
 
   // Teklif henüz oluşturulmadan satır tutarları + genel toplam (canlı tahmin).
@@ -1862,8 +2018,8 @@ function NewQuoteForm({
     ? 'Önce alıcı müşteriyi seçin.'
     : items.length === 0
       ? 'En az bir satış veya işleme kalemi ekleyin.'
-      : !items.every((i) => i.plateId || (i.adhoc && i.itemName?.trim()))
-        ? 'Her kalemde malzeme seçin (serbest kalemde malzeme adını yazın).'
+      : !items.every((i) => i.plateId || i.material || (i.adhoc && i.itemName?.trim()))
+        ? 'Her kalemde malzeme seçin ya da yeni malzeme ekleyin (serbest kalemde malzeme adını yazın).'
         : ownerConflict
           ? 'Farklı sahiplerin malzemeleri aynı teklifte olamaz.'
           : null;
@@ -1894,18 +2050,24 @@ function NewQuoteForm({
         ownerMode: _mode,
         ownerFilterId: _filter,
         adhoc,
+        adhocTemplateId: _tpl,
+        linkedProcessing: _linked,
+        material,
         ...rest
       } = it;
       const base: QuoteItemInput = {
         ...rest,
         plateId: it.plateId || undefined,
+        // Yeni malzeme: kayıt sırasında stoğa eklenir (geliş tarihiyle).
+        newMaterial: material ? draftToInput(material) : undefined,
       };
       // #5 Serbest (stoksuz) kalem: plaka yok; ad + billingUnit gönderilir,
-      // stok kaynağı/sahip uygulanmaz.
+      // stok kaynağı/sahip uygulanmaz. Ürün türü seçildiyse ad ürün türünü ve
+      // özel ebadı (örn. 100×200) taşır.
       if (adhoc) {
         return {
           ...base,
-          itemName: it.itemName?.trim() || 'Malzeme',
+          itemName: adhocDisplayName(it),
           stockSource: undefined,
         };
       }
@@ -1927,6 +2089,11 @@ function NewQuoteForm({
       ownerCustomerId: ownerCustomerId || undefined,
       currency: 'TRY',
       note: quoteNote.trim() || undefined,
+      // Teklif tarihi yalnız geçmişe girildiyse gönderilir (bugünse kayıt anı
+      // geçerli); geriye dönük kayıtta klasör ve ilerletme seçimi de gider.
+      quoteDate: quoteDate || undefined,
+      skipFolders,
+      finalize: !editQuote || backdated ? (finalizeMode === 'none' ? undefined : finalizeMode) : undefined,
       items: mapped,
     });
   };
@@ -1968,6 +2135,102 @@ function NewQuoteForm({
         />
       </Field>
 
+      {/* Teklif tarihi + geriye dönük kayıt: eski bir işi sisteme sonradan girerken
+          gerçek tarih yazılır; kaydederken tek adımda tamamlanmış eklenebilir ve
+          bugün için klasör oluşturulmaz. */}
+      <div className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Teklif tarihi" className="w-44 shrink-0">
+            <input
+              className="input"
+              type="date"
+              max={todayStr()}
+              value={quoteDate}
+              onChange={(e) => changeQuoteDate(e.target.value)}
+            />
+          </Field>
+          <div className="flex flex-wrap gap-1 pb-0.5 text-xs">
+            {[
+              ['Bugün', 0],
+              ['Dün', 1],
+              ['1 hafta önce', 7],
+              ['1 ay önce', 30],
+            ].map(([label, ago]) => {
+              const d = new Date();
+              d.setDate(d.getDate() - Number(ago));
+              const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+              return (
+                <button
+                  key={String(label)}
+                  type="button"
+                  className={`min-h-[36px] rounded-lg px-2.5 font-medium ${
+                    quoteDate === v
+                      ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                  onClick={() => changeQuoteDate(v)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {(backdated || !editQuote) && (
+          <div
+            className={`space-y-2 rounded-lg p-2 text-sm ${
+              backdated
+                ? 'border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+                : 'bg-slate-50 dark:bg-slate-800/50'
+            }`}
+          >
+            {backdated && (
+              <p className="font-semibold text-amber-900 dark:text-amber-200">
+                🕘 Geriye dönük kayıt: {formatDate(quoteDate)} tarihli iş giriliyor.
+              </p>
+            )}
+            <div className="space-y-1" role="radiogroup" aria-label="Kaydederken">
+              <span className="label">Kaydederken</span>
+              {(
+                [
+                  ['none', 'Yalnız teklif olarak kaydet (sonra kabul/dönüştür)'],
+                  ['convert', 'Kabul et ve satış / işlemeye dönüştür'],
+                  ['complete', 'Kabul et, dönüştür ve işlemeleri TAMAMLANMIŞ ekle (kalem tarihleriyle)'],
+                ] as const
+              ).map(([v, label]) => (
+                <label key={v} className="flex min-h-[32px] cursor-pointer items-center gap-2 text-xs">
+                  <input
+                    type="radio"
+                    name="finalize"
+                    checked={finalizeMode === v}
+                    onChange={() => {
+                      setFinalizeMode(v);
+                      setModeTouched(true);
+                    }}
+                  />
+                  <span className={finalizeMode === v ? 'font-semibold' : ''}>{label}</span>
+                </label>
+              ))}
+            </div>
+            <label className="flex min-h-[32px] cursor-pointer items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={skipFolders}
+                onChange={(e) => {
+                  setSkipFolders(e.target.checked);
+                  setModeTouched(true);
+                }}
+              />
+              <span>
+                <b>Klasör açılmasın</b> — dükkân bilgisayarı bu iş için bugüne klasör oluşturmaz
+                (istersen sonradan teklif kartından, işin gerçek gününe istenir)
+              </span>
+            </label>
+          </div>
+        )}
+      </div>
+
       {/* Stoktan toplu işleme ekleme: müşterinin (konsinye) VEYA işletme stoğundan,
           MALZEME TÜRÜNE (kategori) göre gruplu, checkbox ile toplu seçim (parça+tam). */}
       {buyerCustomerId && (
@@ -1976,15 +2239,25 @@ function NewQuoteForm({
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
               📦 Stoktan işleme ekle — parça + tam ({buyerPlatesData?.meta?.total ?? ownerStockAll.length})
             </p>
-            <button
-              type="button"
-              className="btn-success btn-sm"
-              disabled={selectableStock.length === 0}
-              onClick={addAllFilteredStock}
-              title="Görünen tüm malzemeleri tek tıkla ekle"
-            >
-              ⚡ Tümünü işleme ekle ({selectableStock.length})
-            </button>
+            <span className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={addNewMaterialLine}
+                title="Stokta olmayan / müşterinin getirdiği malzemeyi geliş tarihiyle ekle"
+              >
+                ➕ Yeni malzeme ekle
+              </button>
+              <button
+                type="button"
+                className="btn-success btn-sm"
+                disabled={selectableStock.length === 0}
+                onClick={addAllFilteredStock}
+                title="Görünen tüm malzemeleri tek tıkla ekle"
+              >
+                ⚡ Tümünü işleme ekle ({selectableStock.length})
+              </button>
+            </span>
           </div>
 
           {/* Kaynak: müşterinin konsinye stoğu / işletme stoğu */}
@@ -2247,10 +2520,12 @@ function NewQuoteForm({
               </span>
               <span
                 className={`truncate text-sm ${
-                  plate?.name || item.itemName ? 'font-medium text-slate-800' : 'italic text-slate-400'
+                  plate?.name || item.itemName || item.material
+                    ? 'font-medium text-slate-800'
+                    : 'italic text-slate-400'
                 }`}
               >
-                {plate?.name ?? (item.itemName || 'Malzeme seçilmedi')}
+                {plate?.name ?? (item.itemName || item.material?.label || 'Malzeme seçilmedi')}
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-1">
@@ -2298,7 +2573,29 @@ function NewQuoteForm({
           {/* Malzeme kaynağı: işletme stoğu / müşteri (konsinye) / tümü.
               Satış kaleminde müşteri seçilirse konsinye (sahip payı) hesabı
               uygulanır; işleme kaleminde yalnızca arama/filtre kolaylığıdır. */}
-          {!item.adhoc && (
+          {/* Yeni malzeme: stokta yok / müşterinin getirdiği; teklif kaydedilince
+              geliş tarihiyle stoğa girer ve bu kalemde kullanılır. */}
+          {!item.adhoc && materialPanel === i && (
+            <QuickMaterialPanel
+              buyerId={buyerCustomerId}
+              buyerName={buyerName}
+              defaultDate={item.itemDate ?? quoteDate}
+              initial={item.material}
+              defaultOwner={item.lineKind === 'sale' ? 'business' : 'customer'}
+              onSave={(d) => attachMaterial(i, d)}
+              onCancel={() => setMaterialPanel(null)}
+            />
+          )}
+          {!item.adhoc && materialPanel !== i && item.material && (
+            <SelectedCard
+              title={`🆕 ${item.material.label}`}
+              subtitle={draftSummary(item.material)}
+              titleHint="Yeni malzemeyi düzenlemek için karta tıklayın"
+              actionLabel="Düzenle"
+              onChange={() => setMaterialPanel(i)}
+            />
+          )}
+          {!item.adhoc && materialPanel !== i && !item.material && (
           <>
           <Field
             label={
@@ -2379,7 +2676,48 @@ function NewQuoteForm({
             />
             )}
           </Field>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={() => setMaterialPanel(i)}
+            title="Aradığınız malzeme stokta yoksa buradan tanımlayın; ürün türü de yoksa kaydedilir"
+          >
+            ➕ Stokta yok mu? Yeni malzeme ekle
+          </button>
           </>
+          )}
+
+          {/* Stoksuz kalemde "işe özel malzeme": ürün türünden (marka/renk/kalınlık)
+              seçilir, ebat kalemde yazılır; stoğa girmez, yalnız tarif eder. */}
+          {item.adhoc && (
+            <div className="space-y-2">
+              {adhocPick === i ? (
+                <TemplateFinder
+                  templates={allTemplates ?? []}
+                  selectedId={item.adhocTemplateId}
+                  onPick={(id) => pickAdhocTemplate(i, id)}
+                  onCreated={(res) => pickAdhocTemplate(i, res.template.id, res.template)}
+                  createLabel="Ürün türünü kaydet ve kullan"
+                  createHint="Aradığınız ürün türü kayıtlı değil. Alanlar aramanızdan dolduruldu; kaydedince bu kalemde kullanılır."
+                />
+              ) : item.adhocTemplateId && allTemplates?.some((x) => x.id === item.adhocTemplateId) ? (
+                (() => {
+                  const t = allTemplates!.find((x) => x.id === item.adhocTemplateId)!;
+                  return (
+                    <SelectedCard
+                      title={stripNamePlaceholders(t.name) || t.name}
+                      subtitle={`${t.category?.name ?? ''} · stoksuz: stoktan düşülmez`}
+                      titleHint="Başka ürün türü seçmek için karta tıklayın"
+                      onChange={() => setAdhocPick(i)}
+                    />
+                  );
+                })()
+              ) : (
+                <button type="button" className="btn-secondary btn-sm" onClick={() => setAdhocPick(i)}>
+                  📋 Ürün türünden seç (marka / renk / kalınlık)
+                </button>
+              )}
+            </div>
           )}
 
           {/* #5 Serbest (stoksuz) kalem alanları: ad + fiyatlama birimi (+ ebat). */}
@@ -2438,6 +2776,30 @@ function NewQuoteForm({
                   </Field>
                 </>
               )}
+            </div>
+          )}
+
+          {item.adhoc && item.adhocTemplateId && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs dark:bg-slate-800/50">
+              <span className="min-w-0 flex-1 basis-48 text-slate-500">
+                Satırda görünen ad: <b className="text-slate-700 dark:text-slate-200">{adhocDisplayName(item)}</b>
+              </span>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                disabled={
+                  item.linkedProcessing ||
+                  ((item.billingUnit ?? 'area') === 'area' && !(item.widthMm && item.heightMm))
+                }
+                title={
+                  (item.billingUnit ?? 'area') === 'area' && !(item.widthMm && item.heightMm)
+                    ? 'Önce ebadı (en × boy) yazın'
+                    : 'Aynı malzemeyle bir işleme kalemi ekler; malzeme teklif kaydedilince stoğa girer ve işlenir'
+                }
+                onClick={() => addProcessingFromAdhoc(i)}
+              >
+                {item.linkedProcessing ? '✓ İşleme kalemi eklendi' : '⚙ İşleme olarak da belirt'}
+              </button>
             </div>
           )}
 
@@ -2739,13 +3101,27 @@ function NewQuoteForm({
             </Field>
             {/* #2 Kaleme özel işlenme/teslim tarihi — dönüşümde işleme işinin
                 (processedAt) / satışın (saleDate) tarihine yansır. */}
-            <Field label="İşlenme/teslim tarihi (ops.)">
+            <Field label="Tamamlanma / işlenme tarihi">
               <input
                 className="input"
                 type="date"
+                max={todayStr()}
                 value={item.itemDate ?? ''}
                 onChange={(e) => patch(i, { itemDate: e.target.value || undefined })}
               />
+              <span className="mt-0.5 block text-[11px] text-slate-400">
+                {item.itemDate ? (
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => patch(i, { itemDate: undefined })}
+                  >
+                    temizle (teklif tarihi geçerli olsun)
+                  </button>
+                ) : (
+                  `boşsa teklif tarihi (${formatDate(quoteDate)})`
+                )}
+              </span>
             </Field>
           </div>
 
@@ -2802,6 +3178,15 @@ function NewQuoteForm({
           <span className="h-2 w-2 rounded-full bg-indigo-500" aria-hidden />
           + İşleme kalemi
         </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={addNewMaterialLine}
+          title="Stokta olmayan malzemeyi tanımla; teklif kaydedilince stoğa girer"
+        >
+          <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+          + Yeni malzemeli işleme
+        </button>
       </div>
 
       {/* #1 Tüm kalemlere ortak birim fiyat/ücret ve not uygula. */}
@@ -2810,7 +3195,7 @@ function NewQuoteForm({
           <p className="text-xs font-semibold text-slate-600">
             Tüm kalemlere toplu uygula
           </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_auto] sm:items-end">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_10rem_auto] sm:items-end">
             <Field label="Ortak birim fiyat/ücret">
               <input
                 className="input"
@@ -2830,16 +3215,26 @@ function NewQuoteForm({
                 onChange={(e) => setApplyNote(e.target.value)}
               />
             </Field>
+            <Field label="Ortak tamamlanma tarihi">
+              <input
+                className="input"
+                type="date"
+                max={todayStr()}
+                value={applyDate}
+                onChange={(e) => setApplyDate(e.target.value)}
+              />
+            </Field>
             <button
               type="button"
               className="btn-secondary"
-              disabled={applyPrice === '' && !applyNote.trim()}
+              disabled={applyPrice === '' && !applyNote.trim() && !applyDate}
               onClick={() =>
                 setItems((its) =>
                   its.map((it) => ({
                     ...it,
                     ...(applyPrice !== '' ? { unitPrice: Number(applyPrice) } : {}),
                     ...(applyNote.trim() ? { description: applyNote.trim() } : {}),
+                    ...(applyDate ? { itemDate: applyDate } : {}),
                   })),
                 )
               }

@@ -242,7 +242,13 @@ export class CorelService {
     const folders = await this.settings.getFolderSettings();
     // Dükkânın klasör oluşturucusu kapalı: runner bu dükkâna klasör açmaz.
     if (!folders.enabled) return [];
-    const where: Record<string, unknown> = { status: QuoteStatus.CONVERTED, deletedAt: IsNull() };
+    // Geriye dönük kayıtlar (skipFolders) kendiliğinden klasör açtırmaz:
+    // "bugün" için klasör oluşmasın. Elle istenirse requestedJobs'tan gelir.
+    const where: Record<string, unknown> = {
+      status: QuoteStatus.CONVERTED,
+      deletedAt: IsNull(),
+      skipFolders: false,
+    };
     if (since) where.convertedAt = MoreThanOrEqual(new Date(since));
     const quotes = await this.quotesRepo.find({
       where,
@@ -342,11 +348,14 @@ export class CorelService {
             : folders.code;
         return jobSheet(item, { purpose, ownerKind: o.kind, owner });
       });
+      // Geriye dönük kayıt elle istenince klasör teklifin GERÇEK gününe açılır
+      // (runner gün klasörünü bu iki tarihten seçer); bugüne değil.
+      const backdated = q.skipFolders && q.quoteDate ? q.quoteDate : null;
       return {
         id: q.id,
         quoteNo: q.quoteNo,
-        createdAt: q.createdAt.toISOString(),
-        convertedAt: q.convertedAt!.toISOString(),
+        createdAt: (backdated ?? q.quoteDate ?? q.createdAt).toISOString(),
+        convertedAt: (backdated ?? q.convertedAt!).toISOString(),
         customerId: q.buyerCustomerId,
         customerFolder: customerFolderName(c?.name, c?.companyName),
         customerLabel: label,
