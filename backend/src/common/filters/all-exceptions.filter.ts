@@ -40,7 +40,7 @@ const DB_DOWN_CODES = new Set([
   '08006',
 ]);
 
-function isDatabaseDown(exception: unknown): boolean {
+export function isDatabaseDown(exception: unknown): boolean {
   const err = exception as { code?: string; driverError?: { code?: string }; message?: string };
   const code = err?.driverError?.code ?? err?.code;
   if (code && DB_DOWN_CODES.has(code)) return true;

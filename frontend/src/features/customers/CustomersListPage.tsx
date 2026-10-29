@@ -18,7 +18,8 @@ import {
   type CustomerFilters,
   type UpdateCustomerInput,
 } from '../../api/customers.api';
-import { downloadFile, openPdf } from '../../api/documents.api';
+import { downloadFile } from '../../api/documents.api';
+import { PdfViewer } from '../../components/PdfViewer';
 import { fold } from '../../lib/search';
 import { useBankAccounts, useDisplaySettings, useStaff } from '../../hooks/useReferenceData';
 import { useAuth } from '../../context/AuthContext';
@@ -954,6 +955,8 @@ function CustomerStatement({
   const [rangeTo, setRangeTo] = useState('');
   // Yalnız arayüz: "Tarih aralığı seç…" seçildi ama henüz tarih girilmedi.
   const [customPicked, setCustomPicked] = useState(false);
+  // Ekstre PDF penceresi (görüntüle / indir / yazdır).
+  const [pdfOpen, setPdfOpen] = useState(false);
   const isCustom = customPicked || !!rangeFrom || !!rangeTo;
   const statementQuery = {
     ...(rangeFrom ? { from: rangeFrom } : {}),
@@ -1132,6 +1135,15 @@ function CustomerStatement({
 
   return (
     <div className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
+      {pdfOpen && (
+        <PdfViewer
+          title={`Cari ekstre · ${customerName}`}
+          path={`/customers/${customerId}/statement.pdf${statementParams}`}
+          filename={`ekstre-${fileSlug}.pdf`}
+          fallbackPath={`/customers/${customerId}/statement/print${statementParams}`}
+          onClose={() => setPdfOpen(false)}
+        />
+      )}
       {/* Dönem seçimi — çıktılar (CSV/PDF) da bu dönemi kullanır. */}
       <div className="flex flex-wrap items-end justify-between gap-2">
         <label className="block min-w-0 flex-1 sm:max-w-xs">
@@ -1173,24 +1185,10 @@ function CustomerStatement({
           </button>
           <button
             className="btn-secondary btn-sm"
-            title="Ekstreyi PDF olarak aç (yeni sekmede görüntüle / yazdır)"
-            onClick={() =>
-              openPdf(`/customers/${customerId}/statement.pdf${statementParams}`)
-            }
+            title="Ekstreyi PDF olarak göster — indirme ve yazdırma aynı pencerede"
+            onClick={() => setPdfOpen(true)}
           >
-            🖨 PDF
-          </button>
-          <button
-            className="btn-secondary btn-sm"
-            title="Ekstreyi PDF dosyası olarak indir"
-            onClick={() =>
-              downloadFile(
-                `/customers/${customerId}/statement.pdf${statementParams}`,
-                `ekstre-${fileSlug}.pdf`,
-              )
-            }
-          >
-            ⬇ PDF
+            📄 PDF
           </button>
         </div>
       </div>

@@ -1,6 +1,9 @@
 import {
   Controller,
   Get,
+  HttpException,
+  InternalServerErrorException,
+  Logger,
   Param,
   ParseUUIDPipe,
   Query,
@@ -14,7 +17,12 @@ import { QueryExpenseDto } from '../expenses/dto/expense.dto';
 import { ExportService } from './services/export.service';
 import { QuoteDocumentService } from './services/quote-document.service';
 import { DocumentHtmlService } from './services/document-html.service';
-import { DocumentPdfService } from './services/document-pdf.service';
+import {
+  DocumentPdfService,
+  describePdfError,
+} from './services/document-pdf.service';
+import { DocModel } from './services/document-model';
+import { isDatabaseDown } from '../../common/filters/all-exceptions.filter';
 import { ShopAccess } from '../../common/shop/shop-access.decorator';
 
 const HTML = 'text/html; charset=utf-8';
@@ -32,6 +40,8 @@ const XLSX =
 @ApiBearerAuth()
 @Controller({ version: '1' })
 export class DocumentsController {
+  private readonly logger = new Logger(DocumentsController.name);
+
   constructor(
     private readonly exports: ExportService,
     private readonly quoteDocs: QuoteDocumentService,
@@ -112,8 +122,10 @@ export class DocumentsController {
     @Query('download') download: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const doc = await this.html.customerStatementDoc(id, query);
-    const buf = await this.pdf.render(doc);
+    const doc = await this.stage<DocModel>('Ekstre hazırlanamadı', () =>
+      this.html.customerStatementDoc(id, query),
+    );
+    const buf = await this.stage('PDF oluşturulamadı', () => this.pdf.render(doc));
     const name = fileSlug(doc.parties[0]?.lines[0] ?? id.slice(0, 8));
     return this.stream(
       res,
@@ -212,6 +224,22 @@ export class DocumentsController {
   ): Promise<StreamableFile> {
     const buf = await this.exports.customerLedgerXlsx(id);
     return this.stream(res, buf, XLSX, `cari-ekstre-${id.slice(0, 8)}.xlsx`);
+  }
+
+  /**
+   * Beklenmeyen bir hatayı genel "Beklenmeyen bir hata oluştu" yerine kısa,
+   * gerçek nedenle bildirir (tam yığın günlüğe yazılır). Bilinen HTTP hataları
+   * ve veritabanı kesintisi olduğu gibi geçer: bunları filtre zaten doğru
+   * durum koduyla yanıtlar.
+   */
+  private async stage<T>(what: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof HttpException || isDatabaseDown(e)) throw e;
+      this.logger.error(`${what}: ${describePdfError(e)}`, (e as Error)?.stack);
+      throw new InternalServerErrorException(`${what}: ${describePdfError(e)}`);
+    }
   }
 
   private stream(

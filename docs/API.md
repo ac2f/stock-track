@@ -599,7 +599,14 @@ ister.
 
 PDF, `DocumentPdfService` ile HTML'in kullandığı **aynı belge modelinden** (`DocModel`)
 üretilir: ekranda gördüğünüz ile indirdiğiniz içerik aynıdır. Yazı tipi
-Liberation Sans'tır (SIL OFL; `src/modules/documents/fonts/`, derlemede `dist`'e kopyalanır).
+Liberation Sans'tır (SIL OFL; `src/modules/documents/fonts/`, derlemede `dist`'e kopyalanır;
+`dist`, `src` ve sistem klasörleri sırayla aranır). Dosya bulunamaz ya da bozuksa PDF
+Helvetica ile üretilir (Türkçe harfler sadeleşir) ve açılışta/üretimde günlüğe uyarı yazılır.
+
+PDF/ekstre üretimi beklenmedik bir hatayla bozulursa istemciye genel "Beklenmeyen bir hata
+oluştu." yerine kısa neden döner (`500`, `PDF oluşturulamadı: <neden>` ya da
+`Ekstre hazırlanamadı: <neden>`; dosya yolları gizlenir, tam yığın sunucu günlüğündedir).
+Arayüzdeki PDF penceresi bu iletiyi olduğu gibi gösterir.
 
 ### Portal (Müşteri self-servis — 🔓 Public, token'lı)
 | Metot | Yol | Yetki | Açıklama |

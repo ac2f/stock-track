@@ -1,0 +1,7 @@
+# Yazı tipleri ve görseller ikili dosyadır: satır sonu dönüşümü bozmasın.
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.png binary
+*.ico binary

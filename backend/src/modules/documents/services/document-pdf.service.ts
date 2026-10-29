@@ -1,13 +1,41 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { existsSync, statSync } from 'fs';
 import { join } from 'path';
 import PDFDocument from 'pdfkit';
 import { DocModel, Party, Section } from './document-model';
 
 // Yazı tipi: Liberation Sans (SIL OFL). Standart PDF yazı tipleri ş/ğ/ı/İ
 // harflerini içermediğinden Türkçe için gömülü TTF gerekir.
-const FONT_DIR = join(__dirname, '..', 'fonts');
-const REGULAR = join(FONT_DIR, 'LiberationSans-Regular.ttf');
-const BOLD = join(FONT_DIR, 'LiberationSans-Bold.ttf');
+const FONT_FILES = ['LiberationSans-Regular.ttf', 'LiberationSans-Bold.ttf'] as const;
+
+/** Yazı tipinin aranacağı klasörler (derlenmiş, kaynak ve sistem kurulumları). */
+function fontDirs(): string[] {
+  return [
+    join(__dirname, '..', 'fonts'),
+    join(process.cwd(), 'dist', 'modules', 'documents', 'fonts'),
+    join(process.cwd(), 'src', 'modules', 'documents', 'fonts'),
+    '/usr/share/fonts/truetype/liberation',
+    '/usr/share/fonts/truetype/liberation2',
+    '/usr/share/fonts/liberation',
+    '/usr/share/fonts/liberation-fonts',
+  ];
+}
+
+/** Belge boyunca kullanılan yazı tipi çifti. */
+interface FontSet {
+  regular: string;
+  bold: string;
+  /** true: Türkçe harfli gömülü TTF; false: yalnız Latin-1 yedek (Helvetica). */
+  embedded: boolean;
+  label: string;
+}
+
+const FALLBACK_FONTS: FontSet = {
+  regular: 'Helvetica',
+  bold: 'Helvetica-Bold',
+  embedded: false,
+  label: 'Helvetica (yedek; Türkçe harfler sadeleşir)',
+};
 
 const A4 = { w: 595.28, h: 841.89 };
 const M = { left: 40, right: 40, top: 40, bottom: 56 };
@@ -35,9 +63,153 @@ const PAD_Y = 5;
  * - Tablo sayfaya sığmazsa yeni sayfada BAŞLIK SATIRI tekrarlanır.
  * - Her sayfanın altında "Sayfa x / y" ve oluşturulma tarihi.
  */
+/** Tek bir hücre/satır için üst sınır: kontrolsüz uzun metin sayfaları şişirmesin. */
+const MAX_TEXT = 4000;
+
+const TR_ASCII: Record<string, string> = {
+  ğ: 'g', Ğ: 'G', ş: 's', Ş: 'S', ı: 'i', İ: 'I', '₺': 'TL',
+};
+
+/**
+ * PDF'e yazılacak her metin buradan geçer: boş/eksik değerler '', denetim
+ * karakterleri boşluk, eşsiz vekil (surrogate) karakterler U+FFFD olur. Yedek
+ * yazı tipinde (yalnız Latin-1) Türkçe harfler sadeleşir, kalanı '?' olur.
+ */
+function clean(v: unknown, ascii: boolean): string {
+  let s = v == null ? '' : String(v);
+  if (s.length > MAX_TEXT) s = `${s.slice(0, MAX_TEXT - 1)}…`;
+  s = s
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
+  if (ascii) {
+    s = s
+      .replace(/[ğĞşŞıİ₺]/g, (c) => TR_ASCII[c])
+      .replace(/[^\n\x20-\x7E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]/gu, '?');
+  }
+  return s;
+}
+
+/**
+ * Hata iletisini kullanıcıya gösterilebilir kısa bir nedene çevirir: dosya
+ * yolları yalnız dosya adına iner, uzunluk sınırlanır. "PDF oluşturulamadı"
+ * toast'ında gerçek neden okunabilsin diye.
+ */
+export function describePdfError(e: unknown): string {
+  const err = e as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const msg = String(err?.message ?? e ?? 'bilinmeyen hata')
+    .replace(/(?:[A-Za-z]:)?[\\/][^\s'"():,]*[\\/]([^\s'"():,\\/]+)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+  const tag =
+    typeof err?.code === 'string' ? err.code : typeof err?.name === 'string' ? err.name : 'Error';
+  return msg.startsWith(tag) ? msg : `${tag}: ${msg}`;
+}
+
+/**
+ * Belge modelinden (cari ekstre, fatura, rapor…) A4 PDF üretir.
+ *
+ * - Türkçe karakterler için gömülü yazı tipi; bulunamaz ya da yüklenemezse
+ *   PDF yine üretilir (Helvetica, Türkçe harfler sadeleşir) ve uyarı yazılır.
+ * - Model önce temizlenir: eksik/null alan, denetim karakteri ya da taşkın
+ *   metin PDF üretimini düşürmez.
+ * - Tablo sütun genişlikleri içeriğe göre hesaplanır; uzun açıklamalar sarılır.
+ * - Tablo sayfaya sığmazsa yeni sayfada BAŞLIK SATIRI tekrarlanır.
+ * - Her sayfanın altında "Sayfa x / y" ve oluşturulma tarihi.
+ */
 @Injectable()
-export class DocumentPdfService {
+export class DocumentPdfService implements OnModuleInit {
+  private readonly logger = new Logger(DocumentPdfService.name);
+  private fonts?: FontSet;
+
+  /** Açılışta hangi yazı tipinin kullanılacağı günlüğe yazılır. */
+  onModuleInit(): void {
+    const f = this.pickFonts();
+    if (f.embedded) {
+      this.logger.log(`PDF yazı tipi: ${f.label}`);
+    } else {
+      this.logger.warn(
+        `PDF yazı tipi dosyası bulunamadı; ${f.label}. Aranan klasörler: ${this.fontDirs().join(', ')}`,
+      );
+    }
+  }
+
+  /** Yazı tipinin aranacağı klasörler (testlerde değiştirilebilir). */
+  protected fontDirs(): string[] {
+    return fontDirs();
+  }
+
+  private pickFonts(): FontSet {
+    if (this.fonts) return this.fonts;
+    const usable = (path: string): boolean => {
+      try {
+        return statSync(path).size > 10_000;
+      } catch {
+        return false;
+      }
+    };
+    for (const dir of this.fontDirs()) {
+      const [regular, bold] = FONT_FILES.map((f) => join(dir, f));
+      if (usable(regular) && usable(bold)) {
+        return (this.fonts = { regular, bold, embedded: true, label: `Liberation Sans (${dir})` });
+      }
+    }
+    return (this.fonts = FALLBACK_FONTS);
+  }
+
   async render(model: DocModel): Promise<Buffer> {
+    const fonts = this.pickFonts();
+    try {
+      return await this.draw(this.normalize(model, !fonts.embedded), fonts);
+    } catch (e) {
+      if (!fonts.embedded) throw e;
+      // Yazı tipi dosyası bozuk/okunamaz olabilir: PDF hiç çıkmasın demektense
+      // yedek yazı tipiyle çıksın. Kalıcı bozukluk günlükte görünür.
+      this.logger.warn(
+        `PDF "${fonts.label}" ile üretilemedi (${describePdfError(e)}); yedek yazı tipiyle yeniden deneniyor.\n${(e as Error)?.stack ?? ''}`,
+      );
+      return this.draw(this.normalize(model, true), FALLBACK_FONTS);
+    }
+  }
+
+  /** Modeli PDF'e güvenle çizilebilir hale getirir (bkz. clean). */
+  private normalize(m: DocModel, ascii: boolean): DocModel {
+    const t = (v: unknown): string => clean(v, ascii);
+    return {
+      business: {
+        ...m.business,
+        name: t(m.business?.name),
+        phone: t(m.business?.phone),
+        address: t(m.business?.address),
+      },
+      docTitle: t(m.docTitle),
+      pageTitle: t(m.pageTitle),
+      meta: (m.meta ?? []).map(([k, v]): [string, string] => [t(k), t(v)]),
+      parties: (m.parties ?? []).map(
+        (p): Party => ({
+          label: t(p?.label),
+          lines: (p?.lines ?? []).map(t).filter((l) => l.trim()),
+        }),
+      ),
+      sections: (m.sections ?? [])
+        .filter((s) => s?.headers?.length)
+        .map((s): Section => {
+          const headers = s.headers.map(t);
+          return {
+            title: s.title ? t(s.title) : undefined,
+            headers,
+            aligns: headers.map((_, i) => s.aligns?.[i] ?? (i === 0 ? 'left' : 'right')),
+            rows: (s.rows ?? []).map((r) => headers.map((_, i) => t(r?.[i]))),
+            foot: s.foot?.map(([l, v]): [string, string] => [t(l), t(v)]),
+            emphasizeLast: s.emphasizeLast,
+          };
+        }),
+      note: m.note ? t(m.note) : null,
+    };
+  }
+
+  private draw(model: DocModel, fonts: FontSet): Promise<Buffer> {
     const doc = new PDFDocument({
       size: 'A4',
       margins: M,
@@ -49,8 +221,6 @@ export class DocumentPdfService {
         Subject: model.docTitle,
       },
     });
-    doc.registerFont('Sans', REGULAR);
-    doc.registerFont('Sans-Bold', BOLD);
 
     const chunks: Buffer[] = [];
     const done = new Promise<Buffer>((resolve, reject) => {
@@ -58,14 +228,30 @@ export class DocumentPdfService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
     });
+    // Çizim ortasında bir istisna atılırsa kimse `done`u beklemez; geç gelen
+    // 'error' olayı işlenmemiş reddedilme olup süreci düşürmesin.
+    done.catch(() => undefined);
 
-    let y = this.header(doc, model);
-    y = this.parties(doc, model.parties, y);
-    for (const s of model.sections) y = this.section(doc, s, y);
-    if (model.note) y = this.note(doc, model.note, y);
-    this.footers(doc, model);
+    try {
+      // Her ikisi de çizimden önce yüklenir: bozuk yazı tipi burada patlar.
+      doc.registerFont('Sans', fonts.regular);
+      doc.registerFont('Sans-Bold', fonts.bold);
+      doc.font('Sans').font('Sans-Bold');
 
-    doc.end();
+      let y = this.header(doc, model);
+      y = this.parties(doc, model.parties, y);
+      for (const s of model.sections) y = this.section(doc, s, y);
+      if (model.note) y = this.note(doc, model.note, y);
+      this.footers(doc, model);
+      doc.end();
+    } catch (e) {
+      try {
+        doc.end();
+      } catch {
+        /* yarım kalan belge atılır */
+      }
+      return Promise.reject(e);
+    }
     return done;
   }
 

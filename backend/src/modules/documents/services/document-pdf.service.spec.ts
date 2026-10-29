@@ -1,4 +1,8 @@
-import { DocumentPdfService } from './document-pdf.service';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { DocumentPdfService, describePdfError } from './document-pdf.service';
 import { DocModel } from './document-model';
 import { DocumentHtmlService } from './document-html.service';
 import { DocumentsController } from '../documents.controller';
@@ -90,6 +94,93 @@ describe('DocumentPdfService', () => {
   });
 });
 
+/** Yazı tipi arama klasörleri verilen listeye sabitlenmiş servis. */
+class DirsPdfService extends DocumentPdfService {
+  constructor(private readonly dirs: string[]) {
+    super();
+  }
+  protected override fontDirs(): string[] {
+    return this.dirs;
+  }
+}
+
+describe('DocumentPdfService: dayanıklılık', () => {
+  let tmp: string;
+  beforeAll(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'pdf-fonts-'));
+  });
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it('yazı tipi dosyası yoksa PDF yine üretilir (Helvetica, Türkçe harfler sadeleşir)', async () => {
+    const svc = new DirsPdfService([join(tmp, 'yok')]);
+    const pdf = await svc.render(model(5));
+    const txt = pdf.toString('latin1');
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(txt).toContain('/BaseFont /Helvetica');
+    expect(txt).not.toContain('LiberationSans');
+    expect(pages(pdf)).toBe(1);
+  });
+
+  it('bozuk yazı tipi dosyası PDF üretimini düşürmez, yedek yazı tipine geçer', async () => {
+    const dir = join(tmp, 'bozuk');
+    require('fs').mkdirSync(dir);
+    for (const f of ['LiberationSans-Regular.ttf', 'LiberationSans-Bold.ttf']) {
+      writeFileSync(join(dir, f), Buffer.alloc(50_000, 7));
+    }
+    const svc = new DirsPdfService([dir]);
+    const pdf = await svc.render(model(5));
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdf.toString('latin1')).toContain('/BaseFont /Helvetica');
+  });
+
+  it('ikinci klasörde bulunan yazı tipini kullanır', async () => {
+    const real = join(__dirname, '..', 'fonts');
+    const svc = new DirsPdfService([join(tmp, 'yok'), real]);
+    const pdf = await svc.render(model(2));
+    expect(pdf.toString('latin1')).toContain('LiberationSans');
+  });
+
+  it('eksik/null alan, denetim karakteri, emoji ve devasa metin çökertmez', async () => {
+    const m = model(3);
+    m.business = { ...business, name: null as never, phone: undefined as never, address: null as never };
+    m.parties = [{ label: 'Cari', lines: ['A\u0000B\u0007C', null as never, '', '😀 Şükrü \uD800 x'] }];
+    m.meta = [['Tarih', undefined as never]];
+    m.sections[0].rows = [
+      ['12.03.2026', 'x'.repeat(100_000), null as never, undefined as never, 12 as never],
+      ['\t\r\n', 'çok\nsatırlı\r\nmetin', '', '', ''],
+      ['kısa satır'],
+    ];
+    m.sections[0].foot = [['Toplam', null as never]];
+    m.note = 'Not \u0000 ile';
+    for (const svc of [new DocumentPdfService(), new DirsPdfService([])]) {
+      const pdf = await svc.render(m);
+      expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    }
+  });
+
+  it('başlıksız bölüm atlanır, hizalar eksikse varsayılan kullanılır', async () => {
+    const m = model(2);
+    m.sections = [
+      { headers: [], rows: [['x']] },
+      { headers: ['A', 'B'], aligns: ['left'], rows: [['1', '2']] },
+    ];
+    await expect(new DocumentPdfService().render(m)).resolves.toBeInstanceOf(Buffer);
+  });
+
+  it('hata iletisi dosya yolunu gizler ve kısa kalır', () => {
+    const e = Object.assign(
+      new Error("ENOENT: no such file or directory, open '/app/dist/modules/documents/fonts/LiberationSans-Regular.ttf'"),
+      { code: 'ENOENT' },
+    );
+    const msg = describePdfError(e);
+    expect(msg).toContain('ENOENT');
+    expect(msg).toContain('LiberationSans-Regular.ttf');
+    expect(msg).not.toContain('/app/dist');
+    expect(describePdfError(new TypeError('x'.repeat(500))).length).toBeLessThan(220);
+    expect(describePdfError(undefined)).toContain('Error');
+  });
+});
+
 describe('Cari ekstre belgesi', () => {
   const entry = (type: 'debit' | 'credit', amount: number, bal: number) => ({
     id: 'e',
@@ -170,5 +261,41 @@ describe('Cari ekstre belgesi', () => {
         'Content-Disposition': 'attachment; filename="ekstre-sukru-ozturk.pdf"',
       }),
     );
+  });
+
+  it('PDF üretimi çökerse genel mesaj yerine gerçek neden döner', async () => {
+    const doc = await html.customerStatementDoc('c1', { scope: 'all' });
+    const boom = Object.assign(new Error("ENOENT: open '/x/y/LiberationSans-Bold.ttf'"), { code: 'ENOENT' });
+    const ctrl = new DocumentsController(
+      {} as never,
+      {} as never,
+      { customerStatementDoc: jest.fn(() => Promise.resolve(doc)) } as never,
+      { render: jest.fn(() => Promise.reject(boom)) } as never,
+    );
+    const err = await ctrl
+      .statementPdf('id', {}, undefined, { set: jest.fn() } as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InternalServerErrorException);
+    expect((err as Error).message).toContain('PDF oluşturulamadı');
+    expect((err as Error).message).toContain('LiberationSans-Bold.ttf');
+  });
+
+  it('ekstre verisi hazırlanamazsa aşama adıyla bildirilir; 404 olduğu gibi geçer', async () => {
+    const ctrlOf = (fn: () => Promise<unknown>) =>
+      new DocumentsController(
+        {} as never,
+        {} as never,
+        { customerStatementDoc: jest.fn(fn) } as never,
+        new DocumentPdfService(),
+      );
+    const bad = await ctrlOf(() => Promise.reject(new TypeError("Cannot read properties of null (reading 'x')")))
+      .statementPdf('id', {}, undefined, { set: jest.fn() } as never)
+      .catch((e: unknown) => e);
+    expect((bad as Error).message).toContain('Ekstre hazırlanamadı');
+    expect((bad as Error).message).toContain("reading 'x'");
+    const nf = await ctrlOf(() => Promise.reject(new NotFoundException('Cari bulunamadı')))
+      .statementPdf('id', {}, undefined, { set: jest.fn() } as never)
+      .catch((e: unknown) => e);
+    expect(nf).toBeInstanceOf(NotFoundException);
   });
 });

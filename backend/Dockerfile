@@ -29,6 +29,8 @@ RUN apk add --no-cache postgresql16-client
 COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+# PDF yazı tipi (Türkçe harfler): derleme varlık kopyalamasına ek güvence.
+COPY --from=builder /app/src/modules/documents/fonts ./dist/modules/documents/fonts
 
 # Stateless: her replika bağımsız çalışır.
 EXPOSE 3000
