@@ -11,10 +11,8 @@ import {
 import { ExpensesService } from '../../expenses/expenses.service';
 import { FinancialReportsService } from '../../reports/services/financial-reports.service';
 import { QueryExpenseDto } from '../../expenses/dto/expense.dto';
-import {
-  ResolvedBusiness,
-  SettingsService,
-} from '../../settings/settings.service';
+import { SettingsService } from '../../settings/settings.service';
+import { DocModel, Party, Section } from './document-model';
 
 const LEDGER_SOURCE_LABELS: Record<string, string> = {
   [LedgerSourceType.OPENING]: 'Açılış',
@@ -32,22 +30,6 @@ const UNIT_LABELS: Record<string, string> = {
   [MeasurementType.WEIGHT]: 'kg',
   [MeasurementType.TIME]: 'saat',
 };
-
-interface Party {
-  label: string;
-  lines: string[];
-}
-
-interface Section {
-  /** Bölüm başlığı (opsiyonel). */
-  title?: string;
-  headers: string[];
-  /** Sütun hizaları; verilmezse ilk sütun sola, kalanlar sağa yaslanır. */
-  aligns?: ('left' | 'right')[];
-  rows: (string | number)[][];
-  /** Tablo altı toplam satırları (etiket → değer). */
-  foot?: [string, string][];
-}
 
 /**
  * Tüm belgeleri (satış faturası, işleme fişi, cari ekstre, gider/mali rapor)
@@ -165,6 +147,14 @@ export class DocumentHtmlService {
     customerId: string,
     query: QueryStatementDto = {},
   ): Promise<string> {
+    return this.layout(await this.customerStatementDoc(customerId, query));
+  }
+
+  /** Ekstrenin içeriği: HTML ve PDF aynı modelden üretilir. */
+  async customerStatementDoc(
+    customerId: string,
+    query: QueryStatementDto = {},
+  ): Promise<DocModel> {
     const business = await this.settings.getBusiness();
     const customer = await this.customersService.findOne(customerId);
     // Varsayılan dönem: borcun en son kapandığı andan bugüne (kronolojik,
@@ -197,7 +187,14 @@ export class DocumentHtmlService {
       ]);
     }
 
-    return this.layout({
+    // Dönemin toplam borç/alacağı (devir satırı hariç).
+    const sum = (type: 'debit' | 'credit') =>
+      statement.entries
+        .filter((e) => e.entryType === type)
+        .reduce((s, e) => s + Number(e.amount), 0);
+    const cur = business.defaultCurrency;
+
+    return {
       business,
       docTitle: 'CARİ HESAP EKSTRESİ',
       pageTitle: `Ekstre ${customer.name}`,
@@ -211,15 +208,15 @@ export class DocumentHtmlService {
           headers: ['Tarih', 'Açıklama', 'Borç', 'Alacak', 'Bakiye'],
           aligns: ['left', 'left', 'right', 'right', 'right'],
           rows,
+          emphasizeLast: true,
           foot: [
-            [
-              'Dönem sonu bakiye',
-              this.cur(statement.closingBalance, business.defaultCurrency),
-            ],
+            ['Dönem borç toplamı', this.cur(sum('debit'), cur)],
+            ['Dönem alacak toplamı', this.cur(sum('credit'), cur)],
+            ['Dönem sonu bakiye', this.cur(statement.closingBalance, cur)],
           ],
         },
       ],
-    });
+    };
   }
 
   /** Ekstre başlığında görünen dönem açıklaması. */
@@ -348,15 +345,7 @@ export class DocumentHtmlService {
   }
 
   // ── Ortak HTML düzeni ───────────────────────────────────────────────
-  private layout(opts: {
-    business: ResolvedBusiness;
-    docTitle: string;
-    pageTitle: string;
-    meta: [string, string][];
-    parties: Party[];
-    sections: Section[];
-    note?: string | null;
-  }): string {
+  private layout(opts: DocModel): string {
     const metaHtml = opts.meta
       .map(([k, v]) => `<div class="muted">${esc(k)}: ${esc(v)}</div>`)
       .join('\n');
@@ -451,7 +440,11 @@ export class DocumentHtmlService {
               `<tr>${r
                 .map(
                   (c, i) =>
-                    `<td class="${aligns[i] === 'right' ? 'num' : ''}">${esc(String(c))}</td>`,
+                    `<td class="${aligns[i] === 'right' ? 'num' : ''}"${
+                      s.emphasizeLast && i === r.length - 1
+                        ? ' style="font-weight:600;"'
+                        : ''
+                    }>${esc(String(c))}</td>`,
                 )
                 .join('')}</tr>`,
           )

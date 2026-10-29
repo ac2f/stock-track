@@ -19,6 +19,7 @@ import {
   type UpdateCustomerInput,
 } from '../../api/customers.api';
 import { downloadFile, openPdf } from '../../api/documents.api';
+import { fold } from '../../lib/search';
 import { useBankAccounts, useDisplaySettings, useStaff } from '../../hooks/useReferenceData';
 import { useAuth } from '../../context/AuthContext';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
@@ -1118,11 +1119,14 @@ function CustomerStatement({
     },
   });
 
+  // Dosya adı ASCII: Türkçe harfler sadeleşir (indirme adlarında sorun çıkmaz).
   const fileSlug =
-    customerName
-      .toLocaleLowerCase('tr')
-      .replace(/[^a-z0-9çğıöşü]+/gi, '-')
-      .replace(/^-+|-+$/g, '') || customerId.slice(0, 8);
+    fold(customerName)
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      // Çok uzun ünvanlı müşterilerde dosya adı makul kalsın.
+      .slice(0, 40)
+      .replace(/-+$/, '') || customerId.slice(0, 8);
 
   const colCount = showUndo ? 6 : 5;
 
@@ -1169,12 +1173,24 @@ function CustomerStatement({
           </button>
           <button
             className="btn-secondary btn-sm"
-            title="Ekstreyi PDF olarak aç / yazdır"
+            title="Ekstreyi PDF olarak aç (yeni sekmede görüntüle / yazdır)"
             onClick={() =>
-              openPdf(`/customers/${customerId}/statement${statementParams}`)
+              openPdf(`/customers/${customerId}/statement.pdf${statementParams}`)
             }
           >
             🖨 PDF
+          </button>
+          <button
+            className="btn-secondary btn-sm"
+            title="Ekstreyi PDF dosyası olarak indir"
+            onClick={() =>
+              downloadFile(
+                `/customers/${customerId}/statement.pdf${statementParams}`,
+                `ekstre-${fileSlug}.pdf`,
+              )
+            }
+          >
+            ⬇ PDF
           </button>
         </div>
       </div>

@@ -5,7 +5,8 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "assets": [
-      { "include": "**/*.html", "outDir": "dist", "watchAssets": true }
+      { "include": "**/*.html", "outDir": "dist", "watchAssets": true },
+      { "include": "**/fonts/*", "outDir": "dist", "watchAssets": true }
     ]
   }
 }

@@ -10,6 +10,7 @@ import { DocumentsController } from './documents.controller';
 import { ExportService } from './services/export.service';
 import { QuoteDocumentService } from './services/quote-document.service';
 import { DocumentHtmlService } from './services/document-html.service';
+import { DocumentPdfService } from './services/document-pdf.service';
 
 /**
  * Belge üretimi: yazdırılabilir HTML belgeler (fatura/fiş/teklif/cari ekstre/
@@ -27,6 +28,11 @@ import { DocumentHtmlService } from './services/document-html.service';
     SettingsModule,
   ],
   controllers: [DocumentsController],
-  providers: [ExportService, QuoteDocumentService, DocumentHtmlService],
+  providers: [
+    ExportService,
+    QuoteDocumentService,
+    DocumentHtmlService,
+    DocumentPdfService,
+  ],
 })
 export class DocumentsModule {}

@@ -586,15 +586,20 @@ ister.
 
 `POST /processing` artık `billOnCompletion` (tamamlanınca faturala), `machineId`, `status` alır.
 
-### Documents (PDF + Excel)
+### Documents (PDF · yazdırılabilir HTML · Excel/CSV)
 | Metot | Yol | Yetki | Tür |
 |-------|-----|-------|-----|
-| GET | `/sales/:id/pdf` | 🧑‍🔧 | PDF satış faturası |
-| GET | `/processing/:id/pdf` | 🧑‍🔧 | PDF işleme fişi |
-| GET | `/quotes/:id/pdf` | 🧑‍🔧 | PDF teklif |
-| GET | `/customers/:id/statement.pdf` | 🧑‍🔧 | PDF cari ekstresi |
+| GET | `/customers/:id/statement.pdf` | 👥 | **PDF cari ekstre** (A4, gömülü Türkçe yazı tipi, çok sayfalı: başlık satırı her sayfada tekrarlanır, "Sayfa x / y"). Dönem: `?scope=all` · `?from=&to=` · varsayılan son borç kapatmadan bugüne. Tarayıcıda açılır; `?download=1` dosya olarak indirir. Dosya adı `ekstre-<müşteri>.pdf` |
+| GET | `/customers/:id/statement/print` | 👥 | Aynı ekstre, yazdırılabilir HTML (Ctrl+P ile PDF). (`/customers/:id/statement` müşteri modülünün JSON ekstresidir.) |
+| GET | `/customers/:id/statement.csv` | 👥 | Ekstre CSV (Excel'de açılır) |
+| GET | `/sales/:id/print`, `/processing/:id/print`, `/quotes/:id/print` | 👥 | Yazdırılabilir HTML fatura / fiş / teklif (Ctrl+P ile PDF) |
+| GET | `/expenses/report/print`, `/reports/financial/print` | 👔 | Yazdırılabilir HTML gider / mali rapor |
 | GET | `/reports/{aging,profit-loss,stock-value}.xlsx` | 👔 | Excel rapor |
 | GET | `/customers/:id/ledger.xlsx` | 👔 | Excel cari ekstre |
+
+PDF, `DocumentPdfService` ile HTML'in kullandığı **aynı belge modelinden** (`DocModel`)
+üretilir: ekranda gördüğünüz ile indirdiğiniz içerik aynıdır. Yazı tipi
+Liberation Sans'tır (SIL OFL; `src/modules/documents/fonts/`, derlemede `dist`'e kopyalanır).
 
 ### Portal (Müşteri self-servis — 🔓 Public, token'lı)
 | Metot | Yol | Yetki | Açıklama |

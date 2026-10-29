@@ -256,6 +256,11 @@ alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
   formu o türle dolu açar.
 - Seçilmiş kutular (müşteri, ürün türü, malzeme…) **tümüyle tıklanabilir**;
   sağdaki *Değiştir* yalnız ipucudur.
+- **Cari ekstre PDF:** *Müşteriler › ekstre* ekranındaki **🖨 PDF** ekstreyi A4
+  PDF olarak yeni sekmede açar (tarayıcının görüntüleyicisinden yazdırılır),
+  **⬇ PDF** dosya olarak indirir; CSV de yanında. Çok sayfalı ekstrede başlık
+  satırı her sayfada tekrarlanır, dönem toplamları ve dönem sonu bakiye altta
+  yazar. Seçili dönem (son kapatmadan bugüne / tümü / tarih aralığı) PDF'e de uygulanır.
 - Her kayıt, güncelleme ve silme sonucu köşede kısa bir bildirimle söylenir;
   silme gibi işlemler okunaklı bir onay penceresi ister.
 - Tarih filtrelerinde tek dokunuşla *Bugün, Dün, Bu hafta, Bu ay, Geçen ay,

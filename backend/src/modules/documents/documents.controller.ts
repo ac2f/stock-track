@@ -14,10 +14,12 @@ import { QueryExpenseDto } from '../expenses/dto/expense.dto';
 import { ExportService } from './services/export.service';
 import { QuoteDocumentService } from './services/quote-document.service';
 import { DocumentHtmlService } from './services/document-html.service';
+import { DocumentPdfService } from './services/document-pdf.service';
 import { ShopAccess } from '../../common/shop/shop-access.decorator';
 
 const HTML = 'text/html; charset=utf-8';
 const CSV = 'text/csv; charset=utf-8';
+const PDF = 'application/pdf';
 const XLSX =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -34,6 +36,7 @@ export class DocumentsController {
     private readonly exports: ExportService,
     private readonly quoteDocs: QuoteDocumentService,
     private readonly html: DocumentHtmlService,
+    private readonly pdf: DocumentPdfService,
   ) {}
 
   // ── Yazdırılabilir HTML belgeler (belgenin ait olduğu alanın okuması) ──
@@ -85,9 +88,11 @@ export class DocumentsController {
     );
   }
 
+  // Cari ekstre, yazdırılabilir HTML. (`customers/:id/statement` müşteri
+  // modülünün JSON ekstresidir; bu yüzden HTML ayrı yolda.)
   // Dönem: varsayılan son borç kapatmadan bugüne; ?scope=all veya ?from=&to=.
   @ShopAccess('payments', 'read')
-  @Get('customers/:id/statement')
+  @Get('customers/:id/statement/print')
   async statement(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: QueryStatementDto,
@@ -95,6 +100,28 @@ export class DocumentsController {
   ): Promise<string> {
     res.set({ 'Content-Type': HTML });
     return this.html.customerStatementHtml(id, query);
+  }
+
+  // Cari ekstre PDF olarak (A4, gömülü Türkçe yazı tipi). Tarayıcıda açılır,
+  // oradan indirilir/yazdırılır; dönem yukarıdaki gibi. `?download=1` indirir.
+  @ShopAccess('payments', 'read')
+  @Get('customers/:id/statement.pdf')
+  async statementPdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryStatementDto,
+    @Query('download') download: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const doc = await this.html.customerStatementDoc(id, query);
+    const buf = await this.pdf.render(doc);
+    const name = fileSlug(doc.parties[0]?.lines[0] ?? id.slice(0, 8));
+    return this.stream(
+      res,
+      buf,
+      PDF,
+      `ekstre-${name}.pdf`,
+      download === '1' || download === 'true' ? 'attachment' : 'inline',
+    );
   }
 
   // Cari ekstrenin CSV (tablo) çıktısı — Excel'de açılır. Dönem yukarıdaki gibi.
@@ -200,4 +227,18 @@ export class DocumentsController {
     });
     return new StreamableFile(buf);
   }
+}
+
+/** Dosya adı için: küçük harf, Türkçe karakterler sadeleşir, ASCII ve tire. */
+function fileSlug(name: string): string {
+  const map: Record<string, string> = {
+    ç: 'c', ğ: 'g', ı: 'i', i̇: 'i', ö: 'o', ş: 's', ü: 'u',
+  };
+  const out = name
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[çğıöşü]|i̇/g, (c) => map[c] ?? c)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return out || 'cari';
 }
