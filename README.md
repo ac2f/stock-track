@@ -296,6 +296,27 @@ Geçmişte yapılmış işi sonradan girerken (*Teklif › Yeni teklif*):
    işlenme/tamamlanma tarihini (*Aynı gün tamamlandı* dahil) ya da notu toplu
    değiştirin. Tutar ve stok değişmez.
 
+### Kuyrukta ve stokta toplu işlem, kuyruk gruplama
+
+- **Üretim kuyruğu › Grupla:** makineye göre · müşteriye göre · ürün türüne göre
+  (Dekota, Pleksi…) · malzemeye göre (aynı ürün) · müşteri › ürün türü. Seçim
+  tarayıcıda hatırlanır; her grup başlığında iş sayısı ve toplam tutar yazar.
+- **Kuyrukta toplu seçim:** her işte onay kutusu, grup başlığında *Grubu seç*,
+  üstte *tümünü seç*. Seçilince alttaki çubuktan **Başlat** (yalnız bekleyenler),
+  **Tamamla** (isteğe bağlı işlenme/tamamlanma tarihiyle), **İptal et** (onaylı) ya da
+  **Tarih / not** uygulanır. Aynı plakanın işleri sırayla, farklı plakalar eşzamanlı
+  işlenir; yapılamayanlar nedeniyle bildirilir ve seçili kalır (tekrar denenebilir).
+  Toplu tamamlamada nihai fiyat ve kalan parça girilmez (hesaplanan ücret kullanılır).
+  Yalnız ekranda görünen işler seçili sayılır: süzgeç değişince gizli işe işlem uygulanmaz.
+- **Stokta toplu seçim:** kartlarda, mini satırlarda, istiflerde (×N hepsini seçer) ve
+  malzeme/tür başlıklarında onay kutusu; *Bu sayfayı seç* ve *Süzgece uyan N kaydın
+  tümünü seç* (en çok 500). Seçim sayfalar arasında korunur. Alttaki çubuktan:
+  **Fiyat** (% artır/azalt, sabit fiyat ya da kendi fiyatını kaldır — uygulamadan önce
+  örnekli özet onayı; % yalnız kendi perakende fiyatı olanlara uygulanır),
+  **Tarih / uyarı seviyesi** (eklenme, işlenme, düşük stok uyarısı), **Sahiplik aktar**
+  ve **Stoktan çıkar** (adlı onay listesiyle). Eski "Toplu sahiplik aktar" kartının
+  yerini aldı.
+
 ## Fiyatlar ve fiyat çatıları
 
 Teklifte stok kaleminin satış fiyatı şuradan önerilir (öncelik sırasıyla):

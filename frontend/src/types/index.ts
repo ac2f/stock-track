@@ -441,6 +441,7 @@ export interface PlateBrief {
   thicknessMm?: number | null;
   // Kuyruk/geçmiş gruplaması için malzeme türü (kategori) + standart tabaka ebadı.
   template?: {
+    name?: string;
     category?: { name?: string } | null;
     defaultSize?: { widthMm: number; heightMm: number } | null;
   } | null;

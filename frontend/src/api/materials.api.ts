@@ -297,6 +297,8 @@ export interface CreatePlateInput {
   attributes?: Record<string, unknown>;
   quantityInStock?: number;
   warehouseId?: string;
+  /** Düşük stok uyarı seviyesi: stok bu miktara inince rozet sarılaşır. */
+  reorderLevel?: number;
   /** Perakende (liste) birim fiyatı — satış fiyatı bundan türetilir. */
   retailPrice?: number;
   /** Perakende fiyatın para birimi (varsayılan TRY). */
@@ -321,14 +323,21 @@ export type UpdatePlateInput = Partial<
     | 'heightMm'
     | 'addedAt'
     | 'processedAt'
+    | 'reorderLevel'
   >
 >;
+
+/** Toplu işlemde kalem başına "Güncellendi / hata" bildirimi çıkmasın: özet tek bildirimdir. */
+export interface QuietOption {
+  silent?: boolean;
+}
 
 export async function updatePlate(
   id: string,
   input: UpdatePlateInput,
+  opt: QuietOption = {},
 ): Promise<Plate> {
-  const { data } = await api.patch<Plate>(`/plates/${id}`, input);
+  const { data } = await api.patch<Plate>(`/plates/${id}`, input, { silent: opt.silent });
   return data;
 }
 
@@ -354,17 +363,19 @@ export interface TransferOwnershipInput {
 export async function transferPlateOwnership(
   plateId: string,
   input: TransferOwnershipInput,
+  opt: QuietOption = {},
 ): Promise<unknown> {
   const { data } = await api.post(
     `/plates/${plateId}/transfer-ownership`,
     input,
+    { silent: opt.silent },
   );
   return data;
 }
 
 /** "Tamamını sat" / stoktan tamamen çıkar (soft-delete). */
-export async function depletePlate(plateId: string): Promise<unknown> {
-  const { data } = await api.post(`/plates/${plateId}/deplete`);
+export async function depletePlate(plateId: string, opt: QuietOption = {}): Promise<unknown> {
+  const { data } = await api.post(`/plates/${plateId}/deplete`, undefined, { silent: opt.silent });
   return data;
 }
 
@@ -564,17 +575,24 @@ export interface SetRetailPriceInput {
 export async function setPlateRetailPrice(
   plateId: string,
   input: SetRetailPriceInput,
+  opt: QuietOption = {},
 ): Promise<PlatePricing> {
   const { data } = await api.put<PlatePricing>(
     `/plates/${plateId}/retail-price`,
     input,
+    { silent: opt.silent },
   );
   return data;
 }
 
 /** Kalemin kendi fiyatını kaldırır; öneri (varsa) fiyat çatısından gelir. */
-export async function clearPlateRetailPrice(plateId: string): Promise<PlatePricing> {
-  const { data } = await api.delete<PlatePricing>(`/plates/${plateId}/retail-price`);
+export async function clearPlateRetailPrice(
+  plateId: string,
+  opt: QuietOption = {},
+): Promise<PlatePricing> {
+  const { data } = await api.delete<PlatePricing>(`/plates/${plateId}/retail-price`, {
+    silent: opt.silent,
+  });
   return data;
 }
 

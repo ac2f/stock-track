@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   bulkUpdateProcessingJobs,
@@ -20,9 +20,11 @@ import {
   DensityToggle,
 } from '../../context/DensityContext';
 import { GroupSection } from '../../components/GroupSection';
+import { BulkBar, SelectBox } from '../../components/ui/BulkBar';
 import { CustomerPicker } from '../../components/CustomerPicker';
 import { Pagination } from '../../components/Pagination';
 import { Can } from '../../components/Can';
+import { useAuth } from '../../context/AuthContext';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -30,16 +32,26 @@ import { LoadingBlock, Spinner } from '../../components/ui/Loading';
 import { Filters } from '../../components/ui/Filters';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { DateRangeFilter } from '../../components/ui/DateRangeFilter';
-import { formatDate, relativeDay } from '../../lib/format';
+import { formatDate, formatMoney, relativeDay } from '../../lib/format';
 import { usePageSize } from '../../hooks/usePageSize';
 import { useMaterialCategories } from '../../hooks/useReferenceData';
 import { useDebounced } from '../../hooks/useDebounced';
 import { mapLimit } from '../../lib/concurrency';
+import { bulkReport, runBulk } from '../../lib/bulk';
+import { useSelection } from '../../lib/selection';
+import {
+  QUEUE_GROUP_OPTIONS,
+  groupQueue,
+  groupTotal,
+  type QueueGroupBy,
+  type QueueGroupNode,
+  type QueueSubGroup,
+} from '../../lib/queueGroups';
 import { keepWhileSearching } from '../../lib/placeholder';
 import { apiErrorMessage, toast } from '../../lib/toast';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
-/** Kuyruk/geçmiş işini "Müşteri · Kategori" ile gruplar. */
+/** Geçmiş işini "Müşteri · Kategori" ile gruplar (kuyruk kendi gruplamasını kullanır). */
 function jobGroupKey(job: ProcessingJob): string {
   const customer = job.customer?.name ?? 'Müşterisiz';
   const category = job.plate?.template?.category?.name ?? 'Diğer';
@@ -55,6 +67,20 @@ function groupJobs(jobs: ProcessingJob[]): [string, ProcessingJob[]][] {
     else map.set(k, [j]);
   }
   return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'tr'));
+}
+
+const QUEUE_GROUP_KEY = 'st_queue_group';
+
+/** Kayıtlı gruplama; yoksa eski "gruplu" tercihi müşteri › ürün türü olur, yoksa makine. */
+function loadGroupBy(): QueueGroupBy {
+  try {
+    const v = localStorage.getItem(QUEUE_GROUP_KEY);
+    if (QUEUE_GROUP_OPTIONS.some((o) => o.value === v)) return v as QueueGroupBy;
+    if (localStorage.getItem('st_grouped') === '1') return 'customer-category';
+  } catch {
+    /* depolama kapalı */
+  }
+  return 'machine';
 }
 
 /** Bir satış kaleminin ölçüsü: tabaka ise m², şerit/rulo ise metre, değilse adet. */
@@ -534,7 +560,7 @@ function ProcessingHistory() {
  * Seçilen geçmiş işlere toplu tarih/not uygulayan alt çubuk. Boş bırakılan
  * alan dokunulmaz; "aynı gün" tamamlanmayı işlenme gününe eşitler.
  */
-function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
+function BulkDatesNote({ ids, onDone }: { ids: string[]; onDone: () => void }) {
   const qc = useQueryClient();
   const [processedAt, setProcessedAt] = useState('');
   const [completedAt, setCompletedAt] = useState('');
@@ -555,6 +581,7 @@ function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['processing-history'] });
+      qc.invalidateQueries({ queryKey: ['queue'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['sales'] });
       if (res.failed.length) {
@@ -563,8 +590,8 @@ function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
           res.failed[0]?.reason,
         );
       } else {
-        toast.success(`${res.updated} işin tarihi güncellendi`);
-        onClear();
+        toast.success(`${res.updated} işin tarihi/notu güncellendi`);
+        onDone();
       }
     },
     onError: (e) => toast.error('Toplu düzenleme yapılamadı', apiErrorMessage(e)),
@@ -577,19 +604,7 @@ function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
   );
 
   return (
-    <div
-      role="region"
-      aria-label="Toplu düzenleme"
-      className="sticky bottom-20 z-20 md:bottom-2 space-y-2 rounded-2xl border border-blue-300 bg-white/95 p-3 shadow-lg backdrop-blur dark:border-blue-800 dark:bg-slate-900/95"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
-          ✎ {ids.length} iş seçili — toplu düzenle
-        </p>
-        <button type="button" className="ml-auto text-xs underline text-slate-500" onClick={onClear}>
-          Seçimi temizle
-        </button>
-      </div>
+    <div className="space-y-2">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[11rem_11rem_auto_minmax(0,1fr)_auto] lg:items-end">
         <MiniField label="İşlenme tarihi">
           <input
@@ -648,6 +663,19 @@ function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
         {quick('Tamamlanma = işlenme günü', () => setSameDay(true))}
       </div>
     </div>
+  );
+}
+
+/** Geçmiş işlerin toplu düzenleme çubuğu. */
+function BulkEditBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
+  return (
+    <BulkBar
+      title={`✎ ${ids.length} iş seçili — toplu düzenle`}
+      onClear={onClear}
+      label="Toplu düzenleme"
+    >
+      <BulkDatesNote ids={ids} onDone={onClear} />
+    </BulkBar>
   );
 }
 
@@ -840,8 +868,21 @@ function jobMeasure(job: ProcessingJob): string {
  */
 export function ProcessingQueuePage() {
   const qc = useQueryClient();
-  const { grouped, toggle: toggleGroup } = useListGrouping();
+  const { can } = useAuth();
+  const canBulk = can('processing', 'write');
   const { mini: miniView, toggle: toggleMini } = useListDensity();
+  // Gruplama: makine / müşteri / ürün türü / malzeme / müşteri › ürün türü.
+  const [groupBy, setGroupByState] = useState<QueueGroupBy>(loadGroupBy);
+  const setGroupBy = (v: QueueGroupBy) => {
+    setGroupByState(v);
+    try {
+      localStorage.setItem(QUEUE_GROUP_KEY, v);
+    } catch {
+      /* depolama kapalı: yalnız bu oturumda geçerli */
+    }
+  };
+  // Toplu seçim: yalnız ekranda görünen işler seçili sayılır.
+  const sel = useSelection<ProcessingJob>();
   // #4 Kuyruk filtreleri: malzeme türü (kategori), sahip (müşteri), arama.
   const [categoryId, setCategoryId] = useState('');
   const [filterCustomerId, setFilterCustomerId] = useState('');
@@ -916,6 +957,15 @@ export function ProcessingQueuePage() {
   const groups = data ?? [];
   const empty = groups.every((g) => g.jobs.length === 0);
   const allJobs = groups.flatMap((g) => g.jobs);
+  const nodes = useMemo(() => groupQueue(groups, groupBy), [groups, groupBy]);
+  // Süzgeç/yenileme ile listeden çıkan (ya da tamamlanan) iş seçili kalmasın:
+  // gizli bir işe toplu işlem uygulanmasın.
+  const visibleIds = allJobs.map((j) => j.id).join(',');
+  const { retain } = sel;
+  useEffect(() => {
+    retain(visibleIds ? visibleIds.split(',') : []);
+  }, [visibleIds, retain]);
+  const selectedJobs = allJobs.filter((j) => sel.has(j.id));
   const filterCount = (categoryId ? 1 : 0) + (filterCustomerId ? 1 : 0);
   const filtered = filterCount > 0 || !!search;
   const clearFilters = () => {
@@ -941,6 +991,8 @@ export function ProcessingQueuePage() {
       job={job}
       pending={mut.isPending}
       mini={miniView}
+      selected={canBulk ? sel.has(job.id) : undefined}
+      onToggle={canBulk ? () => sel.toggle(job) : undefined}
       onAction={(status, opts) => mut.mutate({ id: job.id, status, opts })}
     />
   );
@@ -954,6 +1006,37 @@ export function ProcessingQueuePage() {
     ) : (
       <>{jobs.map(renderCard)}</>
     );
+
+  const renderGroup = (node: QueueGroupNode) => {
+    const total = groupTotal(node.jobs);
+    return (
+      <GroupSection
+        key={node.key}
+        title={node.title}
+        count={node.jobs.length}
+        countLabel={`iş${total ? ` · ${formatMoney(total.total, total.currency)}` : ''}`}
+        actions={canBulk ? <GroupSelect jobs={node.jobs} sel={sel} /> : undefined}
+      >
+        {node.children
+          ? node.children.map((child: QueueSubGroup) => (
+              <div key={child.key} className="space-y-2">
+                <div className="flex items-center gap-2 pl-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  <span aria-hidden>↳</span>
+                  <span>{child.title}</span>
+                  <span className="font-normal text-slate-400">{child.jobs.length} iş</span>
+                  {canBulk && (
+                    <span className="ml-auto">
+                      <GroupSelect jobs={child.jobs} sel={sel} />
+                    </span>
+                  )}
+                </div>
+                {renderJobs(child.jobs)}
+              </div>
+            ))
+          : renderJobs(node.jobs)}
+      </GroupSection>
+    );
+  };
 
   const pendingCount = allJobs.filter((j) => j.status === 'pending').length;
   const runningCount = allJobs.length - pendingCount;
@@ -981,7 +1064,21 @@ export function ProcessingQueuePage() {
               </button>
             )}
             <DensityToggle mini={miniView} onToggle={toggleMini} />
-            <GroupToggle grouped={grouped} onToggle={toggleGroup} />
+            <label className="flex items-center gap-1.5 text-sm">
+              <span className="text-slate-500">Grupla:</span>
+              <select
+                className="input !w-auto !py-1.5"
+                aria-label="Kuyruğu grupla"
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as QueueGroupBy)}
+              >
+                {QUEUE_GROUP_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </>
         }
       />
@@ -1065,30 +1162,210 @@ export function ProcessingQueuePage() {
             }
           />
         )
-      ) : grouped ? (
-        /* Gruplu: Müşteri · Kategori; grupsuz: makineye göre (varsayılan). */
-        groupJobs(allJobs).map(([key, jobs]) => (
-          <GroupSection key={key} title={key} count={jobs.length} countLabel="iş">
-            {renderJobs(jobs)}
-          </GroupSection>
-        ))
       ) : (
-        groups.map((group) => (
-          <GroupSection
-            key={group.machineId ?? 'unassigned'}
-            title={`🛠️ ${group.machineName}`}
-            count={group.jobs.length}
-            countLabel="iş"
-          >
-            {renderJobs(group.jobs)}
-          </GroupSection>
-        ))
+        <>
+          {/* Toplu seçim: görünen tüm işleri seç; grup başlığından o grubu seç. */}
+          {canBulk && (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <SelectBox
+                state={sel.stateOf(allJobs)}
+                onChange={() => sel.toggleMany(allJobs)}
+                label={`Görünen ${allJobs.length} işin tümünü seç`}
+                className="!m-0"
+              />
+              <span className="font-medium text-slate-600 dark:text-slate-300">
+                {selectedJobs.length > 0
+                  ? `${selectedJobs.length} / ${allJobs.length} iş seçili`
+                  : `Toplu işlem için işleri seçin (${allJobs.length})`}
+              </span>
+            </div>
+          )}
+          {nodes.map(renderGroup)}
+        </>
+      )}
+
+      {canBulk && selectedJobs.length > 0 && (
+        <QueueBulkBar jobs={selectedJobs} onClear={sel.clear} />
       )}
 
       <RecentSales />
 
       <ProcessingHistory />
     </div>
+  );
+}
+
+/** Grup başlığındaki "Grubu seç / Seçimi kaldır" düğmesi. */
+function GroupSelect({
+  jobs,
+  sel,
+}: {
+  jobs: ProcessingJob[];
+  sel: ReturnType<typeof useSelection<ProcessingJob>>;
+}) {
+  const state = sel.stateOf(jobs);
+  return (
+    <button
+      type="button"
+      className="rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"
+      onClick={() => sel.toggleMany(jobs)}
+      title={state === 'all' ? 'Bu gruptaki seçimi kaldır' : 'Bu gruptaki tüm işleri seç'}
+    >
+      {state === 'all' ? '☑ Seçimi kaldır' : state === 'some' ? '◩ Grubun tamamını seç' : '☐ Grubu seç'}
+    </button>
+  );
+}
+
+/**
+ * Kuyrukta seçilen işlere toplu işlem: başlat (yalnız bekleyenler), tamamla
+ * (isteğe bağlı tarihlerle), iptal et, tarih/not düzenle. Her iş kendi isteğiyle
+ * gider; aynı plakanın işleri sırayla (stok düşümü çakışmasın), farklı plakalar
+ * 4'er 4'er. Başarısız olanlar nedeniyle bildirilir ve seçili kalır → yeniden
+ * denenebilir.
+ */
+function QueueBulkBar({ jobs, onClear }: { jobs: ProcessingJob[]; onClear: () => void }) {
+  const qc = useQueryClient();
+  const [panel, setPanel] = useState<null | 'complete' | 'dates'>(null);
+  const [processedAt, setProcessedAt] = useState('');
+  const [completedAt, setCompletedAt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const pending = jobs.filter((j) => j.status === 'pending');
+  const running = jobs.length - pending.length;
+
+  const apply = async (
+    targets: ProcessingJob[],
+    status: ProcessingStatus,
+    verbs: { done: string; notDone: string },
+    opts?: CompleteOptions,
+  ) => {
+    setBusy(true);
+    try {
+      const res = await runBulk(targets, (j) => setProcessingStatus(j.id, status, { ...opts, silent: true }), {
+        serialKey: (j) => j.plateId,
+        label: (j) => j.plate?.name ?? 'İş',
+      });
+      const rep = bulkReport('iş', verbs, res);
+      toast[rep.tone](rep.title, rep.detail);
+      setPanel(null);
+    } finally {
+      setBusy(false);
+      qc.invalidateQueries({ queryKey: ['queue'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['plates'] });
+      qc.invalidateQueries({ queryKey: ['processing-history'] });
+    }
+  };
+
+  const cancelAll = async () => {
+    const names = jobs.slice(0, 4).map((j) => `• ${j.plate?.name ?? 'İş'} (${j.customer?.name ?? 'Müşterisiz'})`);
+    const more = jobs.length > 4 ? `\n… ve ${jobs.length - 4} iş daha` : '';
+    const ok = await confirmDialog({
+      title: `${jobs.length} iş iptal edilsin mi?`,
+      message: `Seçili işler kuyruktan iptal edilecek; bu geri alınamaz.\n${names.join('\n')}${more}`,
+      confirmText: 'İptal et',
+      cancelText: 'Vazgeç',
+      danger: true,
+    });
+    if (ok) await apply(jobs, 'cancelled', { done: 'iptal edildi', notDone: 'iptal edilemedi' });
+  };
+
+  return (
+    <BulkBar
+      title={`✓ ${jobs.length} iş seçili · ${pending.length} bekliyor · ${running} işleniyor`}
+      onClear={onClear}
+      label="Kuyruk toplu işlem"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="btn-primary btn-sm"
+          disabled={busy || !pending.length}
+          title={pending.length ? 'Bekleyen seçili işleri başlat' : 'Seçili işlerin hepsi zaten işleniyor'}
+          onClick={() =>
+            apply(pending, 'in_progress', { done: 'başlatıldı', notDone: 'başlatılamadı' })
+          }
+        >
+          {busy && <Spinner />}▶ Başlat ({pending.length})
+        </button>
+        <button
+          type="button"
+          className="btn-success btn-sm"
+          disabled={busy}
+          aria-expanded={panel === 'complete'}
+          onClick={() => setPanel((p) => (p === 'complete' ? null : 'complete'))}
+        >
+          ✓ Tamamla ({jobs.length})…
+        </button>
+        <button
+          type="button"
+          className="btn-secondary btn-sm"
+          disabled={busy}
+          aria-expanded={panel === 'dates'}
+          onClick={() => setPanel((p) => (p === 'dates' ? null : 'dates'))}
+        >
+          ✎ Tarih / not
+        </button>
+        <button
+          type="button"
+          className="btn-danger-soft btn-sm ml-auto"
+          disabled={busy}
+          onClick={cancelAll}
+        >
+          ✕ İptal et ({jobs.length})
+        </button>
+      </div>
+
+      {panel === 'complete' && (
+        <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900 dark:bg-emerald-950/20">
+          <p className="text-sm">
+            Seçili <b>{jobs.length}</b> iş tamamlanacak: stok düşer, ertelenmiş işler cariye
+            borç yazılır. Nihai fiyat ve kalan parça tek tek girilir; toplu tamamlamada
+            hesaplanan ücret kullanılır.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[11rem_11rem_auto] lg:items-end">
+            <MiniField label="İşlenme tarihi (ops.)" hint="Boş = korunur">
+              <input
+                className="input"
+                type="date"
+                max={todayStr}
+                value={processedAt}
+                onChange={(e) => setProcessedAt(e.target.value)}
+              />
+            </MiniField>
+            <MiniField label="Tamamlanma tarihi (ops.)" hint="Boş = şimdi">
+              <input
+                className="input"
+                type="date"
+                max={todayStr}
+                value={completedAt}
+                onChange={(e) => setCompletedAt(e.target.value)}
+              />
+            </MiniField>
+            <button
+              type="button"
+              className="btn-success"
+              disabled={busy}
+              onClick={() =>
+                apply(
+                  jobs,
+                  'completed',
+                  { done: 'tamamlandı', notDone: 'tamamlanamadı' },
+                  { processedAt: processedAt || undefined, completedAt: completedAt || undefined },
+                )
+              }
+            >
+              {busy && <Spinner />}
+              {busy ? 'Tamamlanıyor…' : `Onayla ve ${jobs.length} işi tamamla`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'dates' && (
+        <BulkDatesNote ids={jobs.map((j) => j.id)} onDone={() => setPanel(null)} />
+      )}
+    </BulkBar>
   );
 }
 
@@ -1101,13 +1378,25 @@ function QueueJobCard({
   job,
   pending,
   mini = false,
+  selected = false,
+  onToggle,
   onAction,
 }: {
   job: ProcessingJob;
   pending: boolean;
   mini?: boolean;
+  /** Toplu seçim: yalnız onToggle verilirse (yetkili kullanıcı) kutu görünür. */
+  selected?: boolean;
+  onToggle?: () => void;
   onAction: (status: ProcessingStatus, opts?: CompleteOptions) => void;
 }) {
+  const pick = onToggle && (
+    <SelectBox
+      state={selected}
+      onChange={onToggle}
+      label={`${job.plate?.name ?? 'İş'} (${job.customer?.name ?? 'Müşterisiz'}) seç`}
+    />
+  );
   const [finalPrice, setFinalPrice] = useState('');
   // Fire/kalan parça (ops.): kesimden artan parçanın ebadı — tamamlanınca
   // aynı türden kesik plaka olarak stoğa eklenir (sahiplik korunur).
@@ -1147,7 +1436,12 @@ function QueueJobCard({
   // Mini mod: tek satır — ad/müşteri + tutar + aksiyonlar (ops. alanlar gizli).
   if (mini) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-3 py-2">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-3 py-2 ${
+          selected ? 'bg-blue-50/70 dark:bg-blue-950/30' : ''
+        }`}
+      >
+        {pick}
         <div className="min-w-0 flex-1 basis-48">
           <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             <span
@@ -1197,9 +1491,10 @@ function QueueJobCard({
   }
 
   return (
-    <div className="card space-y-3">
+    <div className={`card space-y-3 ${selected ? 'ring-2 ring-blue-400' : ''}`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        {pick}
+        <div className="min-w-0 flex-1">
           <p className="break-words font-semibold">{job.plate?.name ?? '—'}</p>
           <p className="truncate text-sm text-slate-600">
             {job.customer?.name ?? 'Müşterisiz'} · {jobMeasure(job)}

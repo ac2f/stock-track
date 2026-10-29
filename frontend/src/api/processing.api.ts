@@ -71,6 +71,8 @@ export interface CompleteOptions {
   /** "Tamamla" öncesi kullanıcının seçtiği işlenme/tamamlanma tarihleri (ops.). */
   processedAt?: string;
   completedAt?: string;
+  /** Toplu işlemde kalem başına bildirim çıkmasın (özet tek bildirimdir). */
+  silent?: boolean;
 }
 
 export async function setProcessingStatus(
@@ -87,7 +89,7 @@ export async function setProcessingStatus(
       : {}),
     ...(opts.processedAt ? { processedAt: opts.processedAt } : {}),
     ...(opts.completedAt ? { completedAt: opts.completedAt } : {}),
-  });
+  }, { silent: opts.silent });
   return data;
 }
 
