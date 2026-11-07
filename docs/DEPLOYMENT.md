@@ -129,6 +129,63 @@ volumes:
 (Docker Desktop > Settings > Resources > File Sharing içinde sürücü paylaşıma
 açık olmalı; klasör önceden var olmalı.)
 
+## 3b) Eski sürümden yükseltme (veri kaybı olmadan, otomatik)
+
+Çok işletmeli (kiralama) sürüme geçerken mevcut veriler **kendiliğinden** taşınır;
+elle bir şey çalıştırmanız gerekmez:
+
+```bash
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+API açılırken sırayla şunlar olur:
+
+1. Eski şema algılanırsa **önce tam yedek** alınır (`pg_dump`, tek dosya):
+   `pre-upgrade-<veritabani>-<tarih>.sql`. Bu dosya `api_backups` adlı kalıcı
+   volume'de (konteyner içinde `/app/backups`) durur; konteyner yeniden
+   oluşturulsa bile silinmez. Yedek yalnız yükseltmenin ilk açılışında alınır.
+2. Şema yalnızca **ekleme** yapar (yeni tablo/sütun); eski tablo ve sütunlara
+   dokunulmaz.
+3. Bütün eski kayıtlar (müşteri, stok, teklif, cari, çalışan ...) otomatik
+   olarak **ilk işletmenize** bağlanır; çalışanlar o işletmeye eski
+   yetkileriyle eklenir. İşletme adı/telefon/adres, eski *Ayarlar*'daki
+   işletme bilgilerinden doldurulur (bir kez; sonradan boşalttığınız alan geri
+   doldurulmaz).
+4. İlk işletme `aktif` ve süresizdir. Dizinde görünmez, ağ paylaşımı kapalıdır:
+   *İşletme Profili*'nden il/ilçeyi girip anahtarları kendiniz açarsınız.
+
+Yedek davranışı `PRE_UPGRADE_BACKUP` ile seçilir:
+
+| Değer | Anlamı |
+|---|---|
+| `auto` (varsayılan) | Yedek alınmaya çalışılır; alınamazsa uyarı yazılır ve açılış sürer. |
+| `required` | Yedek alınamazsa API **açılmaz** ve veritabanına dokunulmaz. |
+| `off` | Yedek alınmaz. |
+
+Yedek klasörü `BACKUP_DIR`, `pg_dump` konumu `BACKUP_PG_BIN_DIR` ile verilir.
+Kritik veride ilk yükseltmeyi `PRE_UPGRADE_BACKUP=required` ile yapmanız önerilir.
+
+**Eski konteynerin yedekleri:** `api_backups` volume'ü ilk kez bağlanırken
+eski konteynerin `/app/backups` içeriği (otomatik gece yedekleri ve şifre
+anahtarları) görünmez olur. `up -d --build` öncesinde kopyalayın:
+
+```bash
+docker cp stocktrack-api:/app/backups ./backups-eski
+```
+
+**Geri dönmek** gerekirse (yedek yükseltmeden hemen önceki hâldir):
+
+```bash
+docker compose -f docker-compose.prod.yml stop api
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  psql -U stocktrack -d stocktrack < pre-upgrade-stocktrack-<tarih>.sql
+```
+
+> Eski sürümün kodunu yeni şemalı veritabanında doğrudan çalıştırmayın: eski
+> sürüm açılışta yeni sütunları siler. Geri dönüşte mutlaka yukarıdaki yedeği
+> yükleyin.
+
 ## 4) Yerel ağ (LAN) erişimi
 
 Üretimde **arayüz ve API aynı origin'den** sunulur: nginx (port 80) hem arayüzü

@@ -80,6 +80,15 @@ başkalarınınkini görür; kapatan ikisinden de çıkar. Yeni kayıtlar açık
 başına dakikada 40 ile sınırlıdır, telefon maskelenerek günlüğe yazılır, yalnız *Müşteriler: yazma*
 izni olan sorgulayabilir ve sonuçlar cihazda saklanmaz.
 
+## Mevcut kurulumu yükseltmek
+
+Platform öncesi sürümü kullanan bir kurulum `docker compose -f docker-compose.prod.yml up -d --build`
+ile güncellendiğinde **bütün eski veriler otomatik olarak ilk işletmeye** taşınır; elle migrasyon
+yoktur. Açılıştan önce `pre-upgrade-*.sql` tam yedeği alınır (`api_backups` volume'ü), şema yalnız
+ekleme yapar, işletme profili eski *Ayarlar*'daki ad/telefon/adresten doldurulur. İlk işletme
+`aktif` ve süresizdir; dizinde görünmez ve ağ paylaşımı kapalıdır (il/ilçeyi girip kendiniz
+açarsınız). Ayrıntı ve geri dönüş: `docs/DEPLOYMENT.md` › *3b) Eski sürümden yükseltme*.
+
 ## Veri modeli (özet)
 
 `shops` (durum, plan, kiralama bitişi, profil, ağ tercihleri) · `business_labels` ·

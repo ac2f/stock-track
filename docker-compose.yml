@@ -55,6 +55,9 @@ services:
       DB_HOST: postgres
     env_file:
       - ./backend/.env
+    volumes:
+      # Kalıcı yedek klasörü (yedekler + yedek şifreleme anahtarı konteyner yenilense de kalır).
+      - api_backups:/app/backups
     ports:
       - '3000:3000'
     # Yatay ölçekleme örneği: docker compose up --scale api=3
@@ -64,3 +67,4 @@ volumes:
   # Adlandırılmış kalıcı volume (Docker yönetir). Windows'ta klasör bağlamak
   # isterseniz yukarıdaki postgres > volumes yorumlarına bakın.
   pgdata:
+  api_backups:

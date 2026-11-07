@@ -85,6 +85,11 @@ services:
       NODE_ENV: production
       DB_HOST: postgres
       REDIS_URL: redis://:${REDIS_PASSWORD:-stocktrack-redis-local}@redis:6379/0
+    volumes:
+      # KALICI yedek klasörü: günlük yedekler, YÜKSELTME ÖNCESİ otomatik yedek ve yedek şifreleme
+      # anahtarı burada durur. Volume olmazsa konteyner yeniden oluşturulunca (güncelleme) hepsi
+      # silinirdi — şifreli yedeklerin anahtarı dahil.
+      - api_backups:/app/backups
     ports:
       - '3000:3000'
 
@@ -110,3 +115,4 @@ services:
 
 volumes:
   pgdata:
+  api_backups:

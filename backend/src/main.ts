@@ -21,6 +21,8 @@ import { ShopAccessService } from './modules/shops/shop-access.service';
 import { migrateToShops } from './modules/shops/shop-migration';
 import { splitAreaLots } from './modules/materials/area-lots-migration';
 import { backfillCustomerPhones } from './modules/customers/customer-phone-backfill';
+import { backfillShopProfiles } from './modules/shops/shop-profile-backfill';
+import { preUpgradeBackup } from './database/pre-upgrade-backup';
 import { installSyncCapture } from './modules/sync/sync-capture';
 import { SyncCaptureSubscriber } from './modules/sync/sync-capture.subscriber';
 import { SyncInterceptor } from './modules/sync/sync.interceptor';
@@ -29,6 +31,9 @@ import { replaySecret } from './modules/sync/sync-replay.secret';
 import { PrimaryOnlyGuard } from './modules/sync/primary-only.guard';
 
 async function bootstrap(): Promise<void> {
+  // Şema, NestFactory.create sırasında eşitlenir (yeni tablo/sütun eklenir). Veri olan bir
+  // veritabanı ilk kez yükseltiliyorsa ÖNCE tam yedek alınır (veri kaybına karşı emniyet).
+  const upgrade = await preUpgradeBackup();
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
   const configService = app.get(ConfigService);
   const appConfig = configService.get<AppConfig>('app')!;
@@ -50,6 +55,12 @@ async function bootstrap(): Promise<void> {
     await backfillCustomerPhones(dataSource).catch((err) =>
       console.error('Müşteri telefonları işlenemedi:', (err as Error).message),
     );
+    // Yükseltilen kurulumda işletme profili eski "işletme bilgileri"nden doldurulur.
+    if (upgrade.pending) {
+      await backfillShopProfiles(dataSource).catch((err) =>
+        console.error('İşletme profili doldurulamadı:', (err as Error).message),
+      );
+    }
     // Tabaka partilerini ayrı kayıtlara bölme: başarısız olursa uygulama yine
     // açılır (bir sonraki açılışta yeniden denenir).
     await splitAreaLots(dataSource).catch((err) =>
