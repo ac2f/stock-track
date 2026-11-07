@@ -14,6 +14,8 @@ export interface NavItem {
   anyOf?: ShopModule[];
   /** Yalnız birden çok dükkâna girebilen kullanıcıya gösterilir. */
   multiShop?: boolean;
+  /** Yalnız sistem sahibi (platform yönetimi). */
+  owner?: boolean;
   /** Hızlı aramada eşleşecek ek sözcükler. */
   keywords?: string;
 }
@@ -46,8 +48,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'İşletmeler ağı',
+    items: [
+      { to: '/directory', label: 'Rehber', title: 'İşletme Rehberi', icon: '🧭', keywords: 'işletme firma rehber il ilçe makine lazer cnc ebat etiket iş kolu ara bul telefon' },
+    ],
+  },
+  {
     label: 'Yönetim',
     items: [
+      { to: '/business', label: 'İşletme Profili', title: 'İşletme profili ve makineler', icon: '🪪', anyOf: ['settings', 'catalog'], keywords: 'profil adres il ilçe iletişim etiket makine envanter ebat rehber paylaşım borç uyarı' },
+      { to: '/platform', label: 'Platform', title: 'Platform yönetimi', icon: '🛰️', owner: true, keywords: 'kiralama işletme onay kayıt etiket makine türü abonelik süre askıya redis önbellek' },
       { to: '/price-rules', label: 'Fiyat Çatıları', title: 'Fiyat Çatıları', icon: '💰', module: 'catalog', keywords: 'fiyat çatı malzemeci tedarikçi referans döviz dolar satış önerisi' },
       { to: '/material-templates', label: 'Ürün Türleri', title: 'Ürün Türleri', icon: '🗂️', module: 'catalog', keywords: 'katalog şablon marka renk kalınlık ebat' },
       { to: '/material-categories', label: 'Malzeme Türleri', title: 'Malzeme Türleri', icon: '🏷️', module: 'catalog', keywords: 'katalog kategori pleksi' },
@@ -64,8 +74,10 @@ export function visibleNav(
   can: (m: ShopModule) => boolean,
   managesAnyShop: boolean,
   shopCount = 1,
+  isOwner = false,
 ): NavGroup[] {
   const visible = (n: NavItem): boolean => {
+    if (n.owner) return isOwner;
     if (n.team) return managesAnyShop;
     if (n.multiShop && shopCount < 2) return false;
     if (n.anyOf) return n.anyOf.some((m) => can(m));

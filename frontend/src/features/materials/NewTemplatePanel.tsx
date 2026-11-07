@@ -4,8 +4,11 @@ import {
   ensureTemplate,
   fetchMaterialBrands,
   fetchMaterialColors,
+  fetchMaterialSizes,
+  fetchMaterialThicknesses,
   type EnsureTemplateResult,
 } from '../../api/materials.api';
+import { PickOrNew } from '../../components/ui/PickOrNew';
 import { useMaterialCategories } from '../../hooks/useReferenceData';
 import { fold } from '../../lib/search';
 import { parseTemplateQuery, type TemplateDraft } from '../../lib/templateDraft';
@@ -54,6 +57,30 @@ export function NewTemplatePanel({
   }, [categories, catNames, query]);
 
   const category = categories?.find((c) => fold(c.name) === fold(draft.categoryName));
+
+  // Kalınlık ve ebat metin olarak tutulur ("3," yazarken sayıya dönüp silinmesin);
+  // taslak dışarıdan değişirse (aramadan yeniden çıkarılırsa) metin ona uyar.
+  const parseNum = (s: string): number | undefined => {
+    const n = Number(s.trim().replace(',', '.'));
+    return s.trim() && Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+  const sizeToText = (w?: number, h?: number) => (w && h ? `${w}x${h}` : '');
+  const [thText, setThText] = useState(draft.thicknessMm != null ? String(draft.thicknessMm) : '');
+  const [sizeText, setSizeText] = useState(sizeToText(draft.sheetWidthMm, draft.sheetHeightMm));
+  useEffect(() => {
+    if ((draft.thicknessMm ?? null) !== (parseNum(thText) ?? null)) {
+      setThText(draft.thicknessMm != null ? String(draft.thicknessMm) : '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.thicknessMm]);
+  useEffect(() => {
+    const m = sizeText.toLowerCase().replace(/[×*]/g, 'x').match(/^\s*(\d{2,6})\s*x\s*(\d{2,6})\s*$/);
+    const cur = m ? `${Number(m[1])}x${Number(m[2])}` : '';
+    if (cur !== sizeToText(draft.sheetWidthMm, draft.sheetHeightMm)) {
+      setSizeText(sizeToText(draft.sheetWidthMm, draft.sheetHeightMm));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.sheetWidthMm, draft.sheetHeightMm]);
   const { data: brands } = useQuery({
     queryKey: ['material-brands', category?.id],
     queryFn: () => fetchMaterialBrands(category!.id),
@@ -62,6 +89,17 @@ export function NewTemplatePanel({
   const { data: colors } = useQuery({
     queryKey: ['material-colors', category?.id],
     queryFn: () => fetchMaterialColors(category!.id),
+    enabled: !!category,
+  });
+
+  const { data: thicknesses } = useQuery({
+    queryKey: ['material-thicknesses', category?.id],
+    queryFn: () => fetchMaterialThicknesses(category!.id),
+    enabled: !!category,
+  });
+  const { data: sizes } = useQuery({
+    queryKey: ['material-sizes', category?.id],
+    queryFn: () => fetchMaterialSizes(category!.id),
     enabled: !!category,
   });
 
@@ -76,6 +114,17 @@ export function NewTemplatePanel({
       }),
     );
   }, [category, brands, colors, catNames, query]);
+
+  // Aynı adda birden çok kodu olan renkler ayrı satırdır ("Beyaz · 1001", "Beyaz · 1002").
+  const colorValue = (c: { id: string; name: string; code?: string }) => `${c.name}\u0000${c.code ?? ''}`;
+  const colorOptions = (colors ?? []).map((c) => ({
+    value: colorValue(c),
+    label: c.code ? `${c.name} · ${c.code}` : c.name,
+  }));
+  // Taslaktaki ad(+kod) listedeki bir satırla eşleşiyorsa o satır seçili görünür.
+  const sameName = (colors ?? []).filter((c) => fold(c.name) === fold(draft.colorName));
+  const colorHit = sameName.find((c) => (c.code ?? '') === draft.colorCode.trim()) ?? sameName[0];
+  const currentColorValue = colorHit ? colorValue(colorHit) : draft.colorName;
 
   const mut = useMutation({
     mutationFn: () =>
@@ -111,7 +160,6 @@ export function NewTemplatePanel({
     },
   });
 
-  const num = (v: string) => (v ? Number(v) : undefined);
   const preview = [
     draft.categoryName.trim(),
     draft.brandName.trim(),
@@ -146,60 +194,52 @@ export function NewTemplatePanel({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="block min-w-0 sm:col-span-2">
-          <span className="label">
-            Tür (kategori)<span className="ml-0.5 text-red-600">*</span>
-          </span>
-          <input
-            className="input"
-            list="ntp-categories"
-            placeholder="Örn. Pleksi"
-            value={draft.categoryName}
-            onChange={(e) => edit({ categoryName: e.target.value })}
-            autoComplete="off"
-          />
-          <datalist id="ntp-categories">
-            {categories?.map((c) => (
-              <option key={c.id} value={c.name} />
-            ))}
-          </datalist>
-        </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Her alan önce mevcut kayıtların LİSTESİDİR; listede yoksa "➕ Yeni …" ile yazılır. */}
+        <PickOrNew
+          id="ntp-category"
+          className="sm:col-span-2"
+          label="Tür (kategori)"
+          required
+          options={(categories ?? []).map((c) => ({ value: c.name }))}
+          loading={!categories}
+          value={draft.categoryName}
+          newLabel="Yeni tür yaz…"
+          newPlaceholder="Örn. Pleksi"
+          onChange={(v) => edit({ categoryName: v })}
+        />
 
-        <label className="block min-w-0">
-          <span className="label">Marka</span>
-          <input
-            className="input"
-            list="ntp-brands"
-            placeholder="Örn. Akpolimer"
-            value={draft.brandName}
-            onChange={(e) => edit({ brandName: e.target.value })}
-            autoComplete="off"
-          />
-          <datalist id="ntp-brands">
-            {brands?.map((b) => (
-              <option key={b.id} value={b.name} />
-            ))}
-          </datalist>
-        </label>
+        <PickOrNew
+          id="ntp-brand"
+          label="Marka"
+          options={(brands ?? []).map((b) => ({ value: b.name }))}
+          loading={!!category && !brands}
+          value={draft.brandName}
+          placeholder={category ? 'Marka seçin…' : 'Önce tür seçin'}
+          disabled={!draft.categoryName.trim()}
+          newLabel="Yeni marka yaz…"
+          newPlaceholder="Örn. Akpolimer"
+          onChange={(v) => edit({ brandName: v })}
+        />
 
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_6rem] gap-2">
-          <label className="block min-w-0">
-            <span className="label">Renk</span>
-            <input
-              className="input"
-              list="ntp-colors"
-              placeholder="Örn. Beyaz"
-              value={draft.colorName}
-              onChange={(e) => edit({ colorName: e.target.value })}
-              autoComplete="off"
-            />
-            <datalist id="ntp-colors">
-              {[...new Set((colors ?? []).map((c) => c.name))].map((n) => (
-                <option key={n} value={n} />
-              ))}
-            </datalist>
-          </label>
+          <PickOrNew
+            id="ntp-color"
+            label="Renk"
+            options={colorOptions}
+            loading={!!category && !colors}
+            value={currentColorValue}
+            placeholder={category ? 'Renk seçin…' : 'Önce tür seçin'}
+            disabled={!draft.categoryName.trim()}
+            newLabel="Yeni renk yaz…"
+            newPlaceholder="Örn. Beyaz"
+            onChange={(v) => {
+              // Listeden seçilen rengin kodu da gelir (aynı adda birden çok kod olabilir: "Beyaz · 1001").
+              const hit = (colors ?? []).find((c) => colorValue(c) === v);
+              if (hit) edit({ colorName: hit.name, colorCode: hit.code ?? '' });
+              else edit({ colorName: v });
+            }}
+          />
           <label className="block min-w-0">
             <span className="label">Kod</span>
             <input
@@ -211,43 +251,38 @@ export function NewTemplatePanel({
           </label>
         </div>
 
-        <label className="block min-w-0">
-          <span className="label">Kalınlık (mm)</span>
-          <input
-            className="input"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.1"
-            value={draft.thicknessMm ?? ''}
-            onChange={(e) => edit({ thicknessMm: num(e.target.value) })}
-          />
-        </label>
+        <PickOrNew
+          id="ntp-thickness"
+          label="Kalınlık (mm)"
+          options={(thicknesses ?? []).map((x) => ({ value: String(Number(x.valueMm)), label: `${Number(x.valueMm)} mm` }))}
+          loading={!!category && !thicknesses}
+          value={thText}
+          placeholder="Kalınlık seçin…"
+          disabled={!draft.categoryName.trim()}
+          newLabel="Başka kalınlık yaz…"
+          newPlaceholder="mm (örn. 3)"
+          onChange={(v) => {
+            setThText(v);
+            edit({ thicknessMm: parseNum(v) });
+          }}
+        />
 
-        <div className="grid min-w-0 grid-cols-2 gap-2">
-          <label className="block min-w-0">
-            <span className="label">Standart en (mm)</span>
-            <input
-              className="input"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              value={draft.sheetWidthMm ?? ''}
-              onChange={(e) => edit({ sheetWidthMm: num(e.target.value) })}
-            />
-          </label>
-          <label className="block min-w-0">
-            <span className="label">Standart boy (mm)</span>
-            <input
-              className="input"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              value={draft.sheetHeightMm ?? ''}
-              onChange={(e) => edit({ sheetHeightMm: num(e.target.value) })}
-            />
-          </label>
-        </div>
+        <PickOrNew
+          id="ntp-size"
+          label="Standart tabaka ebadı (en × boy mm)"
+          options={(sizes ?? []).map((s) => ({ value: `${Number(s.widthMm)}x${Number(s.heightMm)}`, label: `${Number(s.widthMm)} × ${Number(s.heightMm)} mm` }))}
+          loading={!!category && !sizes}
+          value={sizeText}
+          placeholder="Ebat seçin…"
+          disabled={!draft.categoryName.trim()}
+          newLabel="Başka ebat yaz…"
+          newPlaceholder="1220x2440"
+          onChange={(v) => {
+            setSizeText(v);
+            const m = v.toLowerCase().replace(/[×*]/g, 'x').match(/^\s*(\d{2,6})\s*x\s*(\d{2,6})\s*$/);
+            edit(m ? { sheetWidthMm: Number(m[1]), sheetHeightMm: Number(m[2]) } : { sheetWidthMm: undefined, sheetHeightMm: undefined });
+          }}
+        />
 
         <label className="block min-w-0 sm:col-span-2">
           <span className="label">Alt tür / varyant (ops.)</span>

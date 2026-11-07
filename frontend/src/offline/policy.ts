@@ -68,6 +68,13 @@ const NO_CACHE: RegExp[] = [
   /^\/exchange-rates\/convert$/,
   /^\/material-catalog\/duplicates$/,
   /^\/backups/,
+  // Rehber, platform yönetimi, müşteri ağı sorguları ve kayıt: anlık ve başkalarının
+  // bilgisi — cihazda SAKLANMAZ (özellikle telefon eşleşmesi sonuçları).
+  /^\/directory/,
+  /^\/platform/,
+  /^\/customer-network/,
+  /^\/registration/,
+  /^\/system\/cache/,
   // Yerel sunucu eşitleme durumu ve giden kutusu anlıktır.
   /^\/system\/sync/,
   /^\/sync\//,

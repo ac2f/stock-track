@@ -78,8 +78,48 @@ ulaşılamaması `503` döner.
 |-------|-----|-------|----------|
 | POST | `/auth/login` | 🔓 | `{ email, password }` → `{ accessToken, refreshToken, user }` |
 | POST | `/auth/refresh` | 🔓 | `{ refreshToken }` → yeni access token |
-| GET  | `/auth/me` | 👥 | Profil + `shops: [{ id, name, isActive, isAdmin, permissions }]` |
-| GET  | `/health` | 🔓 | `200 { status, db: "up" }`; veritabanına ulaşılamıyorsa `503` |
+| GET  | `/auth/me` | 👥 | Profil + `shops: [{ id, name, isActive, status, plan, subscriptionUntil, expired, isAdmin, permissions }]` |
+| GET  | `/health` | 🔓 | `200 { status, db: "up", cache, redis }`; veritabanına ulaşılamıyorsa `503` (Redis çökerse 200 kalır) |
+
+Giriş hız sınırlıdır (hesap başına 15 dk'da 50, IP başına 300): aşılırsa `429` + `Retry-After`.
+Hesap `pending`/`suspended` ise dükkân uçları `403` döner; kiralaması bitmiş (`expired`) hesapta
+yalnız okuma (GET) çalışır, yazma `403 "Kiralama süreniz dolmuş"` döner.
+
+## Platform ve rehber (çok işletmeli kiralama — bkz. [PLATFORM.md](PLATFORM.md))
+
+Herkese açık (🔓):
+
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET | `/registration/options` | `{ open, autoApprove, trialDays, labels }` — kayıt formu seçenekleri |
+| POST | `/registration` | İşletme kaydı: `{ businessName, ownerName, email, phone, password, province, district, addressLine?, description?, website?, labelIds[], acceptTerms }` → `{ status: pending|active, message, shop, auth? }`. IP başına saatte 20 deneme |
+| GET | `/geo/provinces` | 81 il `{ plate, name, region }` |
+| GET | `/geo/provinces/:key/districts` | Ilçeler (`key` plaka kodu ya da il adı) |
+
+İşletme üyesi (👥, dükkân seçili):
+
+| Metot | Yol | Yetki | Açıklama |
+|-------|-----|-------|----------|
+| GET | `/directory/shops` | 👥 | `?q&province&district&labelIds=a,b&machineTypeId&minWidthMm&minHeightMm&page&limit` — rehberdeki işletmeler (etiket, makine, iletişim) |
+| GET | `/directory/machines` | 👥 | Aynı süzgeçler; uyan makineler + sahibi işletme |
+| GET | `/directory/facets?province=` | 👥 | İl/ilçe/etiket/makine türü sayıları |
+| GET | `/directory/machine-types` | 👥 | Makine türü ağacı, ebatlarıyla |
+| GET / PATCH | `/business-profile` | settings (okuma: üye; yazma: settings yazma) | İşletme profili: iletişim, il/ilçe, `labelIds`, `directoryVisible`, `shareDebtInfo`, `shareCustomerInfo` |
+| CRUD | `/machines` | catalog | Makine: `machineTypeId`, `sizeId`, `workWidthMm/HeightMm`, `brand`, `model`, `quantity`, `isPublic` |
+| GET | `/customer-network/lookup?phone=` | customers yazma | `{ phone, own, suggestion, debtWarnings[], network }`. Dakikada 40 sorgu. **Tutar yoktur**: `debtWarnings: [{ shopName, since, ageDays, bucket, openItems }]` |
+| GET | `/customer-network/customers/:id` | customers | Kayıtlı müşterinin başka işletmelerdeki borç uyarıları |
+
+Sistem sahibi (👔, dükkân seçimi gerekmez, yalnız merkez sunucu):
+
+| Metot | Yol | Açıklama |
+|-------|-----|----------|
+| GET / PATCH | `/platform/settings` | `{ registrationOpen, registrationAutoApprove, trialDays }` |
+| GET | `/platform/businesses/stats`, `/platform/businesses`, `/platform/businesses/:id` | İşletmeler (`?status&search&province&district&expiring`) |
+| PATCH | `/platform/businesses/:id` | `{ status, plan, subscriptionUntil, extendDays, adminNote, isActive, directoryVisible }` |
+| POST | `/platform/businesses/:id/approve` | Onayla (deneme süresi yazılır) |
+| CRUD | `/platform/labels` | İş kolu etiketleri |
+| CRUD | `/platform/machine-types`, `POST /platform/machine-types/:id/sizes`, `PATCH/DELETE /platform/machine-type-sizes/:sizeId` | Makine türü ağacı ve standart ebatlar |
+| GET / POST | `/system/cache`, `/system/cache/flush` | Önbellek durumu / temizleme |
 
 ## Users (Hesaplar — 👔 sistem sahibi, dükkân seçimi gerekmez)
 | Metot | Yol | Yetki |

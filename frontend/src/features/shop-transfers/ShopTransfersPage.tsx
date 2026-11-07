@@ -243,18 +243,37 @@ function NewTransferForm({
     lines.length > 0 &&
     lines.every((l) => l.plateId && l.quantity > 0 && !lineError(l));
 
+  /** "20 adet Vida 4mm · 1 tabaka (1220×2440 mm)": bu satıştan stoğunuzdan düşenler. */
+  const deductedText = (input: CreateShopTransferInput): string =>
+    input.items
+      .map((it) => {
+        const plate = picked[it.plateId];
+        if (!plate) return '';
+        const name = displayPlateName(plate);
+        if (plate.measurementType === 'area') {
+          const dim = it.widthMm && it.heightMm ? ` (${it.widthMm}×${it.heightMm} mm)` : '';
+          return `${it.quantity} parça${dim} ${name}`;
+        }
+        return `${formatNumber(it.quantity)} ${plate.measurementType === 'length' ? 'm' : 'adet'} ${name}`;
+      })
+      .filter(Boolean)
+      .join(' · ');
+
   const mut = useMutation({
     mutationFn: (input: CreateShopTransferInput) => createShopTransfer(input),
-    onSuccess: (t) => {
+    onSuccess: (t, input) => {
       toast.success(
         `${t.transferNo} kaydedildi`,
-        `Malzeme "${t.toShop.name}" dükkânının stoğuna girdi; tutar o dükkânın carisine borç yazıldı.`,
+        `Stoğunuzdan düştü: ${deductedText(input)}. "${t.toShop.name}" dükkânının stoğuna girdi; tutar o dükkânın carisine borç yazıldı.`,
       );
       onDone();
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['shop-transfers'] });
       qc.invalidateQueries({ queryKey: ['plates'] });
+      qc.invalidateQueries({ queryKey: ['plate-stock-levels'] });
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['sales'] });
       qc.invalidateQueries({ queryKey: ['customers'] });
       qc.invalidateQueries({ queryKey: ['plate-costs'] });

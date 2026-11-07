@@ -177,6 +177,20 @@ DOMAIN=stok.ornek.com docker compose \
 - Yedekleri sunucu dışında tutun (Ayarlar › Yedek: şifreli yedek Telegram'a
   gider).
 
+### Redis, istek sınırı ve ters vekil
+
+`docker-compose.prod.yml` bir **Redis** servisi içerir (parolalı, dışarıya port açmaz; bkz.
+[REDIS.md](REDIS.md)). Parola kök `.env`'dedir (`REDIS_PASSWORD`; `install.sh` üretir). Redis olmadan
+da çalışır, ama önbellek ve istek sınırı süreçler arasında paylaşılmaz.
+
+API'nin önünde ters vekil varsa gerçek istemci IP'si için `backend/.env`'e **`TRUST_PROXY_HOPS`**
+yazın: yalnız API açık → `0`; nginx(web) → API → `1` (varsayılan); HAProxy → nginx → API → `2`.
+Yanlış değer istek sınırını bozar (herkes tek IP görünür).
+
+Sistemi **birden çok işletmeye kiralayacaksanız** [PLATFORM.md](PLATFORM.md)'ye bakın: `/register`
+herkese açıktır; kayıt kuralları (açık/kapalı, onay, deneme süresi) Platform ekranından yönetilir.
+İnternete açık kurulumda HTTPS şarttır.
+
 ## 7) Bağlantı kesilince (çevrimdışı çalışma)
 
 Sunucu yeniden başlarken, internet koptuğunda ya da veritabanı kısa süre

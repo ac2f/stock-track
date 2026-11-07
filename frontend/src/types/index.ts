@@ -131,10 +131,19 @@ export interface ModuleAccess {
 export type ShopPermissions = Record<ShopModule, ModuleAccess>;
 
 /** Kullanıcının girebildiği bir dükkân ve oradaki izinleri. */
+/** Hesap durumu (kiralama): yalnız 'active' hesaba girilir (sistem sahibi hariç). */
+export type ShopStatus = 'pending' | 'active' | 'suspended';
+
 export interface ShopAccess {
   id: string;
   name: string;
   isActive: boolean;
+  status: ShopStatus;
+  plan: string;
+  /** Kiralamanın son günü (YYYY-AA-GG); boşsa süresiz. */
+  subscriptionUntil: string | null;
+  /** Kiralama süresi dolmuş: veriler görülür, yazılamaz. */
+  expired: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
 }

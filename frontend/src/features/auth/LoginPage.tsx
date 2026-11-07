@@ -1,5 +1,5 @@
 import { FormEvent, KeyboardEvent, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getBrand } from '../../lib/brand';
 import { Spinner } from '../../components/ui/Loading';
@@ -54,6 +54,8 @@ export function LoginPage() {
         );
       } else if (e.response.status === 401) {
         setError('E-posta veya parola hatalı.');
+      } else if (e.response.status === 429) {
+        setError('Çok fazla deneme yapıldı. Biraz bekleyip tekrar deneyin.');
       } else {
         setError(`Giriş başarısız (sunucu hatası ${e.response.status}).`);
       }
@@ -174,8 +176,14 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-xs text-slate-500">
-          Hesabınız yoksa işletme yöneticinizden davet isteyin.
+        <p className="mt-4 text-center text-sm text-slate-600">
+          Yeni misiniz?{' '}
+          <Link to="/register" className="font-medium text-blue-700 hover:underline">
+            İşletmenizi kaydedin
+          </Link>
+        </p>
+        <p className="mt-1 text-center text-xs text-slate-500">
+          Bir işletmenin çalışanıysanız yöneticinizden davet isteyin.
         </p>
       </div>
     </div>

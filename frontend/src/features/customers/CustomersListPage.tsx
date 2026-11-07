@@ -37,6 +37,11 @@ import { useUrlParam } from '../../hooks/useUrlParam';
 import { formatDate, formatMoney } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import type { Customer, CustomerLedgerEntry, PaymentMethod } from '../../types';
+import {
+  CustomerNetworkWarnings,
+  PhoneNetworkNotice,
+  usePhoneLookup,
+} from '../../components/network/PhoneNetwork';
 
 const EMPTY: CreateCustomerInput = { name: '' };
 
@@ -67,6 +72,39 @@ const METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
 function NewCustomerForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreateCustomerInput>(EMPTY);
+
+  // Aynı telefon başka işletmede kayıtlıysa bilgileri öner (boş alanlara otomatik yüklenir,
+  // kullanıcı değiştirebilir/geri alabilir) ve borç uyarılarını göster.
+  const lookup = usePhoneLookup(form.phone);
+  const [applied, setApplied] = useState<{ phone: string; before: Partial<CreateCustomerInput> } | null>(null);
+  const suggestion = lookup.data?.suggestion ?? null;
+  const applySuggestion = (overwrite: boolean) => {
+    if (!suggestion) return;
+    const take = (cur: string | undefined, next: string | null) => (next && (overwrite || !cur) ? next : cur);
+    setApplied({
+      phone: lookup.phone,
+      before: {
+        name: form.name,
+        companyName: form.companyName,
+        email: form.email,
+        address: form.address,
+        taxNumber: form.taxNumber,
+      },
+    });
+    setForm((f) => ({
+      ...f,
+      name: take(f.name, suggestion.name) ?? f.name,
+      companyName: take(f.companyName, suggestion.companyName),
+      email: take(f.email, suggestion.email),
+      address: take(f.address, suggestion.address),
+      taxNumber: take(f.taxNumber, suggestion.taxNumber),
+    }));
+  };
+  // Öneri geldiğinde boş alanlar kendiliğinden dolar (bir telefon için bir kez).
+  useEffect(() => {
+    if (suggestion && (!applied || applied.phone !== lookup.phone)) applySuggestion(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestion?.name, lookup.phone]);
 
   const createMut = useMutation({
     mutationFn: createCustomer,
@@ -130,6 +168,17 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
             onChange={(e) => setForm({ ...form, phone: e.target.value || undefined })}
           />
         </label>
+        <div className="sm:col-span-2 empty:hidden">
+          <PhoneNetworkNotice
+            lookup={lookup.data}
+            applied={!!applied && applied.phone === lookup.phone}
+            onApply={() => applySuggestion(true)}
+            onUndo={() => {
+              if (applied) setForm((f) => ({ ...f, ...applied.before }));
+              setApplied({ phone: '', before: {} });
+            }}
+          />
+        </div>
         <label className="block">
           <span className="label">E-posta</span>
           <input
@@ -505,10 +554,16 @@ function EditCustomerForm({
     address: customer.address,
     taxNumber: customer.taxNumber,
   });
+  // Telefon değişirse (ya da kayıtlı numara için) diğer işletmelerdeki borç uyarısı ve
+  // aynı kişi önerisi görünür; düzenleme formunda bilgiler elle yüklenir.
+  const lookup = usePhoneLookup(form.phone);
+  const [applied, setApplied] = useState(false);
+  const [before, setBefore] = useState<UpdateCustomerInput | null>(null);
   const mut = useMutation({
     mutationFn: () => updateCustomer(customer.id, form),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['customer-network'] });
       onDone();
     },
   });
@@ -577,6 +632,29 @@ function EditCustomerForm({
         {field('Vergi No', 'taxNumber', { inputMode: 'numeric' })}
         {field('Adres', 'address')}
       </div>
+      <PhoneNetworkNotice
+        lookup={lookup.data}
+        currentCustomerId={customer.id}
+        applied={applied}
+        onApply={() => {
+          const s = lookup.data?.suggestion;
+          if (!s) return;
+          setBefore({ ...form });
+          setApplied(true);
+          setForm((f) => ({
+            ...f,
+            name: s.name || f.name,
+            companyName: s.companyName ?? f.companyName,
+            email: s.email ?? f.email,
+            address: s.address ?? f.address,
+            taxNumber: s.taxNumber ?? f.taxNumber,
+          }));
+        }}
+        onUndo={() => {
+          if (before) setForm(before);
+          setApplied(false);
+        }}
+      />
       {mut.isError && (
         <p className="text-xs text-red-600">Güncellenemedi.</p>
       )}
@@ -863,6 +941,11 @@ function CustomerRow({
       {portalOpen && <PortalLinkPanel customer={customer} />}
       {editing && (
         <EditCustomerForm customer={customer} onDone={() => setEditing(false)} />
+      )}
+      {(openStatement || editing) && customer.phone && (
+        <div className="mt-3 empty:hidden">
+          <CustomerNetworkWarnings customerId={customer.id} />
+        </div>
       )}
       {openStatement && (
         <CustomerStatement customerId={customer.id} customerName={customer.name} />

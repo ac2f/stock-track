@@ -2,6 +2,8 @@ import { Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Protected, ResponsiveLayout } from './layouts/ResponsiveLayout';
 import { LoginPage } from './features/auth/LoginPage';
+import { RegisterPage } from './features/auth/RegisterPage';
+import { AccountGate } from './components/network/AccountGate';
 import { Can, NoAccess } from './components/Can';
 import { useAuth } from './context/AuthContext';
 import { PageFallback } from './components/ui/Loading';
@@ -39,6 +41,21 @@ const ShopTransfersPage = lazyPage(
 );
 const SettingsPage = lazyPage(() => import('./features/settings/SettingsPage'), 'SettingsPage');
 const SyncPage = lazyPage(() => import('./features/sync/SyncPage'), 'SyncPage');
+const DirectoryPage = lazyPage(() => import('./features/directory/DirectoryPage'), 'DirectoryPage');
+const BusinessPage = lazyPage(() => import('./features/business/BusinessPage'), 'BusinessPage');
+const PlatformPage = lazyPage(() => import('./features/platform/PlatformPage'), 'PlatformPage');
+
+/** Platform yönetimi: yalnız sistem sahibi. */
+function OwnerGate({ children }: { children: ReactNode }) {
+  const { isOwner } = useAuth();
+  return <>{isOwner ? children : <NoAccess what="Platform yönetimi" />}</>;
+}
+
+/** İşletme profili ve makineler: ayarları ya da kataloğu görebilen. */
+function BusinessGate({ children }: { children: ReactNode }) {
+  const { can } = useAuth();
+  return <>{can('settings') || can('catalog') ? children : <NoAccess what="İşletme profili" />}</>;
+}
 
 /** Ekip ekranı: sistem sahibi ve en az bir dükkânın yöneticisi. */
 function TeamGate({ children }: { children: ReactNode }) {
@@ -87,6 +104,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
 
       {/* Müşteri portalı — PUBLIC (Protected dışında, giriş gerektirmez). */}
       <Route
@@ -101,7 +119,9 @@ export default function App() {
       <Route
         element={
           <Protected>
-            <ResponsiveLayout />
+            <AccountGate>
+              <ResponsiveLayout />
+            </AccountGate>
           </Protected>
         }
       >
@@ -152,6 +172,24 @@ export default function App() {
             <TransfersGate>
               <ShopTransfersPage />
             </TransfersGate>
+          }
+        />
+        {/* İşletme rehberi: etkin her işletmenin her üyesi (sunucu da denetler). */}
+        <Route path="/directory" element={<DirectoryPage />} />
+        <Route
+          path="/business"
+          element={
+            <BusinessGate>
+              <BusinessPage />
+            </BusinessGate>
+          }
+        />
+        <Route
+          path="/platform"
+          element={
+            <OwnerGate>
+              <PlatformPage />
+            </OwnerGate>
           }
         />
         {/* Yerel sunucu (replika) eşitleme durumu ve kararlar — her oturum açan görür. */}

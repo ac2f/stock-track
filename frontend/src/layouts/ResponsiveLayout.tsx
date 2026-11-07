@@ -18,6 +18,7 @@ import { OfflineBar } from '../components/OfflineBar';
 import { CommandPalette, ShortcutsHelp, useGlobalShortcuts } from '../components/CommandPalette';
 import { NAV_ITEMS, visibleNav, type NavItem } from './nav';
 import { SyncStatusBar } from '../components/SyncStatusBar';
+import { ExpiredBar } from '../components/network/AccountGate';
 
 const COLLAPSE_KEY = 'st_sidebar_collapsed';
 
@@ -54,8 +55,8 @@ function useQueueCount(enabled: boolean): number {
  * Her yerde Ctrl+K hızlı arama ve klavye kısayolları çalışır.
  */
 export function ResponsiveLayout() {
-  const { user, can, managesAnyShop, shop, shops } = useAuth();
-  const groups = visibleNav(can, managesAnyShop, shops.filter((s) => s.isActive).length);
+  const { user, can, managesAnyShop, shop, shops, isOwner } = useAuth();
+  const groups = visibleNav(can, managesAnyShop, shops.filter((s) => s.isActive).length, isOwner);
   const flat = groups.flatMap((g) => g.items);
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -178,6 +179,7 @@ export function ResponsiveLayout() {
         {/* İçerik sütunu — min-h-0: flex çocuğu küçülebilsin ki main kayabilsin. */}
         <div className="flex min-h-0 flex-1 flex-col">
           <ShopColorBar />
+          <ExpiredBar />
           <OfflineBar />
           <SyncStatusBar />
           <header className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">

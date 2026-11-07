@@ -474,6 +474,15 @@ npm run build && pm2 start ecosystem.config.js
 
 Frontend için `frontend/README.md` dosyasına bakın.
 
+## Birden çok işletmeye kiralama (platform)
+
+Tek kurulum **birçok bağımsız işletmeye** kiralanabilir: her işletme `/register` ile kayıt olur ve
+**kendi boş sistemiyle** başlar; yöneticinin tanımladığı **iş kolu etiketlerinden** seçer, makinelerini
+**makine türü / ebat** ile tanımlar ve **işletme rehberinde** il/ilçe, etiket, makine ve ebata göre
+bulunur. Aynı telefonla müşteri kaydederken diğer işletmelerdeki bilgi önerilir ve borç uyarısı
+(işletme adı + borcun yaşı, **tutar gizli**) görünür. Onay, askıya alma ve kiralama süresi
+**Platform** ekranındadır. Ayrıntı: [`docs/PLATFORM.md`](docs/PLATFORM.md).
+
 ## Cluster & Stateless Mimari
 
 - **Stateless**: Sunucu hiçbir oturum verisini bellekte tutmaz. Kimlik bilgisi
@@ -482,11 +491,13 @@ Frontend için `frontend/README.md` dosyasına bakın.
   kadar süreç başlatılır.
 - **Docker**: `Dockerfile` ile imaj üretilir, yatay ölçeklemede her replika
   bağımsız çalışır.
-- Paylaşılan durum (cache, kuyruk, rate-limit) gerektiğinde Redis'e taşınabilir
-  — kod buna göre soyutlanmıştır (bkz. `config/configuration.ts`).
+- Paylaşılan durum (önbellek, istek sınırı) **Redis**'tedir; Redis yoksa ya da çökerse API
+  çalışmaya devam eder (bkz. [`docs/REDIS.md`](docs/REDIS.md)).
 
 ## Dokümantasyon
 
+- [`docs/PLATFORM.md`](docs/PLATFORM.md) — Kiralama: kayıt, onay, etiketler, makine türleri, rehber, müşteri ağı
+- [`docs/REDIS.md`](docs/REDIS.md) — Redis önbelleği, tutarlılık, istek sınırı, kurulum
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Katmanlar, klasör ağacı, ilkeler
 - [`docs/DATABASE.md`](docs/DATABASE.md) — Varlık-ilişki (ER) şeması, tüm tablolar
 - [`docs/API.md`](docs/API.md) — Uç noktalar (endpoints) ve örnek istek/yanıtlar
