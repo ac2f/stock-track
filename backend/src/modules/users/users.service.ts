@@ -66,7 +66,7 @@ export class UsersService {
     return this.usersRepo
       .createQueryBuilder('user')
       .addSelect('user.passwordHash')
-      .where('user.email = :email', { email })
+      .where('lower(user.email) = lower(:email)', { email: email.trim() })
       .getOne();
   }
 

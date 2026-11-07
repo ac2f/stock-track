@@ -9,9 +9,11 @@ import { Payment } from './entities/payment.entity';
 import { CustomersController } from './controllers/customers.controller';
 import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsAdminController } from './controllers/payments-admin.controller';
+import { CustomerNetworkController } from './controllers/customer-network.controller';
 import { CustomersService } from './services/customers.service';
 import { PaymentsService } from './services/payments.service';
 import { CustomerAccountService } from './services/customer-account.service';
+import { CustomerNetworkService } from './services/customer-network.service';
 
 @Module({
   imports: [
@@ -20,8 +22,8 @@ import { CustomerAccountService } from './services/customer-account.service';
     BankAccountsModule, // havalede banka hesabını doğrulamak için
     CurrencyModule, // yabancı para ödemeyi baz tutara çevirmek için
   ],
-  controllers: [CustomersController, PaymentsController, PaymentsAdminController],
-  providers: [CustomersService, PaymentsService, CustomerAccountService],
+  controllers: [CustomersController, PaymentsController, PaymentsAdminController, CustomerNetworkController],
+  providers: [CustomersService, PaymentsService, CustomerAccountService, CustomerNetworkService],
   // İşleme modülü, faturalandırmada CustomerAccountService kullanır.
   // Telegram arayüzü tahsilat kaydı için PaymentsService'i de kullanır.
   exports: [CustomerAccountService, CustomersService, PaymentsService],

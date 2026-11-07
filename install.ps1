@@ -105,10 +105,14 @@ if (-not (Test-Path 'backend/.env')) {
 $dbPass = Get-EnvValue 'backend/.env' 'DB_PASSWORD'; if (-not $dbPass) { $dbPass = 'stocktrack' }
 $dbUser = Get-EnvValue 'backend/.env' 'DB_USERNAME'; if (-not $dbUser) { $dbUser = 'stocktrack' }
 $dbName = Get-EnvValue 'backend/.env' 'DB_NAME';     if (-not $dbName) { $dbName = 'stocktrack' }
+# Redis parolasi: varsa korunur (degisirse Redis ile API arasindaki bag kopar), yoksa uretilir.
+$redisPass = $null; if (Test-Path '.env') { $redisPass = Get-EnvValue '.env' 'REDIS_PASSWORD' }
+if (-not $redisPass) { $redisPass = New-Secret }
 Write-Utf8NoBom '.env' @(
   '# Docker Compose interpolation (Postgres) - backend/.env ile ESLESMELI.'
   "DB_USERNAME=$dbUser"
   "DB_PASSWORD=$dbPass"
+  "REDIS_PASSWORD=$redisPass"
   "DB_NAME=$dbName"
 )
 Ok 'Kok .env yazildi.'

@@ -12,6 +12,8 @@ import { UpdateMorningSummaryDto } from './dto/update-morning-summary.dto';
 import { UpdateFolderSettingsDto } from './dto/update-folder-settings.dto';
 import { AnyShopMember, ShopAccess, ShopScope } from '../../common/shop/shop-access.decorator';
 import { PrimaryOnly } from '../sync/sync.decorators';
+import { Cached } from '../../common/cache/cached.decorator';
+import { CacheGroup } from '../../common/cache/cache.groups';
 
 /**
  * Dükkân ayarları. İşletme/proje kimliği (ad, adres, telefon, VKN, logo,
@@ -25,6 +27,7 @@ import { PrimaryOnly } from '../sync/sync.decorators';
 @Controller({ path: 'settings', version: '1' })
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
+  @Cached({ group: CacheGroup.SETTINGS, ttl: 300 })
   @AnyShopMember()
   @Get('business')
   getBusiness() {

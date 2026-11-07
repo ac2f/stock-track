@@ -14,6 +14,8 @@ import { CreateMaterialThicknessDto } from '../dto/create-material-thickness.dto
 import { UpdateMaterialThicknessDto } from '../dto/update-material-thickness.dto';
 import { MaterialThicknessesService } from '../services/material-thicknesses.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 @ApiTags('material-thicknesses')
 @ApiBearerAuth()
@@ -29,6 +31,7 @@ export class MaterialThicknessesController {
     return this.thicknessesService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.CATALOG, ttl: 600 })
   @AnyShopMember()
   @Get()
   findAll(@Query('categoryId') categoryId?: string) {

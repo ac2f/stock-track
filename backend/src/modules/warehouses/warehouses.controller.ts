@@ -13,6 +13,8 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { WarehousesService } from './warehouses.service';
 import { AnyShopMember, ShopScope } from '../../common/shop/shop-access.decorator';
+import { Cached } from '../../common/cache/cached.decorator';
+import { CacheGroup } from '../../common/cache/cache.groups';
 
 @ApiTags('warehouses')
 @ApiBearerAuth()
@@ -26,6 +28,7 @@ export class WarehousesController {
     return this.warehousesService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.WAREHOUSES, ttl: 300 })
   @AnyShopMember()
   @Get()
   findAll() {

@@ -17,6 +17,8 @@ import {
 } from '../dto/update-material-template.dto';
 import { MaterialTemplatesService } from '../services/material-templates.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 @ApiTags('material-templates')
 @ApiBearerAuth()
@@ -31,6 +33,7 @@ export class MaterialTemplatesController {
     return this.templatesService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.CATALOG, ttl: 600 })
   @AnyShopMember()
   @Get()
   findAll(

@@ -64,6 +64,11 @@ export class AuthService {
     }
   }
 
+  /** Parola sormadan oturum açar (kayıt tamamlanınca): yalnız güvenilir iç akışlar çağırır. */
+  issueFor(user: User): Promise<AuthResult> {
+    return this.buildAuthResult(user);
+  }
+
   private async buildAuthResult(user: User): Promise<AuthResult> {
     const tokens = await this.signTokens(user);
     return {

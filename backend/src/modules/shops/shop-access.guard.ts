@@ -89,6 +89,13 @@ export class ShopAccessGuard implements CanActivate {
     const shopId = requested?.trim() || (await this.access.implicitShopId(user));
     const info = await this.access.resolve(user, shopId);
 
+    // Kiralama süresi dolmuş hesap yalnız görüntüleyebilir (sistem sahibi hariç).
+    if (info.expired && !info.isOwner && req.method !== 'GET' && req.method !== 'HEAD') {
+      throw new ForbiddenException(
+        `Kiralama süreniz dolmuş (${info.shopName}): verilerinizi görüntüleyebilirsiniz, değişiklik yapılamaz. Lütfen yönetici ile iletişime geçin.`,
+      );
+    }
+
     if (required.module && required.level) {
       if (!can(info.permissions, required.module, required.level)) {
         const what = required.level === 'read' ? 'görme' : 'değiştirme';

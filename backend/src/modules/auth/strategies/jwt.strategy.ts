@@ -5,6 +5,8 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtConfig } from '../../../config/configuration';
 import { AuthenticatedUser } from '../../../common/decorators/current-user.decorator';
 import { UsersService } from '../../users/users.service';
+import { CacheGroup, GLOBAL_SCOPE } from '../../../common/cache/cache.groups';
+import { CacheService } from '../../../common/cache/cache.service';
 
 export interface JwtPayload {
   sub: string; // user id
@@ -29,6 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     configService: ConfigService,
     private readonly usersService: UsersService,
+    private readonly cache: CacheService,
   ) {
     const jwt = configService.get<JwtConfig>('jwt')!;
     super({
@@ -42,7 +45,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!payload?.sub) {
       throw new UnauthorizedException('Geçersiz token.');
     }
-    const user = await this.usersService.findById(payload.sub);
+    // Her istekte kullanıcıyı veritabanından okumak yerine önbellekten: kullanıcı
+    // kaydına yazılınca (pasife alma, rol, ad) grup kendiliğinden silinir.
+    const user = await this.cache.wrap(GLOBAL_SCOPE, CacheGroup.USERS, `jwt:${payload.sub}`, 300, async () => {
+      const row = await this.usersService.findById(payload.sub);
+      return row
+        ? { id: row.id, email: row.email, role: row.role, fullName: row.fullName, isActive: row.isActive }
+        : null;
+    });
     if (!user || !user.isActive) {
       throw new UnauthorizedException(
         'Oturum geçersiz. Lütfen yeniden giriş yapın.',

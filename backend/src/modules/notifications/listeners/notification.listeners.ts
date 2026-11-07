@@ -91,6 +91,24 @@ export class NotificationListeners {
     }
   }
 
+  /** Yeni işletme kaydı: sistem sahibine (ilk dükkânın bildirim sohbetine) haber verir. */
+  @OnEvent('business.registered')
+  async onBusinessRegistered(e: {
+    shopName: string;
+    ownerName: string;
+    phone: string;
+    province: string;
+    district: string;
+    status: 'pending' | 'active';
+  }): Promise<void> {
+    await this.notifications.notify({
+      type: NotificationType.GENERIC,
+      subject: e.status === 'pending' ? 'Yeni işletme kaydı — onay bekliyor' : 'Yeni işletme kaydı',
+      body: `${e.shopName} (${e.province}/${e.district}) — ${e.ownerName}, ${e.phone}.`,
+      relatedType: 'shop',
+    });
+  }
+
   @OnEvent('stock.low')
   async onStockLow(e: StockLowEvent): Promise<void> {
     // Hedef owner chat (varsayılan); recipient verilmezse TelegramChannel default'u kullanır.

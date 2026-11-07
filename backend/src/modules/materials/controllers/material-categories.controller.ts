@@ -13,6 +13,8 @@ import { CreateMaterialCategoryDto } from '../dto/create-material-category.dto';
 import { UpdateMaterialCategoryDto } from '../dto/update-material-category.dto';
 import { MaterialCategoriesService } from '../services/material-categories.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 @ApiTags('material-categories')
 @ApiBearerAuth()
@@ -28,6 +30,7 @@ export class MaterialCategoriesController {
     return this.categoriesService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.CATALOG, ttl: 600 })
   @AnyShopMember()
   @Get()
   findAll() {

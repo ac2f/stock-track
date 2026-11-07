@@ -14,6 +14,7 @@ import { MachinesController } from './controllers/machines.controller';
 import { ProcessingRatesService } from './services/processing-rates.service';
 import { ProcessingService } from './services/processing.service';
 import { MachinesService } from './services/machines.service';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { MachinesService } from './services/machines.service';
     WarehousesModule, // kaynak depo çözümü
     CurrencyModule, // baz para çevrimi
     SettingsModule, // süreyle işte asgari süre
+    PlatformModule, // makine türü doğrulaması (rehber alanları)
   ],
   controllers: [
     ProcessingRatesController,

@@ -11,6 +11,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { NoShop } from '../../common/shop/shop-access.decorator';
 import { SyncSkip } from '../sync/sync.decorators';
+import { RateLimit } from '../../common/cache/rate-limit';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
@@ -20,6 +21,11 @@ export class AuthController {
     private readonly shopAccess: ShopAccessService,
   ) {}
 
+  // Kaba kuvvet denemesine karşı: hesap başına ve IP başına sınır (Redis'te paylaşılır).
+  @RateLimit(
+    { name: 'login-account', by: 'none', bodyField: 'email', limit: 50, windowSeconds: 900 },
+    { name: 'login-ip', by: 'ip', limit: 300, windowSeconds: 900 },
+  )
   @Public()
   @SyncSkip()
   @Post('login')

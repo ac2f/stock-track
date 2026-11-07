@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Public } from './common/decorators/public.decorator';
+import { CacheService } from './common/cache/cache.service';
 
 /** Veritabanı bu sürede yanıt vermezse "kapalı" sayılır. */
 const DB_TIMEOUT_MS = 3000;
@@ -17,16 +18,25 @@ const DB_TIMEOUT_MS = 3000;
 @ApiTags('health')
 @Controller({ path: 'health', version: '1' })
 export class HealthController {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly cache: CacheService,
+  ) {}
 
   @Public()
   @Get()
   async check() {
     const db = await this.pingDb();
     if (!db) throw new ServiceUnavailableException('Veritabanına ulaşılamıyor.');
+    // Redis çökerse uygulama çalışmaya devam eder (okumalar veritabanına gider):
+    // sağlık 200 kalır, yalnız durum raporlanır.
+    const cacheMode = this.cache.stats().mode;
+    const redis = cacheMode === 'redis' ? ((await this.cache.ping()) ? 'up' : 'down') : 'n/a';
     return {
       status: 'ok',
       db: 'up',
+      cache: cacheMode,
+      redis,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     };

@@ -10,6 +10,8 @@ import { DashboardService } from './services/dashboard.service';
 import { FinancialReportsService } from './services/financial-reports.service';
 import { InventoryReportsService } from './services/inventory-reports.service';
 import { ShopScope } from '../../common/shop/shop-access.decorator';
+import { Cached } from '../../common/cache/cached.decorator';
+import { CacheGroup } from '../../common/cache/cache.groups';
 
 /** Mali raporlar — yalnızca İşletme Sahibi (OWNER). */
 @ApiTags('reports')
@@ -31,6 +33,7 @@ export class ReportsController {
       'TRY';
   }
 
+  @Cached({ group: CacheGroup.SHOP, ttl: 30 })
   @Get('dashboard')
   dashboard(@Query() query: ReportQueryDto) {
     return this.dashboardService.summary(

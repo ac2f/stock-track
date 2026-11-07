@@ -26,6 +26,8 @@ import { BatchCreatePlatesDto } from '../dto/batch-create-plates.dto';
 import { EnsureTemplateDto } from '../dto/ensure-template.dto';
 import { SupplierPricesService } from '../services/supplier-prices.service';
 import { ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 /** `?ids=a,b` → geçerli UUID'ler (tekrarsız, en çok `max` adet). */
 export function parseIds(ids: string | undefined, max: number): string[] {
@@ -74,6 +76,7 @@ export class PlatesController {
     return this.platesService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.SHOP, ttl: 15 })
   @Get()
   findAll(@Query() query: QueryPlateDto) {
     return this.platesService.findAll(query);

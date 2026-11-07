@@ -13,18 +13,32 @@ import {
   normalizePermissions,
   ShopPermissions,
 } from '../../common/shop/shop-permissions';
+import { CacheGroup, GLOBAL_SCOPE } from '../../common/cache/cache.groups';
+import { CacheService } from '../../common/cache/cache.service';
 import { ShopMember } from './entities/shop-member.entity';
-import { Shop } from './entities/shop.entity';
+import { Shop, ShopStatus } from './entities/shop.entity';
 
 /** Bir kullanıcının bir dükkândaki çözülmüş erişimi. */
 export interface ShopAccessInfo {
   shopId: string;
   shopName: string;
   shopActive: boolean;
+  /** Hesap durumu (kiralama): yalnız 'active' hesaba girilir (sistem sahibi hariç). */
+  status: ShopStatus;
+  /** Kiralamanın son günü (YYYY-AA-GG) ya da süresiz (null). */
+  subscriptionUntil: string | null;
+  /** Kiralama süresi dolmuş: veriler görülür, yazılamaz. İstek anında hesaplanır. */
+  expired: boolean;
   /** Sistem sahibi: her dükkânda her şeye erişir. */
   isOwner: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
+}
+
+/** Kiralama bitiş günü (dahil) geçti mi? Boş = süresiz. */
+export function isExpired(until: string | null | undefined, now: Date = new Date()): boolean {
+  if (!until) return false;
+  return now.toISOString().slice(0, 10) > String(until).slice(0, 10);
 }
 
 /** Oturumdaki kullanıcı için asgari kimlik. */
@@ -38,6 +52,10 @@ export interface ShopSummary {
   id: string;
   name: string;
   isActive: boolean;
+  status: ShopStatus;
+  plan: string;
+  subscriptionUntil: string | null;
+  expired: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
 }
@@ -54,16 +72,34 @@ export class ShopAccessService {
   constructor(
     @InjectRepository(Shop) private readonly shops: Repository<Shop>,
     @InjectRepository(ShopMember) private readonly members: Repository<ShopMember>,
+    private readonly cache: CacheService,
   ) {}
 
   static isOwner(actor: ShopActor): boolean {
     return actor.role === UserRole.OWNER;
   }
 
+  /**
+   * Her istekte çağrılır (guard). Sonuç önbelleğe alınır; dükkân ya da üyelik
+   * kaydına yazılınca ('access' grubu) kendiliğinden silinir → izin değişikliği
+   * yine bir sonraki istekte geçerli olur. Hatalar (yetkisiz) saklanmaz.
+   */
   async resolve(actor: ShopActor, shopId: string): Promise<ShopAccessInfo> {
     if (!ShopContext.isUuid(shopId)) {
       throw new BadRequestException('Geçersiz dükkân seçimi.');
     }
+    const info = await this.cache.wrap(
+      GLOBAL_SCOPE,
+      CacheGroup.ACCESS,
+      `resolve:${actor.role}:${actor.id}:${shopId}`,
+      300,
+      () => this.resolveUncached(actor, shopId),
+    );
+    // "Süresi doldu mu" günün saatine bağlıdır: önbellekte değil, her istekte hesaplanır.
+    return { ...info, expired: isExpired(info.subscriptionUntil) };
+  }
+
+  private async resolveUncached(actor: ShopActor, shopId: string): Promise<ShopAccessInfo> {
     const shop = await this.shops.findOne({ where: { id: shopId } });
     if (!shop) throw new ForbiddenException('Dükkân bulunamadı.');
 
@@ -71,6 +107,12 @@ export class ShopAccessService {
       return this.info(shop, true, true, fullPermissions());
     }
     if (!shop.isActive) throw new ForbiddenException('Bu dükkân kapatılmış.');
+    if (shop.status === 'pending') {
+      throw new ForbiddenException('Kaydınız yönetici onayı bekliyor. Onaylandığında giriş yapabilirsiniz.');
+    }
+    if (shop.status === 'suspended') {
+      throw new ForbiddenException('Hesabınız askıya alınmış. Lütfen yönetici ile iletişime geçin.');
+    }
     const member = await this.members.findOne({ where: { shopId, userId: actor.id } });
     if (!member) throw new ForbiddenException('Bu dükkâna erişiminiz yok.');
     return this.info(shop, false, member.isAdmin, normalizePermissions(member.permissions));
@@ -84,6 +126,10 @@ export class ShopAccessService {
         id: s.id,
         name: s.name,
         isActive: s.isActive,
+        status: s.status,
+        plan: s.plan,
+        subscriptionUntil: s.subscriptionUntil ?? null,
+        expired: isExpired(s.subscriptionUntil),
         isAdmin: true,
         permissions: fullPermissions(),
       }));
@@ -99,6 +145,10 @@ export class ShopAccessService {
         id: m.shopId,
         name: m.shop!.name,
         isActive: m.shop!.isActive,
+        status: m.shop!.status,
+        plan: m.shop!.plan,
+        subscriptionUntil: m.shop!.subscriptionUntil ?? null,
+        expired: isExpired(m.shop!.subscriptionUntil),
         isAdmin: m.isAdmin,
         permissions: normalizePermissions(m.permissions),
       }));
@@ -144,6 +194,9 @@ export class ShopAccessService {
       shopId: shop.id,
       shopName: shop.name,
       shopActive: shop.isActive,
+      status: shop.status,
+      subscriptionUntil: shop.subscriptionUntil ?? null,
+      expired: false,
       isOwner,
       isAdmin,
       permissions,

@@ -10,6 +10,8 @@ import { AppConfig, JwtConfig, SyncConfig } from './config/configuration';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor';
+import { HttpCacheInterceptor } from './common/cache/http-cache.interceptor';
+import { RateLimitGuard } from './common/cache/rate-limit';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { shopContextMiddleware } from './common/shop/shop-context.middleware';
@@ -18,6 +20,7 @@ import { ShopAccessGuard } from './modules/shops/shop-access.guard';
 import { ShopAccessService } from './modules/shops/shop-access.service';
 import { migrateToShops } from './modules/shops/shop-migration';
 import { splitAreaLots } from './modules/materials/area-lots-migration';
+import { backfillCustomerPhones } from './modules/customers/customer-phone-backfill';
 import { installSyncCapture } from './modules/sync/sync-capture';
 import { SyncCaptureSubscriber } from './modules/sync/sync-capture.subscriber';
 import { SyncInterceptor } from './modules/sync/sync.interceptor';
@@ -43,6 +46,10 @@ async function bootstrap(): Promise<void> {
   const sync = configService.get<SyncConfig>('sync')!;
   if (sync.role !== 'replica') {
     await migrateToShops(dataSource);
+    // Telefonu olan eski müşteriler işletmeler arası eşleşme için hazırlanır.
+    await backfillCustomerPhones(dataSource).catch((err) =>
+      console.error('Müşteri telefonları işlenemedi:', (err as Error).message),
+    );
     // Tabaka partilerini ayrı kayıtlara bölme: başarısız olursa uygulama yine
     // açılır (bir sonraki açılışta yeniden denenir).
     await splitAreaLots(dataSource).catch((err) =>
@@ -66,6 +73,14 @@ async function bootstrap(): Promise<void> {
   app.use(shopContextMiddleware);
   // Merkezde, replikadan gelen işlemin iç yeniden oynatması (gizli başlıkla).
   app.use(syncReplayMiddleware(replaySecret(configService.get<JwtConfig>('jwt')!.accessSecret)));
+
+  // Önündeki ters vekiller (HAProxy, nginx ...): gerçek istemci IP'si (hız sınırı, kayıtlar).
+  if (appConfig.trustProxyHops > 0) {
+    (app.getHttpAdapter().getInstance() as { set(key: string, value: unknown): void }).set(
+      'trust proxy',
+      appConfig.trustProxyHops,
+    );
+  }
 
   // Güvenlik & CORS (mobil + masaüstü istemciler için açık)
   app.use(helmet());
@@ -92,6 +107,8 @@ async function bootstrap(): Promise<void> {
     app.get(IdempotencyInterceptor),
     app.get(SyncInterceptor),
     new TransformInterceptor(),
+    // Zarfın İÇİNDE: önbelleğe zarfsız veri girer, zarf her yanıtta taze zaman damgasıyla sarılır.
+    app.get(HttpCacheInterceptor),
   );
 
   // Global koruma: önce kimlik (JWT), sonra rol (RBAC), sonra dükkân ve
@@ -99,6 +116,9 @@ async function bootstrap(): Promise<void> {
   const reflector = app.get(Reflector);
   app.useGlobalGuards(
     new JwtAuthGuard(reflector),
+    // İstek sınırı: giriş/kayıt gibi herkese açık uçlar da dahil (JWT'den sonra, çünkü
+    // kullanıcıya göre sınırlanan uçlar oturumu bilmek ister).
+    app.get(RateLimitGuard),
     new RolesGuard(reflector),
     new ShopAccessGuard(reflector, app.get(ShopAccessService)),
     // Yerel sunucuda yalnız merkezde yapılabilen işlemler 409 döner.

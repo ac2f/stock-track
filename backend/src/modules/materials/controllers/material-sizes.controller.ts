@@ -14,6 +14,8 @@ import { CreateMaterialSizeDto } from '../dto/create-material-size.dto';
 import { UpdateMaterialSizeDto } from '../dto/update-material-size.dto';
 import { MaterialSizesService } from '../services/material-sizes.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 @ApiTags('material-sizes')
 @ApiBearerAuth()
@@ -27,6 +29,7 @@ export class MaterialSizesController {
     return this.sizesService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.CATALOG, ttl: 600 })
   @AnyShopMember()
   @Get()
   findAll(@Query('categoryId') categoryId?: string) {

@@ -30,9 +30,12 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { BackupsModule } from './modules/backups/backups.module';
 import { CorelModule } from './modules/corel/corel.module';
 import { ShopsModule } from './modules/shops/shops.module';
+import { GeoModule } from './modules/geo/geo.module';
+import { PlatformModule } from './modules/platform/platform.module';
 import { ShopTransfersModule } from './modules/shop-transfers/shop-transfers.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { IdempotencyModule } from './common/idempotency/idempotency.module';
+import { CacheModule } from './common/cache/cache.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -52,8 +55,13 @@ import { HealthController } from './health.controller';
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
 
+    // Redis önbelleği + hız sınırı (Redis yoksa bellek).
+    CacheModule,
+
     // İş modülleri (bounded contexts).
     ShopsModule,
+    GeoModule,
+    PlatformModule,
     SyncModule,
     IdempotencyModule,
     AuthModule,

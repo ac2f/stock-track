@@ -8,6 +8,8 @@ export interface AppConfig {
   port: number;
   globalPrefix: string;
   corsOrigin: string;
+  /** Önündeki güvenilir ters vekil sayısı (HAProxy, nginx ...): gerçek istemci IP'si için. */
+  trustProxyHops: number;
 }
 
 export interface DatabaseConfig {
@@ -97,8 +99,24 @@ export interface SyncConfig {
   gapWaitSeconds: number;
 }
 
+/**
+ * Redis (önbellek, hız sınırı). `url` boşsa süreç içi bellek yedeği kullanılır:
+ * uygulama Redis'siz de çalışır (geliştirme/tek makine), yalnız önbellek
+ * süreçler arasında paylaşılmaz.
+ */
+export interface RedisConfig {
+  url: string;
+  /** Tüm anahtarların ön eki (aynı Redis'i paylaşan kurulumları ayırır). */
+  prefix: string;
+  /** false → önbellek tamamen kapalı (her okuma veritabanına gider). */
+  cacheEnabled: boolean;
+  /** Bağlantı kurma zaman aşımı (ms). */
+  connectTimeoutMs: number;
+}
+
 export interface RootConfig {
   app: AppConfig;
+  redis: RedisConfig;
   database: DatabaseConfig;
   jwt: JwtConfig;
   business: BusinessConfig;
@@ -115,6 +133,13 @@ export default (): RootConfig => ({
     port: parseInt(process.env.APP_PORT ?? '3000', 10),
     globalPrefix: process.env.APP_GLOBAL_PREFIX ?? 'api',
     corsOrigin: process.env.APP_CORS_ORIGIN ?? '*',
+    trustProxyHops: Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10) || 0),
+  },
+  redis: {
+    url: process.env.REDIS_URL ?? '',
+    prefix: process.env.REDIS_PREFIX ?? 'st',
+    cacheEnabled: (process.env.CACHE_ENABLED ?? 'true') !== 'false',
+    connectTimeoutMs: Math.max(200, parseInt(process.env.REDIS_CONNECT_TIMEOUT_MS ?? '2000', 10) || 2000),
   },
   database: {
     host: process.env.DB_HOST ?? 'localhost',

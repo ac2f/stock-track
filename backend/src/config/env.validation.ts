@@ -11,6 +11,13 @@ export const envValidationSchema = Joi.object({
   APP_PORT: Joi.number().default(3000),
   APP_GLOBAL_PREFIX: Joi.string().default('api'),
   APP_CORS_ORIGIN: Joi.string().default('*'),
+  TRUST_PROXY_HOPS: Joi.number().integer().min(0).max(10).default(1),
+
+  // Redis: boşsa süreç içi bellek önbelleği (bkz. common/cache)
+  REDIS_URL: Joi.string().allow('').optional(),
+  REDIS_PREFIX: Joi.string().default('st'),
+  CACHE_ENABLED: Joi.boolean().default(true),
+  REDIS_CONNECT_TIMEOUT_MS: Joi.number().min(200).default(2000),
 
   DB_HOST: Joi.string().required(),
   DB_PORT: Joi.number().default(5432),

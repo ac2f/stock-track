@@ -32,4 +32,18 @@ export class SystemSetting extends BaseEntity {
   /** Değişiklik günlüğünün silindiği son sıra; daha gerisini isteyen replika baştan eşitlenir. */
   @Column({ name: 'sync_pruned_seq', type: 'bigint', default: 0 })
   syncPrunedSeq: string;
+
+  // ── İşletme kaydı (kiralama) ─────────────────────────────────────────
+
+  /** Herkese açık kayıt formu açık mı? Kapalıysa işletmeyi yalnız sistem sahibi açar. */
+  @Column({ name: 'registration_open', default: true })
+  registrationOpen: boolean;
+
+  /** true → kayıt olan işletme onay beklemeden etkin olur. */
+  @Column({ name: 'registration_auto_approve', default: false })
+  registrationAutoApprove: boolean;
+
+  /** Yeni kayıtta deneme süresi (gün). 0 → süresiz (yönetici sonradan belirler). */
+  @Column({ name: 'trial_days', type: 'int', default: 14 })
+  trialDays: number;
 }

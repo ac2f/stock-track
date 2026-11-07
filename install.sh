@@ -82,11 +82,15 @@ fi
 DBPASS="$(get_env backend/.env DB_PASSWORD)";  DBPASS="${DBPASS:-stocktrack}"
 DBUSER="$(get_env backend/.env DB_USERNAME)";  DBUSER="${DBUSER:-stocktrack}"
 DBNAME="$(get_env backend/.env DB_NAME)";      DBNAME="${DBNAME:-stocktrack}"
+# Redis parolası: varsa korunur (değişirse Redis ile API arasındaki bağ kopar), yoksa üretilir.
+REDISPASS=""; [ -f .env ] && REDISPASS="$(get_env .env REDIS_PASSWORD)"
+REDISPASS="${REDISPASS:-$(rand)}"
 {
-  echo "# Docker Compose interpolation (Postgres) — backend/.env ile EŞLEŞMELİ."
+  echo "# Docker Compose interpolation (Postgres, Redis) — backend/.env ile EŞLEŞMELİ."
   echo "DB_USERNAME=$DBUSER"
   echo "DB_PASSWORD=$DBPASS"
   echo "DB_NAME=$DBNAME"
+  echo "REDIS_PASSWORD=$REDISPASS"
 } > .env
 ok "Kök .env yazıldı (compose ↔ API eşleşmesi)."
 

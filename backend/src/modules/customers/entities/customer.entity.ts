@@ -1,4 +1,5 @@
-import { Column, Entity, Index, OneToMany } from 'typeorm';
+import { BeforeInsert, BeforeUpdate, Column, Entity, Index, OneToMany } from 'typeorm';
+import { normalizePhone } from '../../../common/utils/phone.util';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { CustomerLedgerEntry } from './customer-ledger-entry.entity';
 import { Payment } from './payment.entity';
@@ -19,6 +20,15 @@ export class Customer extends ShopScopedEntity {
 
   @Column({ nullable: true })
   phone?: string;
+
+  /**
+   * Telefonun karşılaştırılabilir biçimi (905321234567). Elle yazılmaz: telefon
+   * her kaydedildiğinde hesaplanır. İşletmeler arası eşleşme ve borç uyarısı
+   * bu sütunla yapılır (bkz. customer-network).
+   */
+  @Index()
+  @Column({ name: 'phone_normalized', type: 'varchar', length: 20, nullable: true })
+  phoneNormalized?: string | null;
 
   @Column({ nullable: true })
   email?: string;
@@ -69,6 +79,13 @@ export class Customer extends ShopScopedEntity {
   @Index()
   @Column({ name: 'linked_shop_id', type: 'uuid', nullable: true })
   linkedShopId?: string | null;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  private syncPhoneNormalized(): void {
+    // Kısmi güncellemede (telefon hiç gelmediyse) mevcut değere dokunma.
+    if (this.phone !== undefined) this.phoneNormalized = normalizePhone(this.phone);
+  }
 
   @OneToMany(() => CustomerLedgerEntry, (entry) => entry.customer)
   ledgerEntries?: CustomerLedgerEntry[];

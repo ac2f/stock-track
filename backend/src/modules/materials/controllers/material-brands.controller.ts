@@ -14,6 +14,8 @@ import { CreateMaterialBrandDto } from '../dto/create-material-brand.dto';
 import { UpdateMaterialBrandDto } from '../dto/update-material-brand.dto';
 import { MaterialBrandsService } from '../services/material-brands.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 @ApiTags('material-brands')
 @ApiBearerAuth()
@@ -27,6 +29,7 @@ export class MaterialBrandsController {
     return this.brandsService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.CATALOG, ttl: 600 })
   @AnyShopMember()
   @Get()
   findAll(@Query('categoryId') categoryId?: string) {

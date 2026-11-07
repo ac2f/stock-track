@@ -14,6 +14,8 @@ import { CreateMaterialColorDto } from '../dto/create-material-color.dto';
 import { UpdateMaterialColorDto } from '../dto/update-material-color.dto';
 import { MaterialColorsService } from '../services/material-colors.service';
 import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { Cached } from '../../../common/cache/cached.decorator';
+import { CacheGroup } from '../../../common/cache/cache.groups';
 
 @ApiTags('material-colors')
 @ApiBearerAuth()
@@ -27,6 +29,7 @@ export class MaterialColorsController {
     return this.colorsService.create(dto);
   }
 
+  @Cached({ group: CacheGroup.CATALOG, ttl: 600 })
   @AnyShopMember()
   @Get()
   findAll(@Query('categoryId') categoryId?: string) {
