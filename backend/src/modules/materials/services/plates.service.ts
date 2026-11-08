@@ -37,6 +37,8 @@ import { CustomersService } from "../../customers/services/customers.service";
 import { TransferOwnershipDto } from "../dto/transfer-ownership.dto";
 import { ShopContext } from "../../../common/shop/shop-context";
 import { foldTr, sqlFold } from "../../../common/utils/search.util";
+import { customPlateName, derivePlateName } from "../plate-name.util";
+import { allocatePlateSkus } from "../plate-sku.util";
 
 @Injectable()
 export class PlatesService {
@@ -162,10 +164,15 @@ export class PlatesService {
       await this.customersService.findOne(ownerCustomerId);
     }
 
-    // Stok kodu elle verilmediyse tür+marka+renk+kalınlık+tabaka ebatından üret.
-    const sku =
-      dto.sku ?? (await this.buildSku(template, brand, color, thickness, size));
     const addedAt = dto.addedAt ?? ShopContext.now().toISOString().slice(0, 10);
+    const customName = customPlateName(
+      dto.name,
+      derivePlateName(
+        { brand: brand?.name, color: color?.name, colorCode: color?.code, thicknessMm: thicknessMm, sizeId: size?.id ?? null },
+        size,
+      ),
+      template.category?.name,
+    );
 
     const initialQty = dto.quantityInStock ?? 0;
     // TABAKA (AREA): bir kayıt = bir fiziksel tabaka (kesimler kaydın en/boyunu
@@ -181,28 +188,19 @@ export class PlatesService {
     const run = async (manager: EntityManager) => {
       let warehouseId: string | null = null;
       const ids: string[] = [];
+      // Stok kodu tabaka başına benzersizdir. Elle verilmediyse hepsi TEK sayaç güncellemesiyle
+      // ayrılır (TÜR-000123); elle verilen kodun ek tabakaları "-2", "-3" … alır.
+      const skus = dto.sku
+        ? Array.from({ length: sheets }, (_, i) => (i === 0 ? dto.sku! : `${dto.sku}-${i + 1}`))
+        : await allocatePlateSkus(manager, ShopContext.requireShopId(), template.category?.code, sheets);
       for (let i = 0; i < sheets; i++) {
-        // Stok kodu tabaka başına benzersizdir: ilk kayıt asıl kodu, sonrakiler
-        // (aynı işlemde yazılanlar dahil) sıradaki boş kodu alır.
-        const plateSku =
-          i === 0
-            ? sku
-            : dto.sku
-              ? `${dto.sku}-${i + 1}`
-              : await this.buildSku(
-                  template,
-                  brand,
-                  color,
-                  thickness,
-                  size,
-                  manager,
-                );
+        const plateSku = skus[i];
         const plate = manager.create(MaterialPlate, {
           templateId: template.id,
           measurementType,
           unitOfMeasure,
-          name:
-            dto.name ?? this.buildCatalogName(brand, color, size, thickness),
+          // Ad saklanmaz: yalnız elle yazılmışsa (türetilmiş addan farklıysa) yazılır; gerisi okurken üretilir.
+          customName: customName,
           sku: plateSku,
           brand: brand?.name,
           brandId: brand?.id ?? null,
@@ -382,6 +380,22 @@ export class PlatesService {
             });
           }
           w.orWhere(`${sqlFold("category.name")} LIKE :${param}`);
+          // Ad artık satıra yazılmadığı için (türetilir) onun içindeki bilgiler doğrudan aranır:
+          // ürün türü adı ve sayılar (kalınlık "2,8", ebat "1220"; ondalık virgül nokta sayılır).
+          w.orWhere(`${sqlFold("template.name")} LIKE :${param}`);
+          if (/\d/.test(folded)) {
+            const num = `${param}n`;
+            const numeric = folded.replace(",", ".");
+            for (const col of [
+              "plate.thickness_mm",
+              "plate.width_mm",
+              "plate.height_mm",
+              '"defaultSize".width_mm',
+              '"defaultSize".height_mm',
+            ]) {
+              w.orWhere(`${col}::text LIKE :${num}`, { [num]: `%${numeric}%` });
+            }
+          }
           w.orWhere(
             `EXISTS (SELECT 1 FROM stock_levels so
                        JOIN customers co ON co.id = so.owner_customer_id
@@ -396,7 +410,15 @@ export class PlatesService {
       );
     });
 
-    qb.orderBy("plate.name", "ASC").skip(query.skip).take(query.limit);
+    // Sıra: tür → marka → renk → kalınlık → elle yazılmış ad (eski sıra, ad bu alanlarla başladığı için aynıdır).
+    qb.orderBy("category.name", "ASC")
+      .addOrderBy("plate.brand", "ASC")
+      .addOrderBy("plate.color", "ASC")
+      .addOrderBy("plate.thicknessMm", "ASC")
+      .addOrderBy("plate.customName", "ASC")
+      .addOrderBy("plate.id", "ASC")
+      .skip(query.skip)
+      .take(query.limit);
 
     const [items, total] = await qb.getManyAndCount();
     await Promise.all([this.attachOwners(items), this.attachOrigins(items)]);
@@ -562,8 +584,12 @@ export class PlatesService {
 
   async update(id: string, dto: UpdatePlateDto): Promise<MaterialPlate> {
     const plate = await this.findOne(id);
-    const { attributes, ...rest } = dto;
+    const { attributes, name, ...rest } = dto;
     Object.assign(plate, rest);
+    // Ad: türetilmiş adın aynısı geri gelirse (düzenleme formu görünen adı olduğu gibi yollar) saklanmaz.
+    if (name !== undefined) {
+      plate.customName = customPlateName(name, derivePlateName(plate), plate.template?.category?.name);
+    }
     if (attributes) {
       plate.attributes = { ...plate.attributes, ...attributes };
     }
@@ -911,23 +937,6 @@ export class PlatesService {
     }
   }
 
-  /** Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik kısımlar "—" ile gösterilir. */
-  private buildCatalogName(
-    brand: { name: string } | null,
-    color: { name: string; code?: string | null } | null,
-    size: { widthMm: number; heightMm: number } | null,
-    thickness: { valueMm: number } | null,
-  ): string {
-    const brandPart = brand?.name ?? "—";
-    const colorPart = color
-      ? color.code
-        ? `${color.name} ${color.code}`
-        : color.name
-      : "—";
-    const thicknessPart = thickness?.valueMm ?? "—";
-    const sizePart = size ? `${size.widthMm}x${size.heightMm}` : "—x—";
-    return `${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
-  }
 
   /** Kalan (kesilmiş) ebat, standart tabaka ebadını aşarsa hata fırlatır. */
   private assertRemainingWithinSheet(
@@ -946,72 +955,6 @@ export class PlatesService {
     }
   }
 
-  /**
-   * Stok kodunu tür + marka + renk(+kod) + kalınlık + tabaka ebatından üretir.
-   * SKU benzersiz (kısmi unique index) olduğundan, taban kod doluysa "-N" ekiyle
-   * benzersizleştirilir (silinmiş kayıtlar da dikkate alınır).
-   */
-  private async buildSku(
-    template: { name: string },
-    brand: { name: string } | null,
-    color: { name: string; code?: string | null } | null,
-    thickness: { valueMm: number } | null,
-    size: { widthMm: number; heightMm: number } | null,
-    manager?: EntityManager,
-  ): Promise<string> {
-    const repo = manager
-      ? manager.getRepository(MaterialPlate)
-      : this.platesRepo;
-    const colorPart = color
-      ? color.code
-        ? `${color.name} ${color.code}`
-        : color.name
-      : null;
-    const parts = [
-      template.name,
-      brand?.name ?? null,
-      colorPart,
-      thickness?.valueMm != null ? `${thickness.valueMm}mm` : null,
-      size ? `${size.widthMm}x${size.heightMm}` : null,
-    ].filter((p): p is string => !!p);
-    const base = this.slugify(parts.join("-")) || "SKU";
-
-    let candidate = base;
-    let n = 1;
-    while (
-      await repo.findOne({
-        where: { sku: candidate },
-        withDeleted: true,
-      })
-    ) {
-      n += 1;
-      candidate = `${base}-${n}`;
-    }
-    return candidate;
-  }
-
-  /** Türkçe karakterleri ASCII'ye indirger, büyük harfe çevirip tireli koda dönüştürür. */
-  private slugify(value: string): string {
-    const map: Record<string, string> = {
-      ç: "c",
-      ğ: "g",
-      ı: "i",
-      ö: "o",
-      ş: "s",
-      ü: "u",
-      Ç: "c",
-      Ğ: "g",
-      İ: "i",
-      Ö: "o",
-      Ş: "s",
-      Ü: "u",
-    };
-    return value
-      .replace(/[çğıöşüÇĞİÖŞÜ]/g, (c) => map[c] ?? c)
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  }
 
   /**
    * Stok sahipliğini taraflar arasında serbestçe aktarır (işletme↔müşteri ve

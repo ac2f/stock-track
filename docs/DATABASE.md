@@ -220,8 +220,8 @@ referanslarını da korunan kayda taşır.
 |------|-----|----------|
 | id | uuid (PK) | |
 | template_id | uuid (FK → material_templates) | Profilden türer |
-| name | varchar | Görünen ad |
-| sku | varchar (unique, nullable) | Barkod/stok kodu |
+| name | varchar (nullable) | **Yalnız elle yazılmış ad.** Boşsa görünen ad kalemin alanlarından okurken türetilir (bkz. v8). Ham SQL'de bu sütun türetilmiş adı İÇERMEZ |
+| sku | varchar (unique, nullable) | Barkod/stok kodu: `TÜR-000123` (işletme sayacından); elle de girilebilir |
 | brand | varchar (nullable) | Seçilen `material_brands` kaydının adı |
 | brand_id | uuid (FK → material_brands, nullable) | |
 | color | varchar (nullable) | Seçilen `material_colors` kaydının adı |
@@ -493,6 +493,32 @@ tek transaction'da yazılır; biri başarısız olursa hiçbiri kalmaz.
 
 Onay, tek transaction'da ve belge satırı kilitlenerek yazılır (çift onay tek sonuç verir); satıcı stoğu onay anında
 yeniden doğrulanır.
+
+## v8 Genişletme (stok kalemi adı ve kodu: türetileni saklama)
+
+Ölçüm: aynı bilgi dört yerde yazılıyordu — şablon adı, kalem adı (`Pleksi Akpolimer[Kırmızı K-1] 3.00x1220.00x2440.00`), stok
+kodu (`PLEKSI-AKPOLIMER-KIRMIZI-3MM-AKPOLIMER-KIRMIZI-K-1-3-00MM-1220-00X2440-00`, 79 karakter; marka/renk/kalınlık iki kez) ve
+kalemin kendi `brand/color/thickness_mm` sütunları. Üstelik stok kodu benzersiz çıkana dek kalem başına bir sorgu atılarak
+üretiliyordu (aynı özellikte N tabaka için N² sorgu) ve işletmeler arası satışta satıcının kodu/adı alıcıya kopyalanıyordu
+(500'e kadar sorgu).
+
+| Değişiklik | Açıklama |
+| ---------- | -------- |
+| `material_plates.name` boşaltılabilir | Yalnız elle yazılmış ad saklanır; gerisi `MaterialPlate.name` (getter) ile okurken üretilir, biçim eskisiyle birebir aynıdır. Ham sütun API çıktısına sızmaz (`toJSON`). Düzenleme/oluşturma sırasında türetilmiş adın aynısı gelirse (eski ön yüz, çevrimdışı kuyruk) saklanmaz. |
+| Açılışta geçiş | `compactPlateNames`: saklı adı türetilmişle **birebir** aynı olan satırlarda adı NULL yapar (görünen ad değişmez); elle yazılmış ve sunucunun eski, tür önekisiz biçimindeki adlara dokunulmaz. Tekrarı zararsızdır; değişiklik günlüğüne yazılmaz (her sunucu kendi veritabanında yapar). |
+| `shop_counters` (yeni) | `(shop_id, key)` → `value`: işletme başına sayaç. `plate_sku` stok kodu sırasını atomik tutar (`INSERT … ON CONFLICT DO UPDATE`). Eşitlenmez, günlüğe yazılmaz. |
+| Stok kodu | `TÜR-000123` (tür kodu + işletme sırası; ~13–17 karakter). N kod tek sayaç güncellemesi + tek çakışma sorgusuyla ayrılır. Eski kodlara dokunulmaz; elle girilen kod yine geçerlidir. Alan dükkân kendi sayacından kod alır. |
+| İndeksler | `material_plates (brand, color)` kaldırıldı (sorgular dükkân süzgeciyle ve katlanmış aramayla gelir, btree kullanılmaz); `material_templates (category_id)` eklendi. |
+
+Ölçüm (300.000 kalem, yalnız ilgili sütunlar): eski biçim 120 MB (veri 69 + indeks 51) → yeni 62 MB (36 + 26), yani **%48 daha az**;
+SKU ortalama 80 B → 13 B. Gerçek tabloda başka sütunlar da olduğundan oran daha küçük, kazanç kalem başına ~190 B civarıdır.
+
+**İşletmeler arası yinelenen katalog.** Ad ve kod hiçbir yerde işletme adını içermez. Ancak katalog tabloları (tür, marka, renk, ebat,
+kalınlık, ürün türü) işletmeye aittir; iki işletme aynı markayı eklediğinde her birinde ayrı satır vardır (örnek veritabanında 45 marka
+satırı 8 farklı ad, 66 ebat satırı 5 farklı ebat). Bu **bilerek** korunur: her işletme kendi kataloğunu yeniden adlandırıp silebilir,
+yalıtım ve yerel sunucu eşitlemesi dükkân başına çalışır; ortak satırlar bu hakları birbirine bağlardı. Yinelenen satırlar küçüktür
+(kalem sayısından çok daha az) ve asıl büyük kalem, yani kalem başına tekrar eden metin, yukarıda kaldırıldı. İşletmeler arası benzerlik
+ihtiyacı ("benzer ürün türleri") satırları paylaşarak değil, sorgu anında özellik anahtarıyla gruplayarak karşılanır.
 
 ## v6 Genişletme (merkez ↔ yerel sunucu eşitlemesi)
 

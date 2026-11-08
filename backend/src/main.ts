@@ -20,6 +20,7 @@ import { ShopAccessGuard } from './modules/shops/shop-access.guard';
 import { ShopAccessService } from './modules/shops/shop-access.service';
 import { migrateToShops } from './modules/shops/shop-migration';
 import { splitAreaLots } from './modules/materials/area-lots-migration';
+import { compactPlateNames } from './modules/materials/plate-name-compaction';
 import { backfillCustomerPhones } from './modules/customers/customer-phone-backfill';
 import { backfillShopProfiles } from './modules/shops/shop-profile-backfill';
 import { backfillShopFeatures } from './modules/shops/shop-feature-backfill';
@@ -72,6 +73,10 @@ async function bootstrap(): Promise<void> {
       console.error('Tabaka partileri bölünemedi:', (err as Error).message),
     );
   }
+  // Türetilebilir kalem adlarını depolamadan kaldırır (görünen ad değişmez; her iki rolde, günlüğe yazmaz).
+  await compactPlateNames(dataSource).catch((err) =>
+    console.error('Kalem adları sıkıştırılamadı:', (err as Error).message),
+  );
   // Değişiklik günlüğü tetikleyicileri (her iki rolde).
   await installSyncCapture(dataSource, (m) => console.log(m));
   if (sync.role === 'replica') {

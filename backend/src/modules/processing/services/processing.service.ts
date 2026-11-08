@@ -513,7 +513,7 @@ export class ProcessingService {
     if (query.search) {
       foldedWords(query.search).forEach((word, i) => {
         qb.andWhere(
-          `(${sqlFold("plate.name")} LIKE :ps${i} OR ${sqlFold("plate.brand")} LIKE :ps${i}
+          `(${sqlFold("plate.name")} LIKE :ps${i} OR ${sqlFold("template.name")} LIKE :ps${i} OR ${sqlFold("plate.brand")} LIKE :ps${i}
             OR ${sqlFold("plate.color")} LIKE :ps${i} OR ${sqlFold("customer.name")} LIKE :ps${i}
             OR ${sqlFold("customer.company_name")} LIKE :ps${i})`,
           { [`ps${i}`]: `%${word}%` },
@@ -584,7 +584,7 @@ export class ProcessingService {
     if (query.search) {
       foldedWords(query.search).forEach((word, i) => {
         qb.andWhere(
-          `(${sqlFold("plate.name")} LIKE :ps${i} OR ${sqlFold("plate.brand")} LIKE :ps${i}
+          `(${sqlFold("plate.name")} LIKE :ps${i} OR ${sqlFold("template.name")} LIKE :ps${i} OR ${sqlFold("plate.brand")} LIKE :ps${i}
             OR ${sqlFold("plate.color")} LIKE :ps${i} OR ${sqlFold("customer.name")} LIKE :ps${i}
             OR ${sqlFold("customer.company_name")} LIKE :ps${i})`,
           { [`ps${i}`]: `%${word}%` },

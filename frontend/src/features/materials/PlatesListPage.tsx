@@ -80,19 +80,6 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Türkçe karakterleri ASCII'ye indirger, büyük harfli tireli koda dönüştürür. */
-function slugify(value: string): string {
-  const map: Record<string, string> = {
-    ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u',
-    Ç: 'c', Ğ: 'g', İ: 'i', Ö: 'o', Ş: 's', Ü: 'u',
-  };
-  return value
-    .replace(/[çğıöşüÇĞİÖŞÜ]/g, (ch) => map[ch] ?? ch)
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 /**
  * Tür Marka[Renk Kod] Kalınlıkxenxboy kalıbında otomatik ad üretir; eksik
  * kısımlar "—" ile gösterilir. Başa malzeme türü (Pleksi, Dekota…) eklenir.
@@ -110,20 +97,6 @@ function buildCatalogName(
   const thicknessPart = thickness?.valueMm ?? '—';
   const sizePart = size ? `${size.widthMm}x${size.heightMm}` : '—x—';
   return `${typePart}${brandPart}[${colorPart}] ${thicknessPart}x${sizePart}`;
-}
-
-/** Stok kodu önizlemesi: tür + marka + renk(+kod) + kalınlık + tabaka ebatı. */
-function buildSku(tpl: MaterialTemplate): string {
-  const c = tpl.defaultColor;
-  const colorPart = c ? (c.code ? `${c.name} ${c.code}` : c.name) : null;
-  const parts = [
-    tpl.name,
-    tpl.defaultBrand?.name,
-    colorPart,
-    tpl.defaultThickness ? `${tpl.defaultThickness.valueMm}mm` : null,
-    tpl.defaultSize ? `${tpl.defaultSize.widthMm}x${tpl.defaultSize.heightMm}` : null,
-  ].filter((p): p is string => !!p);
-  return slugify(parts.join('-'));
 }
 
 /** Etiketli form alanı sarmalayıcısı — her input'un ne ifade ettiği açıkça görünsün. */
@@ -375,7 +348,6 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const std = tpl?.defaultSize;
   const isArea = (form.measurementType ?? tpl?.measurementType) === 'area';
   const isLength = (form.measurementType ?? tpl?.measurementType) === 'length';
-  const suggestedSku = tpl ? buildSku(tpl) : '';
   // Otomatik ad: şablonun GÜNCEL özelliklerinden CANLI türetilir (SKU gibi).
   // Böylece kataloğa yeni marka/renk/ebat eklenip şablon güncellenince ad da
   // yeniden seçim gerekmeden tazelenir.
@@ -457,7 +429,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
   const addToDrafts = () => {
     const item: BatchPlateItem = {
       ...form,
-      name: (nameTouched ? form.name : suggestedName) || undefined,
+      name: (nameTouched ? form.name : undefined) || undefined,
       sku: skuTouched ? form.sku : undefined,
       copies: Math.max(1, Math.floor(copies) || 1),
     };
@@ -558,12 +530,12 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
 
           <Field
             label="Stok kodu / SKU"
-            hint="Boş bırakılırsa türden otomatik üretilir."
+            hint="Boş bırakılırsa tür koduyla kısa bir kod atanır (PLEKSI-000042)."
           >
             <input
               className="input"
-              placeholder={suggestedSku || 'Otomatik oluşturulur'}
-              value={skuTouched ? form.sku ?? '' : suggestedSku}
+              placeholder="Otomatik (örn. PLEKSI-000042)"
+              value={skuTouched ? form.sku ?? '' : ''}
               onChange={(e) => {
                 setSkuTouched(true);
                 setForm({ ...form, sku: e.target.value || undefined });
@@ -911,14 +883,12 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
           className="btn-primary"
           disabled={!canSubmit}
           onClick={() =>
-            // Ad'a dokunulmadıysa otomatik (tür önekli) adı KALICI gönder —
-            // böylece stoğa eklenen ürünün başına türü otomatik eklenir.
-            // SKU OTOMATİK DOLDURULMAZ: benzersiz olmak zorunda (aynı türden
-            // birden çok plakada/kopyada çakışıp hata veriyordu); yalnızca elle
-            // girilirse gönderilir, boşsa null kalır.
+            // Ad ve stok kodu yalnız ELLE yazıldıysa gönderilir. Aksi hâlde sunucu ikisini de üretir:
+            // ad kalemin alanlarından (tür önekli, aşağıdaki önizlemeyle aynı biçimde) okurken türetilir ve
+            // saklanmaz; stok kodu TÜR-000123 biçiminde tek sayaçtan atanır (benzersizlik sunucudadır).
             createMut.mutate({
               ...form,
-              name: (nameTouched ? form.name : suggestedName) || undefined,
+              name: (nameTouched ? form.name : undefined) || undefined,
               sku: skuTouched ? form.sku : undefined,
             })
           }
@@ -1524,7 +1494,10 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
         <button
           className="btn-primary"
           disabled={overSheet || updateMut.isPending}
-          onClick={() => updateMut.mutate(form)}
+          onClick={() =>
+            // Görünen ad değişmediyse gönderilmez: türetilmiş ad saklanmasın, kalem alanlarıyla güncel kalsın.
+            updateMut.mutate(form.name === plate.name ? { ...form, name: undefined } : form)
+          }
         >
           {updateMut.isPending ? 'Kaydediliyor…' : 'Kaydet'}
         </button>

@@ -7,6 +7,7 @@ import { foldedWords, sqlFold } from '../../common/utils/search.util';
 import { MaterialCategoryEntity } from '../materials/entities/material-category.entity';
 import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { MaterialTemplate } from '../materials/entities/material-template.entity';
+import { derivePlateName } from '../materials/plate-name.util';
 import { ListingQueryDto } from './dto/trade.dto';
 import {
   ShopStockShare,
@@ -164,19 +165,35 @@ export class StockSharesService {
     const cond = where.join(' AND ');
     const [{ n }]: { n: string }[] = await this.dataSource.query(`SELECT COUNT(*) AS n FROM ${from} WHERE ${cond}`, params);
     const rows: Record<string, unknown>[] = await this.dataSource.query(
-      `SELECT p.id, p.name, p.brand, p.color, p.thickness_mm, p.measurement_type, p.unit_of_measure,
+      `SELECT p.id, p.name AS custom_name, p.brand, p.color, p.color_code, p.thickness_mm, p.size_id,
+              p.measurement_type, p.unit_of_measure,
               p.width_mm, p.height_mm, p.quantity_in_stock, p.retail_price, p.retail_currency,
-              t.name AS template_name, c.name AS category_name,
+              t.name AS template_name, t.default_size_id, sz.width_mm AS std_width, sz.height_mm AS std_height,
+              c.name AS category_name,
               s.id AS shop_id, s.name AS shop_name, s.province, s.district
-         FROM ${from} WHERE ${cond}
-        ORDER BY s.name, c.name, p.name
+         FROM ${from} LEFT JOIN material_sizes sz ON sz.id = t.default_size_id WHERE ${cond}
+        ORDER BY s.name, c.name, p.brand, p.color, p.thickness_mm, p.name, p.id
         LIMIT ${add(q.limit)} OFFSET ${add(q.skip)}`,
       params,
     );
     const items = rows.map<ListingItem>((r) => ({
       plateId: String(r.id),
       shop: { id: String(r.shop_id), name: String(r.shop_name), province: (r.province as string) ?? null, district: (r.district as string) ?? null },
-      name: String(r.name),
+      // Ad satırda saklanmaz (türetilir): elle yazılmış ad varsa o, yoksa kalem alanlarından üretilir.
+      name:
+        (r.custom_name as string | null)?.trim() ||
+        derivePlateName({
+          brand: r.brand as string | null,
+          color: r.color as string | null,
+          colorCode: r.color_code as string | null,
+          thicknessMm: r.thickness_mm as string | null,
+          sizeId: r.size_id as string | null,
+          template: {
+            defaultSizeId: r.default_size_id as string | null,
+            defaultSize: r.std_width != null ? { widthMm: r.std_width as string, heightMm: r.std_height as string } : null,
+            category: { name: r.category_name as string | null },
+          },
+        }),
       categoryName: (r.category_name as string) ?? null,
       templateName: (r.template_name as string) ?? null,
       brand: (r.brand as string) ?? null,

@@ -14,6 +14,8 @@ export const NO_CAPTURE_TABLES = new Set([
   'replica_outbox',
   'replica_state',
   'idempotency_keys',
+  // İşletme sayaçları (stok kodu sırası): her sunucu kendi sırasını tutar, günlüğe yazılmaz.
+  'shop_counters',
 ]);
 
 // İşletmeler arası yetkiler iki işletmeye birden aittir ve yerel sunucuya gerekmez (ticaret merkezde yapılır).

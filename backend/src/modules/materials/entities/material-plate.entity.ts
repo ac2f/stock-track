@@ -11,6 +11,7 @@ import {
   MeasurementType,
   UnitOfMeasure,
 } from '../../../common/enums/measurement-type.enum';
+import { derivePlateName } from '../plate-name.util';
 import { MaterialTemplate } from './material-template.entity';
 import { SupplierMaterialPrice } from './supplier-material-price.entity';
 
@@ -23,7 +24,8 @@ import { SupplierMaterialPrice } from './supplier-material-price.entity';
  * Depo bazlı miktar `StockLevel`'da; `quantityInStock` işletme stoğunun toplam cache'idir.
  */
 @Entity('material_plates')
-@Index(['brand', 'color'])
+// (brand, color) indeksi kaldırıldı: sorgular hep dükkân süzgeciyle ve katlanmış/ILIKE aramayla gelir,
+// btree bunu hiç kullanmaz; yalnız her yazımı ve diski yavaşlatıyordu.
 @Index(['templateId'])
 @Index(['shopId', 'sku'], { unique: true, where: '"sku" IS NOT NULL' })
 export class MaterialPlate extends ShopScopedEntity {
@@ -37,11 +39,27 @@ export class MaterialPlate extends ShopScopedEntity {
   @Column({ name: 'template_id' })
   templateId: string;
 
-  @Column()
-  name: string;
+  /**
+   * YALNIZ elle yazılmış ad. Boşsa (çoğunlukla) görünen ad kalemin alanlarından türetilir
+   * (bkz. `name` ve plate-name.util.ts) — türetilebilen metin her satıra yazılmaz.
+   * Sütun adı eskisiyle aynı ("name"); ham SQL'de bu sütun yalnız elle yazılmış adı içerir.
+   */
+  @Column({ name: 'name', type: 'varchar', nullable: true })
+  customName?: string | null;
+
+  /** Görünen ad: elle yazılmışsa o, değilse türetilmiş (tür + marka[renk kod] + kalınlık x ebat). */
+  get name(): string {
+    return this.customName?.trim() ? this.customName : derivePlateName(this);
+  }
+
+  /** API çıktısı: `name` (türetilmiş ya da elle yazılmış) döner; ham sütun (`customName`) sızmaz. */
+  toJSON(): Record<string, unknown> {
+    const { customName: _custom, ...rest } = this as unknown as Record<string, unknown>;
+    return { ...rest, name: this.name };
+  }
 
   @Column({ nullable: true })
-  sku?: string; // barkod / stok kodu
+  sku?: string; // stok kodu (TÜR-000123; elle de girilebilir)
 
   @Column({ nullable: true })
   brand?: string;

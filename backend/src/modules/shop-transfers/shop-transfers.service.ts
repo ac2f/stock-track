@@ -24,6 +24,7 @@ import { MaterialPlate } from '../materials/entities/material-plate.entity';
 import { MaterialSize } from '../materials/entities/material-size.entity';
 import { MaterialTemplate } from '../materials/entities/material-template.entity';
 import { StockLevel } from '../materials/entities/stock-level.entity';
+import { allocatePlateSkus } from '../materials/plate-sku.util';
 import { PlateIntakeService } from '../materials/services/plate-intake.service';
 import { PlatesService } from '../materials/services/plates.service';
 import { PurchaseOrder } from '../purchases/entities/purchase-order.entity';
@@ -1156,15 +1157,19 @@ export class ShopTransfersService {
       const template = await manager.findOne(MaterialTemplate, { where: { id: templateId } });
       // Tabakada her parça ayrı stok kalemi (kesim modeli tek parçalıktır).
       const amounts = line.area ? splitAmount(line.lineTotal, line.quantity) : [line.lineTotal];
-      for (const amount of amounts) {
+      // Alan dükkân kendi stok kodunu alır (satıcınınki kopyalanmaz, sızmaz): parça başına
+      // tek sorgu yerine kalemin tüm parçaları TEK sayaç güncellemesiyle.
+      const skus = await allocatePlateSkus(manager, ShopContext.requireShopId(), template?.category?.code, amounts.length);
+      for (const [pieceIdx, amount] of amounts.entries()) {
         const qty = line.area ? 1 : line.quantity;
         const plate = await manager.save(
           manager.create(MaterialPlate, {
             templateId,
             measurementType: src.measurementType,
             unitOfMeasure: src.unitOfMeasure,
-            name: src.name,
-            sku: (await this.freeSku(manager, src.sku)) ?? undefined,
+            // Satıcının ELLE yazdığı ad taşınır; türetilmiş ad alıcının kalem alanlarından üretilir.
+            customName: src.customName ?? null,
+            sku: skus[pieceIdx],
             brand: src.brand,
             brandId: template?.defaultBrandId ?? null,
             color: src.color,
@@ -1230,23 +1235,6 @@ export class ShopTransfersService {
       }),
     );
     return { purchaseOrderId: order.id, items };
-  }
-
-  /**
-   * Stok kodu alan dükkânda boşsa aynen, doluysa "-2", "-3" ekiyle (stok kodu
-   * dükkân içinde benzersizdir; silinmiş kalemler de sayılır).
-   */
-  private async freeSku(manager: EntityManager, sku?: string | null): Promise<string | null> {
-    if (!sku) return null;
-    for (let n = 1; n < 500; n++) {
-      const candidate = n === 1 ? sku : `${sku}-${n}`;
-      const taken = await manager.count(MaterialPlate, {
-        where: { sku: candidate },
-        withDeleted: true,
-      });
-      if (!taken) return candidate;
-    }
-    return null;
   }
 
   /** Yıllık sıralı belge numarası (DA-YYYY-NNNN). */

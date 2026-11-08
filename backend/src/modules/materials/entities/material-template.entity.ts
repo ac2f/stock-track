@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { MaterialCategoryEntity } from './material-category.entity';
@@ -20,6 +20,8 @@ import { MaterialThickness } from './material-thickness.entity';
  * (kategori eşleşmesi servis katmanında doğrulanır).
  */
 @Entity('material_templates')
+// Tür → ürün türleri araması (katalog süzgeci, aynı özellik denetimi, ortak katalog önerisi) için.
+@Index(['categoryId'])
 export class MaterialTemplate extends ShopScopedEntity {
   @Column()
   name: string; // "Alüminyum Kompozit 3mm"
