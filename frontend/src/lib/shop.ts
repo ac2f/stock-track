@@ -85,6 +85,12 @@ export const SHOP_FEATURES: { key: ShopFeatureKey; label: string; hint: string; 
     hint: 'Diğer işletmeleri iş koluna, ile/ilçeye ve makineye göre arama; kendi işletmesini listeletme.',
     default: true,
   },
+  {
+    key: 'trade',
+    label: 'İşletmeler arası satış ve stok paylaşımı',
+    hint: 'Başka işletmelere satış teklifi (onay/ret), paylaşılan stok listesi, ortak yetkileri ve başka işletmelerin ürün türlerinden seçme.',
+    default: true,
+  },
 ];
 
 export function defaultFeatures(): ShopFeatures {

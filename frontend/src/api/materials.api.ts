@@ -717,3 +717,38 @@ export async function dedupeCatalog(): Promise<DedupeReport> {
   const { data } = await api.post<DedupeReport>('/material-catalog/dedupe');
   return data;
 }
+
+/**
+ * Başka işletmelerin kataloğunda kayıtlı benzer ürün türü: yalnız katalog özellikleri
+ * (işletme kimliği, stok, fiyat yok).
+ */
+export interface CommunityTemplate {
+  categoryName: string;
+  templateName: string;
+  measurementType: MeasurementType;
+  brandName: string | null;
+  colorName: string | null;
+  colorCode: string | null;
+  thicknessMm: number | null;
+  sheetWidthMm: number | null;
+  sheetHeightMm: number | null;
+  variant: string | null;
+  /** Bu özellikte ürün türü olan işletme sayısı. */
+  shops: number;
+}
+
+export interface CommunityTemplateQuery {
+  q?: string;
+  categoryName?: string;
+  brandName?: string;
+  colorName?: string;
+  thicknessMm?: number;
+  sheetWidthMm?: number;
+  sheetHeightMm?: number;
+}
+
+/** Yeni ürün türü eklerken: benzer, kendi kataloğunuzda olmayan türler (tür ya da arama sözcüğü şart). */
+export async function fetchCommunityTemplates(query: CommunityTemplateQuery): Promise<CommunityTemplate[]> {
+  const { data } = await api.get<CommunityTemplate[]>('/material-templates/community', { params: query });
+  return data;
+}

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -53,6 +53,10 @@ export class CurrencyController {
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
-    return this.currencyService.convert(Number(amount), from, to);
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value < 0 || !/^[A-Za-z]{3}$/.test(from ?? '') || !/^[A-Za-z]{3}$/.test(to ?? '')) {
+      throw new BadRequestException('amount (sayı), from ve to (3 harfli para birimi) gerekli.');
+    }
+    return this.currencyService.convert(value, from, to);
   }
 }

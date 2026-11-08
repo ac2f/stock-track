@@ -40,12 +40,21 @@ import { WarehousesService } from '../warehouses/warehouses.service';
 import {
   CreateShopTransferDto,
   QueryShopTransferDto,
+  ShopTransferItemDto,
 } from './dto/create-shop-transfer.dto';
+import { RequestShopTransferDto } from './dto/trade.dto';
+import { PartnerGrantsService } from './partner-grants.service';
+import { StockSharesService } from './stock-shares.service';
 import { ShopTransferItem } from './entities/shop-transfer-item.entity';
 import { ShopTransfer, ShopTransferStatus } from './entities/shop-transfer.entity';
 
+/** Aynı işletmeye aynı anda bekleyebilecek en çok teklif (spam koruması). */
+const MAX_PENDING_PER_PARTNER = 25;
+
 /** Alan dükkândaki parçanın bugünkü durumu. */
 export type TransferItemState =
+  | 'pending' // onay bekliyor: henüz alan dükkânda kaydı yok
+  | 'untracked' // tamamlandı; alan işletme başka bir işletme olduğundan sonraki durumu görülmez
   | 'in_stock' // hiç kullanılmadı, olduğu gibi stokta
   | 'partial' // bir kısmı satıldı/işlendi, kalanı stokta
   | 'sold' // tamamı satıldı/işlendi
@@ -106,8 +115,26 @@ export interface ShopTransferView {
   purchaseOrderId: string | null;
   /** Alan dükkândaki müşteri adları/tutarları görülebiliyor mu? */
   detailVisible: boolean;
-  /** Hiçbir parça kullanılmadıysa satan dükkân belgeyi geri alabilir. */
+  /** Belgeyi başlatan işletme (onaylayan karşı taraftır). */
+  initiatorShopId: string;
+  /** Teklifi/talebi biz başlattık. */
+  initiatedByMe: boolean;
+  /** Karşı taraf onayı olmadan (kendi şubeleri / tanınan otomatik onay yetkisi) tamamlandı. */
+  autoApproved: boolean;
+  decidedAt: Date | null;
+  decisionNote: string | null;
+  /** Karar BİZİ bekliyor ve onaylayabilir/reddedebiliriz (yetkimiz var). */
+  canDecide: boolean;
+  /** Bekleyen teklifimizi geri çekebiliriz. */
+  canWithdraw: boolean;
+  /** İki tarafı da yönetebildiğimiz için tamamlanmış belgeyi hemen geri alabiliriz. */
   canCancel: boolean;
+  /** Karşı tarafın onayıyla geri almak için talep açabiliriz. */
+  canRequestCancel: boolean;
+  /** Açık geri alma talebi (karşı tarafın onayını bekler). */
+  cancelRequest: { byShopName: string; byMe: boolean; at: Date | null; note: string | null } | null;
+  /** Alan dükkândaki sonraki durum (satıldı/işlendi ...) görülebiliyor mu? Başka işletmenin stoğu izlenmez. */
+  trackingVisible: boolean;
   summary: { items: number; inStock: number; partial: number; sold: number };
   items: ShopTransferItemView[];
 }
@@ -116,7 +143,11 @@ export interface ShopTransferView {
 export interface TransferTarget {
   id: string;
   name: string;
-  /** Kullanıcı o dükkânda stok girişi (satın alma) yapabiliyor mu? */
+  province: string | null;
+  district: string | null;
+  /** Kullanıcının kendi (başka) dükkânı: karşı onay gerekmez. */
+  own: boolean;
+  /** Kendi dükkânıysa: orada stok girişi (satın alma) yetkisi var mı? */
   canSell: boolean;
 }
 
@@ -236,6 +267,8 @@ export class ShopTransfersService {
     private readonly accountService: CustomerAccountService,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
+    private readonly partners: PartnerGrantsService,
+    private readonly stockShares: StockSharesService,
     configService: ConfigService,
   ) {
     this.defaultCurrency =
@@ -244,117 +277,318 @@ export class ShopTransfersService {
       configService.get<string>('business.defaultWarehouseCode') ?? 'MERKEZ';
   }
 
-  /** Malzeme satılabilecek (seçili dükkân dışındaki açık) dükkânlar. */
-  async targets(actor: ShopActor): Promise<TransferTarget[]> {
-    const current = ShopContext.requireShopId();
-    const shops = await this.access.listFor(actor);
-    return shops
-      .filter((s) => s.id !== current && s.isActive)
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        canSell: can(s.permissions, 'purchases', 'write'),
-      }));
+  /**
+   * Teklif/talep edilebilecek işletmeler: kullanıcının kendi diğer dükkânları, rehberde
+   * görünenler ve daha önce yetki/işlem ilişkisi olduklarım (arama zorunlu değildir; en çok 25).
+   */
+  async targets(actor: ShopActor, info: ShopAccessInfo, q?: string): Promise<TransferTarget[]> {
+    const mine = (await this.access.listFor(actor)).filter((s) => s.isActive).map((s) => s.id);
+    const list = await this.partners.search(info, mine, q);
+    return Promise.all(
+      list.map(async (c) => ({
+        id: c.id,
+        name: c.name,
+        province: c.province,
+        district: c.district,
+        own: c.own,
+        // Kendi dükkânımsa karşı tarafın onayı gerekmez (stok girişi yetkim varsa).
+        canSell: c.own ? await this.canActIn(actor, c.id, 'purchases', 'write') : false,
+      })),
+    );
   }
 
-  async create(dto: CreateShopTransferDto, actor: ShopActor): Promise<ShopTransferView> {
-    const fromShopId = ShopContext.requireShopId();
-    if (dto.toShopId === fromShopId) {
-      throw new BadRequestException('Malzeme aynı dükkâna satılamaz; başka bir dükkân seçin.');
-    }
-    const target = await this.targetAccess(actor, dto.toShopId);
-    const fromShop = await this.shopsRepo.findOneOrFail({ where: { id: fromShopId } });
+  /** Satıcı olarak başka işletmeye satış teklifi (onaylanınca ya da otomatik onayda gerçekleşir). */
+  create(dto: CreateShopTransferDto, actor: ShopActor, info: ShopAccessInfo): Promise<ShopTransferView> {
+    return this.propose(
+      {
+        initiator: 'seller',
+        counterpartyShopId: dto.toShopId,
+        items: dto.items,
+        warehouseId: dto.warehouseId,
+        currency: dto.currency,
+        transferDate: dto.transferDate,
+        note: dto.note,
+      },
+      actor,
+      info,
+    );
+  }
 
-    const currency = (dto.currency ?? this.defaultCurrency).toUpperCase();
-    const transferDate = dto.transferDate ? new Date(dto.transferDate) : ShopContext.now();
-    const lines = await this.buildLines(dto);
+  /** Alıcı olarak satıcının paylaşılan stoğundan alım talebi. */
+  request(dto: RequestShopTransferDto, actor: ShopActor, info: ShopAccessInfo): Promise<ShopTransferView> {
+    return this.propose(
+      {
+        initiator: 'buyer',
+        counterpartyShopId: dto.fromShopId,
+        items: dto.items,
+        currency: dto.currency,
+        note: dto.note,
+      },
+      actor,
+      info,
+    );
+  }
+
+  /**
+   * Teklif/talep. Üç sonuçtan biri:
+   *  1) kullanıcı karşı dükkânı da yönetebiliyorsa (kendi şubeleri) → doğrudan tamamlanır,
+   *  2) karşı işletme bu işletmeye "otomatik onayla" yetkisi vermişse (süresi dolmamış) → tamamlanır,
+   *  3) aksi hâlde "onay bekliyor": hiçbir kayıt yazılmaz, karşı taraf onaylar ya da reddeder.
+   */
+  private async propose(
+    a: {
+      initiator: 'seller' | 'buyer';
+      counterpartyShopId: string;
+      items: ShopTransferItemDto[];
+      warehouseId?: string;
+      currency?: string;
+      transferDate?: string;
+      note?: string;
+    },
+    actor: ShopActor,
+    info: ShopAccessInfo,
+  ): Promise<ShopTransferView> {
+    const me = info.shopId;
+    if (a.counterpartyShopId === me) {
+      throw new BadRequestException('Aynı işletmeye işlem yapılamaz; başka bir işletme seçin.');
+    }
+    const counter = await this.counterparty(me, a.counterpartyShopId);
+    const fromShopId = a.initiator === 'seller' ? me : counter.id;
+    const toShopId = a.initiator === 'seller' ? counter.id : me;
+    const currency = (a.currency ?? this.defaultCurrency).toUpperCase();
+
+    // Kalemler satıcının bağlamında doğrulanır (stok, ölçü). Alıcı talebinde yalnız satıcının
+    // bu işletmeye LİSTELEDİĞİ kalemler istenebilir.
+    const lines = await ShopContext.forShop(fromShopId, () => this.buildLines(a.items));
+    if (a.initiator === 'buyer') {
+      const listed = await this.stockShares.listedTo(fromShopId, me, lines.map((l) => l.plate.id));
+      if (lines.some((l) => !listed.has(l.plate.id))) {
+        throw new BadRequestException('Seçilen kalemlerden biri satıcının paylaşılan stok listesinde değil.');
+      }
+    }
+    this.assertAvailable(lines);
+
+    // Karşı tarafta da yazma yetkisi olan kişi (kendi şubeleri) onay beklemez.
+    const counterModule = a.initiator === 'seller' ? 'purchases' : 'sales';
+    const bothSides = await this.canActIn(actor, counter.id, counterModule, 'write');
+    let approverId: string | null = null;
+    if (bothSides) approverId = actor.id;
+    else {
+      const grant = await this.partners.active(counter.id, me, 'auto_approve');
+      if (grant) approverId = grant.createdById;
+    }
+
+    const names = new Map([[me, info.shopName], [counter.id, counter.name]]);
+    const fromName = names.get(fromShopId)!;
+    const toName = names.get(toShopId)!;
+    const meta = { initiatorShopId: me, createdById: actor.id, note: a.note?.trim() || null };
+
+    if (approverId) {
+      const transferId = await this.settle({
+        fromShopId,
+        toShopId,
+        fromName,
+        toName,
+        items: a.items,
+        warehouseId: a.warehouseId,
+        currency,
+        transferDate: a.transferDate ? new Date(a.transferDate) : ShopContext.now(),
+        sellerActorId: a.initiator === 'seller' ? actor.id : approverId,
+        buyerActorId: a.initiator === 'seller' ? approverId : actor.id,
+        autoApproved: true,
+        decidedById: approverId,
+        ...meta,
+      });
+      this.notifyOther(counter.id, info.shopName, 'Dükkânlar arası işlem otomatik onaylandı', transferId, (no) =>
+        `${info.shopName} ile ${no} numaralı işlem, tanıdığınız yetki gereği otomatik onaylandı.`);
+      return this.findOne(transferId, actor, info);
+    }
+
+    // Spam koruması: aynı işletmeye aynı anda en çok 25 bekleyen teklif.
+    const open = await this.transfersRepo.count({
+      where: { initiatorShopId: me, status: ShopTransferStatus.PENDING, ...(a.initiator === 'seller' ? { toShopId } : { fromShopId }) },
+    });
+    if (open >= MAX_PENDING_PER_PARTNER) {
+      throw new BadRequestException('Bu işletmeye bekleyen çok sayıda teklifiniz var; önce onaylanmalarını bekleyin.');
+    }
+
+    const transferId = await this.dataSource.transaction(async (manager) => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext('shop_transfers.no'))`);
+      const transferNo = await this.nextNo(manager);
+      const total = roundMoney(lines.reduce((s, l) => s + l.lineTotal, 0));
+      const saved = await manager.save(
+        manager.create(ShopTransfer, {
+          transferNo,
+          fromShopId,
+          toShopId,
+          initiatorShopId: me,
+          transferDate: a.transferDate ? new Date(a.transferDate) : ShopContext.now(),
+          status: ShopTransferStatus.PENDING,
+          currency,
+          totalAmount: total,
+          note: meta.note,
+          warehouseId: a.warehouseId ?? null,
+          createdById: actor.id,
+          autoApproved: false,
+          items: lines.map((l, i) =>
+            manager.create(ShopTransferItem, {
+              lineNo: i + 1,
+              sourcePlateId: l.plate.id,
+              targetPlateId: null,
+              plateName: l.plate.name,
+              categoryName: l.plate.template?.category?.name ?? null,
+              measurementType: l.plate.measurementType,
+              quantity: l.quantity,
+              widthMm: l.widthMm,
+              heightMm: l.heightMm,
+              unitPrice: l.unitPrice,
+              lineTotal: l.lineTotal,
+            }),
+          ),
+        }),
+      );
+      return saved.id;
+    });
+    this.notifyOther(counter.id, info.shopName, a.initiator === 'seller' ? 'Yeni satış teklifi — onayınız bekleniyor' : 'Yeni alım talebi — onayınız bekleniyor', transferId, (no) =>
+      `${info.shopName} size ${no} numaralı ${a.initiator === 'seller' ? 'satış teklifi' : 'alım talebi'} gönderdi (${lines.length} kalem). İşletmeler Arası ekranından onaylayın ya da reddedin.`);
+    this.logger.log(`Dükkânlar arası teklif (bekliyor): ${fromName} → ${toName} (${lines.length} kalem).`);
+    return this.findOne(transferId, actor, info);
+  }
+
+  /**
+   * Onay bekleyen belgeyi gerçekleştirir (karşı taraf onayı) ya da iki tarafı yazar.
+   * Seçili işletme (bağlam) hangisi olursa olsun her taraf kendi bağlamında yazılır.
+   */
+  private async settle(a: {
+    fromShopId: string;
+    toShopId: string;
+    fromName: string;
+    toName: string;
+    items: { plateId: string; quantity: number; unitPrice: number; widthMm?: number; heightMm?: number }[];
+    warehouseId?: string | null;
+    currency: string;
+    transferDate: Date;
+    sellerActorId: string;
+    buyerActorId: string;
+    initiatorShopId: string;
+    createdById: string;
+    note: string | null;
+    autoApproved: boolean;
+    decidedById: string;
+    decisionNote?: string | null;
+    existingId?: string;
+  }): Promise<string> {
+    const { fromShopId, toShopId } = a;
+    const inFrom = <T>(fn: () => T) => ShopContext.forShop(fromShopId, fn);
 
     // ── Hazırlık (transaction dışında, tekrar çalıştırılması zararsız) ──
-    // Kataloğun karşı dükkândaki karşılıkları ve iki tarafı temsil eden
-    // cari/tedarikçi ADLA bulunur ya da açılır. Satış çekirdeği müşteriyi
-    // transaction dışından okuduğundan cari önceden kaydedilmiş olmalıdır.
-    const catalog = await this.sourceCatalog(lines);
-    const buyer = await this.linkedCustomer(dto.toShopId, target.shopName);
-    const { supplier, templateIds } = await ShopContext.forShop(dto.toShopId, async () => {
+    // Kataloğun karşı dükkândaki karşılıkları ve iki tarafı temsil eden cari/tedarikçi
+    // ADLA bulunur ya da açılır. Satış çekirdeği müşteriyi transaction dışından okuduğundan
+    // cari önceden kaydedilmiş olmalıdır.
+    const lines = await inFrom(() => this.buildLines(a.items));
+    const catalog = await inFrom(() => this.sourceCatalog(lines));
+    const buyer = await inFrom(() => this.linkedCustomer(toShopId, a.toName));
+    const { supplier, templateIds } = await ShopContext.forShop(toShopId, async () => {
       const templateIds = new Map<string, string>();
       for (const [plateId, item] of catalog) {
         templateIds.set(plateId, await this.intake.resolveTemplateByNames(item));
       }
-      return {
-        supplier: await this.linkedSupplier(fromShopId, fromShop.name),
-        templateIds,
-      };
+      return { supplier: await this.linkedSupplier(fromShopId, a.fromName), templateIds };
     });
 
     const { transferId, saleEvent } = await this.dataSource.transaction(async (manager) => {
-      // Belge numarası bütün dükkânlarda tek sıradır: eşzamanlı iki satış aynı
-      // numarayı almasın diye transaction boyunca kilitlenir.
-      await manager.query(`SELECT pg_advisory_xact_lock(hashtext('shop_transfers.no'))`);
-      const transferNo = await this.nextNo(manager);
-      const note = [`${transferNo} · ${target.shopName} dükkânına`, dto.note?.trim()]
-        .filter(Boolean)
-        .join(' — ');
+      let existing: ShopTransfer | null = null;
+      if (a.existingId) {
+        // Aynı belgenin iki kez onaylanmasına karşı satır kilidi.
+        existing = await manager.findOne(ShopTransfer, { where: { id: a.existingId }, lock: { mode: 'pessimistic_write' } });
+        if (!existing || existing.status !== ShopTransferStatus.PENDING) {
+          throw new BadRequestException('Bu teklif artık onay beklemiyor (başkası karara bağlamış ya da geri çekilmiş).');
+        }
+      } else {
+        // Belge numarası bütün dükkânlarda tek sıradır: eşzamanlı iki işlem aynı numarayı almasın.
+        await manager.query(`SELECT pg_advisory_xact_lock(hashtext('shop_transfers.no'))`);
+      }
+      const transferNo = existing?.transferNo ?? (await this.nextNo(manager));
+      const note = [`${transferNo} · ${a.toName} dükkânına`, a.note].filter(Boolean).join(' — ');
 
       // 1) Satan dükkânda satış: stok düşer, alan dükkânın carisi borçlanır.
-      const { result, event } = await this.salesService.persist(
-        manager,
-        {
-          buyerCustomerId: buyer.id,
-          warehouseId: dto.warehouseId,
-          saleDate: transferDate.toISOString(),
-          currency,
-          note,
-          items: lines.map((l) => ({
-            plateId: l.plate.id,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
-            widthMm: l.widthMm ?? undefined,
-            heightMm: l.heightMm ?? undefined,
-          })),
-        },
-        actor.id,
+      const { result, event } = await inFrom(() =>
+        this.salesService.persist(
+          manager,
+          {
+            buyerCustomerId: buyer.id,
+            warehouseId: a.warehouseId ?? undefined,
+            saleDate: a.transferDate.toISOString(),
+            currency: a.currency,
+            note,
+            items: lines.map((l) => ({
+              plateId: l.plate.id,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              widthMm: l.widthMm ?? undefined,
+              heightMm: l.heightMm ?? undefined,
+            })),
+          },
+          a.sellerActorId,
+        ),
       );
 
       // 2) Alan dükkânda alış: her kalem yeni stok kalemi olarak girer.
-      const received = await ShopContext.forShop(dto.toShopId, () =>
+      const received = await ShopContext.forShop(toShopId, () =>
         this.receive(manager, {
           lines,
           templateIds,
           supplierId: supplier.id,
-          actorId: actor.id,
-          transferDate,
-          currency,
-          note: [`${transferNo} · ${fromShop.name} dükkânından`, dto.note?.trim()]
-            .filter(Boolean)
-            .join(' — '),
+          actorId: a.buyerActorId,
+          transferDate: a.transferDate,
+          currency: a.currency,
+          note: [`${transferNo} · ${a.fromName} dükkânından`, a.note].filter(Boolean).join(' — '),
         }),
       );
 
-      // 3) İki kaydı bağlayan belge.
+      // 3) İki kaydı bağlayan belge (bekleyen belgede başlık güncellenir, kalemler açılır).
+      const header = {
+        transferDate: a.transferDate,
+        status: ShopTransferStatus.COMPLETED,
+        currency: a.currency,
+        totalAmount: result.sale.saleTotal,
+        saleId: result.sale.id,
+        buyerCustomerId: buyer.id,
+        purchaseOrderId: received.purchaseOrderId,
+        supplierId: supplier.id,
+        autoApproved: a.autoApproved,
+        decidedById: a.decidedById,
+        decidedAt: ShopContext.now(),
+        decisionNote: a.decisionNote ?? null,
+      };
+      if (existing) {
+        await manager.delete(ShopTransferItem, { transferId: existing.id });
+        await manager.update(ShopTransfer, { id: existing.id }, header);
+        await manager.save(
+          received.items.map((it) => manager.create(ShopTransferItem, { ...it, transferId: existing!.id })),
+        );
+        return { transferId: existing.id, saleEvent: event };
+      }
       const transfer = await manager.save(
         manager.create(ShopTransfer, {
+          ...header,
           transferNo,
           fromShopId,
-          toShopId: dto.toShopId,
-          transferDate,
-          status: ShopTransferStatus.COMPLETED,
-          currency,
-          totalAmount: result.sale.saleTotal,
-          note: dto.note?.trim() || null,
-          saleId: result.sale.id,
-          buyerCustomerId: buyer.id,
-          purchaseOrderId: received.purchaseOrderId,
-          supplierId: supplier.id,
-          createdById: actor.id,
+          toShopId,
+          initiatorShopId: a.initiatorShopId,
+          note: a.note,
+          warehouseId: a.warehouseId ?? null,
+          createdById: a.createdById,
           items: received.items.map((it) => manager.create(ShopTransferItem, it)),
         }),
       );
       return { transferId: transfer.id, saleEvent: event };
     });
 
-    this.eventEmitter.emit('sale.created', saleEvent);
-    this.logger.log(`Dükkânlar arası satış: ${fromShop.name} → ${target.shopName} (${lines.length} kalem).`);
-    return this.findOne(transferId, actor);
+    // Satış bildirimi satan işletmenin bağlamında çalışsın (onaylayan alıcı olabilir).
+    inFrom(() => this.eventEmitter.emit('sale.created', saleEvent));
+    this.logger.log(`Dükkânlar arası satış: ${a.fromName} → ${a.toName} (${lines.length} kalem).`);
+    return transferId;
   }
 
   async findAll(
@@ -390,6 +624,16 @@ export class ShopTransfersService {
           if (inc) w.orWhere('t.to_shop_id = :shopId', { shopId });
         }),
       );
+    if (query.status === 'open') {
+      // Karar/onay bekleyenler: bekleyen teklifler + açık geri alma talepleri.
+      qb.andWhere(
+        new Brackets((w) => {
+          w.where("t.status = 'pending'").orWhere("t.status = 'completed' AND t.cancel_requested_by_shop_id IS NOT NULL");
+        }),
+      );
+    } else if (query.status) {
+      qb.andWhere('t.status = :status', { status: query.status });
+    }
     const search = query.search?.trim();
     if (search) {
       qb.andWhere(
@@ -438,29 +682,197 @@ export class ShopTransfersService {
     return view;
   }
 
-  /**
-   * Belgeyi geri alır — yalnız satan dükkândan ve alan dükkânda hiçbir parça
-   * henüz kullanılmadıysa (satılmadı, işlenmedi, teklife eklenmedi, kesilmedi).
-   * Satan dükkânda satış geri alınır (stok iade, cari düzeltilir); alan
-   * dükkânda alış ve açılan stok kalemleri silinir. Belge "iptal" olarak kalır.
-   */
-  async cancel(id: string, actor: ShopActor): Promise<ShopTransferView> {
-    const shopId = ShopContext.requireShopId();
-    const transfer = await this.transfersRepo.findOne({ where: { id }, relations: { items: true } });
-    if (!transfer || transfer.fromShopId !== shopId) {
-      throw new NotFoundException('Dükkânlar arası satış kaydı bulunamadı (yalnız satan dükkân geri alabilir).');
+  /** Seçili dükkânın karar bekleyen ve başlattığı bekleyen işlem sayıları (menü rozeti). */
+  async pendingCount(info: ShopAccessInfo): Promise<{ awaitingMe: number; waitingOthers: number }> {
+    const me = info.shopId;
+    const canSell = can(info.permissions, 'sales', 'write');
+    const canBuy = can(info.permissions, 'purchases', 'write');
+    const rows: { initiator: string | null; from_shop_id: string; to_shop_id: string; status: string; cr: string | null }[] =
+      await this.dataSource.query(
+        `SELECT initiator_shop_id AS initiator, from_shop_id, to_shop_id, status, cancel_requested_by_shop_id AS cr
+           FROM shop_transfers
+          WHERE deleted_at IS NULL AND (from_shop_id = $1 OR to_shop_id = $1)
+            AND (status = 'pending' OR (status = 'completed' AND cancel_requested_by_shop_id IS NOT NULL))`,
+        [me],
+      );
+    let awaitingMe = 0;
+    let waitingOthers = 0;
+    for (const r of rows) {
+      const mySideWrite = r.from_shop_id === me ? canSell : canBuy;
+      const starter = r.status === 'pending' ? r.initiator ?? r.from_shop_id : r.cr;
+      if (starter === me) waitingOthers += 1;
+      else if (mySideWrite) awaitingMe += 1;
     }
-    if (transfer.status !== ShopTransferStatus.COMPLETED) {
-      throw new BadRequestException('Bu belge zaten iptal edilmiş.');
-    }
-    await this.targetAccess(actor, transfer.toShopId, true);
+    return { awaitingMe, waitingOthers };
+  }
 
+  /**
+   * Karşı tarafın onayı: bekleyen teklifi gerçekleştirir ya da (tamamlanmış belgede
+   * karşı tarafın istediği) geri almayı uygular. Yalnız BAŞLATAN OLMAYAN taraf ve yalnız o
+   * tarafta yazma yetkisi olan kişi onaylar.
+   */
+  async approve(
+    id: string,
+    actor: ShopActor,
+    info: ShopAccessInfo,
+    body: { note?: string; warehouseId?: string } = {},
+  ): Promise<ShopTransferView> {
+    const t = await this.loadMine(id, info);
+    const side = t.fromShopId === info.shopId ? 'seller' : 'buyer';
+    this.assertSideWrite(info, side);
+
+    if (t.status === ShopTransferStatus.PENDING) {
+      if ((t.initiatorShopId ?? t.fromShopId) === info.shopId) {
+        throw new ForbiddenException('Kendi teklifinizi kendiniz onaylayamazsınız; karşı işletmenin onayı gerekir.');
+      }
+      const from = await this.shopName(t.fromShopId);
+      const to = await this.shopName(t.toShopId);
+      // Karşı taraf (başlatan) hâlâ işlem yapabilir durumda mı: kapatılmış/askıdaki işletmeyle işlem tamamlanmaz.
+      await this.counterparty(info.shopId, side === 'seller' ? t.toShopId : t.fromShopId, true);
+      const items = t.items.map((i) => ({
+        plateId: i.sourcePlateId,
+        quantity: Number(i.quantity),
+        unitPrice: Number(i.unitPrice),
+        widthMm: i.widthMm != null ? Number(i.widthMm) : undefined,
+        heightMm: i.heightMm != null ? Number(i.heightMm) : undefined,
+      }));
+      await this.settle({
+        fromShopId: t.fromShopId,
+        toShopId: t.toShopId,
+        fromName: from,
+        toName: to,
+        items,
+        // Satıcı onaylıyorsa kendi çıkış deposunu seçebilir; yoksa teklifteki depo.
+        warehouseId: side === 'seller' ? body.warehouseId ?? t.warehouseId : t.warehouseId,
+        currency: t.currency,
+        transferDate: ShopContext.now(), // işlem gerçekten şimdi olur (eski tarihli kayıt açılmaz)
+        sellerActorId: side === 'seller' ? actor.id : t.createdById,
+        buyerActorId: side === 'seller' ? t.createdById : actor.id,
+        initiatorShopId: t.initiatorShopId ?? t.fromShopId,
+        createdById: t.createdById,
+        note: t.note ?? null,
+        autoApproved: false,
+        decidedById: actor.id,
+        decisionNote: body.note?.trim() || null,
+        existingId: t.id,
+      });
+      const initiator = t.initiatorShopId ?? t.fromShopId;
+      this.notifyOther(initiator, info.shopName, 'Teklifiniz onaylandı', t.id, (no) => `${info.shopName}, ${no} numaralı teklifinizi onayladı.`);
+      return this.findOne(t.id, actor, info);
+    }
+
+    if (t.status === ShopTransferStatus.COMPLETED && t.cancelRequestedByShopId) {
+      if (t.cancelRequestedByShopId === info.shopId) {
+        throw new ForbiddenException('Kendi geri alma talebinizi kendiniz onaylayamazsınız.');
+      }
+      await this.reverse(t, actor);
+      this.notifyOther(t.cancelRequestedByShopId, info.shopName, 'Geri alma talebiniz onaylandı', t.id, (no) => `${info.shopName}, ${no} numaralı belgenin geri alınmasını onayladı.`);
+      return this.findOne(t.id, actor, info);
+    }
+    throw new BadRequestException('Bu belge onay beklemiyor.');
+  }
+
+  /** Karşı tarafın reddi: bekleyen teklifi ya da geri alma talebini reddeder. Hiçbir kayıt değişmez. */
+  async reject(id: string, actor: ShopActor, info: ShopAccessInfo, note?: string): Promise<ShopTransferView> {
+    const t = await this.loadMine(id, info);
+    const side = t.fromShopId === info.shopId ? 'seller' : 'buyer';
+    this.assertSideWrite(info, side);
+
+    if (t.status === ShopTransferStatus.PENDING) {
+      const initiator = t.initiatorShopId ?? t.fromShopId;
+      if (initiator === info.shopId) {
+        throw new ForbiddenException('Kendi teklifinizi reddedemezsiniz; geri çekin.');
+      }
+      const res = await this.transfersRepo.update(
+        { id: t.id, status: ShopTransferStatus.PENDING },
+        { status: ShopTransferStatus.REJECTED, decidedById: actor.id, decidedAt: ShopContext.now(), decisionNote: note?.trim() || null },
+      );
+      if (!res.affected) throw new BadRequestException('Bu teklif artık onay beklemiyor.');
+      this.notifyOther(initiator, info.shopName, 'Teklifiniz reddedildi', t.id, (no) => `${info.shopName}, ${no} numaralı teklifinizi reddetti.${note?.trim() ? ` Not: ${note.trim()}` : ''}`);
+      return this.findOne(t.id, actor, info);
+    }
+    if (t.status === ShopTransferStatus.COMPLETED && t.cancelRequestedByShopId) {
+      if (t.cancelRequestedByShopId === info.shopId) {
+        throw new ForbiddenException('Kendi geri alma talebinizi reddedemezsiniz; vazgeçin.');
+      }
+      const starter = t.cancelRequestedByShopId;
+      await this.transfersRepo.update(
+        { id: t.id },
+        { cancelRequestedByShopId: null, cancelRequestedById: null, cancelRequestedAt: null, cancelNote: null },
+      );
+      this.notifyOther(starter, info.shopName, 'Geri alma talebiniz reddedildi', t.id, (no) => `${info.shopName}, ${no} numaralı belgenin geri alınmasını reddetti.${note?.trim() ? ` Not: ${note.trim()}` : ''}`);
+      return this.findOne(t.id, actor, info);
+    }
+    throw new BadRequestException('Bu belge onay beklemiyor.');
+  }
+
+  /**
+   * İptal:
+   *  - bekleyen teklif/talep: başlatan taraf geri çeker,
+   *  - tamamlanmış belge: iki tarafı da yönetebilen kişi hemen geri alır (stok iade, cari düzelir);
+   *    diğerleri geri alma TALEBİ açar, karşı taraf onaylayınca uygulanır. Alan dükkânda parça
+   *    kullanılmışsa (satıldı/işlendi/kesildi) geri alma hiçbir yoldan yapılamaz.
+   *  - başlattığı geri alma talebinden vazgeçme.
+   */
+  async cancel(id: string, actor: ShopActor, info: ShopAccessInfo, note?: string): Promise<ShopTransferView> {
+    const t = await this.loadMine(id, info);
+    const side = t.fromShopId === info.shopId ? 'seller' : 'buyer';
+    this.assertSideWrite(info, side);
+    const other = side === 'seller' ? t.toShopId : t.fromShopId;
+
+    if (t.status === ShopTransferStatus.PENDING) {
+      if ((t.initiatorShopId ?? t.fromShopId) !== info.shopId) {
+        throw new ForbiddenException('Teklifi yalnız başlatan işletme geri çekebilir; karşı taraf reddeder.');
+      }
+      const res = await this.transfersRepo.update(
+        { id: t.id, status: ShopTransferStatus.PENDING },
+        { status: ShopTransferStatus.CANCELLED, cancelledAt: ShopContext.now(), cancelledById: actor.id },
+      );
+      if (!res.affected) throw new BadRequestException('Bu teklif artık onay beklemiyor.');
+      this.notifyOther(other, info.shopName, 'Teklif geri çekildi', t.id, (no) => `${info.shopName}, ${no} numaralı teklifini geri çekti.`);
+      return this.findOne(t.id, actor, info);
+    }
+    if (t.status !== ShopTransferStatus.COMPLETED) {
+      throw new BadRequestException('Bu belge zaten iptal edilmiş ya da reddedilmiş.');
+    }
+
+    // Kendi başlattığı geri alma talebinden vazgeçme.
+    if (t.cancelRequestedByShopId === info.shopId) {
+      await this.transfersRepo.update(
+        { id: t.id },
+        { cancelRequestedByShopId: null, cancelRequestedById: null, cancelRequestedAt: null, cancelNote: null },
+      );
+      return this.findOne(t.id, actor, info);
+    }
+    if (t.cancelRequestedByShopId) {
+      throw new BadRequestException('Karşı taraf zaten geri alma talep etmiş; onaylayın ya da reddedin.');
+    }
+
+    const otherModule = side === 'seller' ? 'purchases' : 'sales';
+    if (await this.canActIn(actor, other, otherModule, 'write')) {
+      await this.reverse(t, actor);
+      return this.findOne(t.id, actor, info);
+    }
+    await this.transfersRepo.update(
+      { id: t.id },
+      {
+        cancelRequestedByShopId: info.shopId,
+        cancelRequestedById: actor.id,
+        cancelRequestedAt: ShopContext.now(),
+        cancelNote: note?.trim() || null,
+      },
+    );
+    this.notifyOther(other, info.shopName, 'Geri alma talebi — onayınız bekleniyor', t.id, (no) => `${info.shopName}, ${no} numaralı belgenin geri alınmasını istiyor. İşletmeler Arası ekranından onaylayın ya da reddedin.`);
+    return this.findOne(t.id, actor, info);
+  }
+
+  /** Tamamlanmış belgeyi geri alır (yetki ve karşı taraf onayı çağıranda denetlenmiştir). */
+  private async reverse(transfer: ShopTransfer, actor: ShopActor): Promise<void> {
     try {
       await this.cancelInTransaction(transfer, actor);
     } catch (err) {
-      // Alan dükkânda kaleme sonradan bağlanan bir kayıt (ör. aynı kaleme
-      // girilen ayrı bir alış) silmeyi engellerse anlaşılır bir ileti ver;
-      // transaction geri alındığından hiçbir şey değişmez.
+      // Alan dükkânda kaleme sonradan bağlanan bir kayıt (ör. aynı kaleme girilen ayrı bir alış)
+      // silmeyi engellerse anlaşılır bir ileti ver; transaction geri alındığından hiçbir şey değişmez.
       if (err instanceof QueryFailedError && (err as QueryFailedError & { code?: string }).code === '23503') {
         throw new BadRequestException(
           'Malzeme alan dükkânda başka kayıtlara bağlanmış (ör. ayrı bir alış); belge geri alınamaz.',
@@ -468,7 +880,6 @@ export class ShopTransfersService {
       }
       throw err;
     }
-    return this.findOne(id, actor);
   }
 
   private async cancelInTransaction(transfer: ShopTransfer, actor: ShopActor): Promise<void> {
@@ -481,18 +892,19 @@ export class ShopTransfersService {
       if (!locked || locked.status !== ShopTransferStatus.COMPLETED) {
         throw new BadRequestException('Bu belge zaten iptal edilmiş.');
       }
-      const plateIds = transfer.items
-        .map((i) => i.targetPlateId)
-        .filter((v): v is string => !!v);
-      const blocker = await this.cancelBlocker(manager, transfer.items, plateIds);
+      const items = await manager.find(ShopTransferItem, { where: { transferId: id } });
+      const plateIds = items.map((i) => i.targetPlateId).filter((v): v is string => !!v);
+      const blocker = await this.cancelBlocker(manager, items, plateIds);
       if (blocker) throw new BadRequestException(blocker);
 
       // Satan dükkân: satış geri alınır (stok iade + cari).
       if (transfer.saleId) {
-        const affected = await this.salesService.reverseSale(manager, transfer.saleId);
-        for (const customerId of affected) {
-          await this.accountService.recomputeBalances(manager, customerId);
-        }
+        await ShopContext.forShop(transfer.fromShopId, async () => {
+          const affected = await this.salesService.reverseSale(manager, transfer.saleId!);
+          for (const customerId of affected) {
+            await this.accountService.recomputeBalances(manager, customerId);
+          }
+        });
       }
 
       // Alan dükkân: alış ve açılan stok kalemleri silinir.
@@ -514,6 +926,10 @@ export class ShopTransfersService {
           status: ShopTransferStatus.CANCELLED,
           cancelledAt: ShopContext.now(),
           cancelledById: actor.id,
+          cancelRequestedByShopId: null,
+          cancelRequestedById: null,
+          cancelRequestedAt: null,
+          cancelNote: null,
         },
       );
     });
@@ -521,39 +937,97 @@ export class ShopTransfersService {
 
   // ── Yardımcılar ─────────────────────────────────────────────────────
 
-  /**
-   * Kullanıcının alan dükkândaki erişimi: stok girişi (satın alma yazma)
-   * yetkisi gerekir — malzemeyi o dükkânın stoğuna o yazar.
-   */
-  private async targetAccess(
-    actor: ShopActor,
-    shopId: string,
-    cancelling = false,
-  ): Promise<ShopAccessInfo> {
-    let info: ShopAccessInfo;
-    try {
-      info = await this.access.resolve(actor, shopId);
-    } catch {
-      throw new ForbiddenException('Alıcı dükkâna erişiminiz yok.');
+  /** Belge, seçili işletmenin taraflarından birine aitse getirir (kalemleriyle); aksi hâlde 404. */
+  private async loadMine(id: string, info: ShopAccessInfo): Promise<ShopTransfer> {
+    const t = await this.transfersRepo.findOne({ where: { id }, relations: { items: true } });
+    if (!t || (t.fromShopId !== info.shopId && t.toShopId !== info.shopId)) {
+      throw new NotFoundException('Dükkânlar arası satış kaydı bulunamadı.');
     }
-    if (!info.shopActive) {
-      throw new BadRequestException(`"${info.shopName}" dükkânı kapalı.`);
-    }
-    if (!can(info.permissions, 'purchases', 'write')) {
+    return t;
+  }
+
+  /** Taraf (satıcı: satış, alıcı: satın alma) yazma yetkisi. */
+  private assertSideWrite(info: ShopAccessInfo, side: 'seller' | 'buyer'): void {
+    const module = side === 'seller' ? 'sales' : 'purchases';
+    if (!can(info.permissions, module, 'write')) {
       throw new ForbiddenException(
-        `"${info.shopName}" dükkânında satın alma (stok girişi) yetkiniz yok; ` +
-          (cancelling ? 'belge geri alınamaz.' : 'malzeme o dükkâna satılamaz.'),
+        `"${info.shopName}" işletmesinde ${side === 'seller' ? 'satış' : 'satın alma'} yazma yetkiniz yok.`,
       );
     }
-    return info;
+  }
+
+  /** Kullanıcı verilen dükkânda bu işi yapabiliyor mu? (üye değilse ya da dükkân kapalıysa false) */
+  private async canActIn(
+    actor: ShopActor,
+    shopId: string,
+    module: 'sales' | 'purchases',
+    level: 'read' | 'write',
+  ): Promise<boolean> {
+    try {
+      const i = await this.access.resolve(actor, shopId);
+      return i.shopActive && can(i.permissions, module, level);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Karşı işletme işlem kabul edebilir mi (etkin, ticaret özelliği açık, beni ENGELLEMEMİŞ)?
+   * Engel, işletmenin varlığıyla aynı yanıtı verir: engellendiği belli edilmez.
+   */
+  private async counterparty(me: string, otherId: string, approving = false): Promise<{ id: string; name: string }> {
+    const rows: { id: string; name: string; is_active: boolean; status: string; features: Record<string, boolean> | null }[] =
+      await this.dataSource.query(`SELECT id, name, is_active, status, features FROM shops WHERE id = $1 AND deleted_at IS NULL`, [otherId]);
+    const s = rows[0];
+    const usable = !!s && s.is_active && s.status === 'active' && (s.features?.trade ?? true) !== false;
+    if (!usable || (await this.partners.isBlocked(otherId, me))) {
+      throw new NotFoundException(
+        approving ? 'Karşı işletme artık işlem kabul etmiyor.' : 'İşletme bulunamadı ya da işlem kabul etmiyor.',
+      );
+    }
+    return { id: s.id, name: s.name };
+  }
+
+  private async shopName(id: string): Promise<string> {
+    const s = await this.shopsRepo.findOne({ where: { id }, withDeleted: true });
+    return s?.name ?? '—';
+  }
+
+  /** Teklif anında stok açıkça yetersizse hemen söyle (kesin denetim onayda yapılır). */
+  private assertAvailable(lines: Line[]): void {
+    for (const l of lines) {
+      if (!l.plate.isActive) throw new BadRequestException(`"${l.plate.name}" kullanılamıyor.`);
+      if (!l.area && Number(l.plate.quantityInStock) < l.quantity) {
+        throw new BadRequestException(`"${l.plate.name}": stokta yeterli miktar yok.`);
+      }
+      if (l.area && Number(l.plate.quantityInStock) <= 0) {
+        throw new BadRequestException(`"${l.plate.name}" stokta yok.`);
+      }
+    }
+  }
+
+  /** Karşı işletmeye (bağlamından bağımsız) bildirim olayı: Telegram/günlük bildirimi tüketici yazar. */
+  private notifyOther(
+    shopId: string,
+    otherName: string,
+    subject: string,
+    transferId: string,
+    body: (transferNo: string) => string,
+  ): void {
+    void this.transfersRepo
+      .findOne({ where: { id: transferId } })
+      .then((t) => this.eventEmitter.emit('shop-transfer.activity', { shopId, subject, body: body(t?.transferNo ?? ''), transferId, otherName }))
+      .catch(() => undefined);
   }
 
   /** Satılacak kalemleri yükler, ölçü ve tutarları hesaplar. */
-  private async buildLines(dto: CreateShopTransferDto): Promise<Line[]> {
-    const ids = [...new Set(dto.items.map((i) => i.plateId))];
+  private async buildLines(
+    items: { plateId: string; quantity: number; unitPrice: number; widthMm?: number; heightMm?: number }[],
+  ): Promise<Line[]> {
+    const ids = [...new Set(items.map((i) => i.plateId))];
     const plates = await this.platesRepo.find({ where: { id: In(ids) } });
     const byId = new Map(plates.map((p) => [p.id, p]));
-    return dto.items.map((item) => {
+    return items.map((item) => {
       const plate = byId.get(item.plateId);
       if (!plate) {
         throw new NotFoundException('Satılacak malzeme bu dükkânın stoğunda bulunamadı.');
@@ -854,9 +1328,24 @@ export class ShopTransfersService {
     info: ShopAccessInfo,
     actor: ShopActor,
   ): Promise<ShopTransferView[]> {
+    const me = info.shopId;
+
+    // Alan dükkândaki sonraki durum (stok, satış, işleme) YALNIZ o dükkân da kullanıcının
+    // dükkânıysa izlenir: bağımsız bir işletmenin stoğunu ve satışlarını satan göremez.
+    const trackCache = new Map<string, boolean>();
+    const tracks = async (toShopId: string): Promise<boolean> => {
+      if (toShopId === me) return true;
+      if (!trackCache.has(toShopId)) trackCache.set(toShopId, await this.canActIn(actor, toShopId, 'sales', 'read'));
+      return trackCache.get(toShopId)!;
+    };
+    const tracked = new Set<string>();
+    for (const t of transfers) if (t.status === ShopTransferStatus.COMPLETED && (await tracks(t.toShopId))) tracked.add(t.id);
+
     const plateIds = [
       ...new Set(
-        transfers.flatMap((t) => t.items.map((i) => i.targetPlateId).filter((v): v is string => !!v)),
+        transfers
+          .filter((t) => tracked.has(t.id))
+          .flatMap((t) => t.items.map((i) => i.targetPlateId).filter((v): v is string => !!v)),
       ),
     ];
     const [states, usages] = await Promise.all([
@@ -884,35 +1373,29 @@ export class ShopTransfersService {
     const detailFor = async (shopId: string): Promise<boolean> => {
       if (!detailCache.has(shopId)) {
         let ok = false;
-        if (shopId === info.shopId) ok = can(info.permissions, 'sales', 'read');
-        else {
-          try {
-            const other = await this.access.resolve(actor, shopId);
-            ok = can(other.permissions, 'sales', 'read');
-          } catch {
-            ok = false;
-          }
-        }
+        if (shopId === me) ok = can(info.permissions, 'sales', 'read');
+        else ok = await this.canActIn(actor, shopId, 'sales', 'read');
         detailCache.set(shopId, ok);
       }
       return detailCache.get(shopId)!;
     };
+    const bothCache = new Map<string, boolean>();
+    const manageBoth = async (otherShopId: string, otherModule: 'sales' | 'purchases'): Promise<boolean> => {
+      const key = `${otherShopId}:${otherModule}`;
+      if (!bothCache.has(key)) bothCache.set(key, await this.canActIn(actor, otherShopId, otherModule, 'write'));
+      return bothCache.get(key)!;
+    };
 
     const views: ShopTransferView[] = [];
     for (const t of transfers) {
-      const cancelled = t.status === ShopTransferStatus.CANCELLED;
-      const detail = await detailFor(t.toShopId);
+      const status = t.status;
+      const live = status === ShopTransferStatus.COMPLETED;
+      const trackingVisible = tracked.has(t.id);
+      const detail = trackingVisible && (await detailFor(t.toShopId));
       const items = [...(t.items ?? [])]
         .sort((a, b) => a.lineNo - b.lineNo)
         .map((it): ShopTransferItemView => {
-          const rows = (it.targetPlateId && usageByPlate.get(it.targetPlateId)) || [];
-          const { state, remainingRatio } = itemState(
-            it,
-            it.targetPlateId ? states.get(it.targetPlateId) : undefined,
-            rows.length,
-            cancelled,
-          );
-          return {
+          const base = {
             id: it.id,
             sourcePlateId: it.sourcePlateId,
             targetPlateId: it.targetPlateId ?? null,
@@ -924,46 +1407,81 @@ export class ShopTransfersService {
             heightMm: it.heightMm != null ? Number(it.heightMm) : null,
             unitPrice: Number(it.unitPrice),
             lineTotal: Number(it.lineTotal),
+          };
+          if (status === ShopTransferStatus.PENDING) return { ...base, state: 'pending', remainingRatio: 1, usages: [] };
+          if (!live) return { ...base, state: 'cancelled', remainingRatio: 0, usages: [] };
+          if (!trackingVisible) return { ...base, state: 'untracked', remainingRatio: 1, usages: [] };
+          const rows = (it.targetPlateId && usageByPlate.get(it.targetPlateId)) || [];
+          const { state, remainingRatio } = itemState(
+            it,
+            it.targetPlateId ? states.get(it.targetPlateId) : undefined,
+            rows.length,
+            false,
+          );
+          return {
+            ...base,
             state,
             remainingRatio,
-            usages: cancelled
-              ? []
-              : rows.map((u) => ({
-                  kind: u.kind,
-                  at: new Date(u.at).toISOString(),
-                  customerName: detail ? u.customer_name : null,
-                  toShopName: u.linked_shop_id ? linkedNames.get(u.linked_shop_id) ?? null : null,
-                  quantity: Number(u.quantity),
-                  widthMm: u.width_mm != null ? Number(u.width_mm) : null,
-                  heightMm: u.height_mm != null ? Number(u.height_mm) : null,
-                  amount: detail && u.amount != null ? Number(u.amount) : null,
-                  currency: u.currency,
-                  ...(u.status ? { status: u.status } : {}),
-                })),
+            usages: rows.map((u) => ({
+              kind: u.kind,
+              at: new Date(u.at).toISOString(),
+              customerName: detail ? u.customer_name : null,
+              toShopName: u.linked_shop_id ? linkedNames.get(u.linked_shop_id) ?? null : null,
+              quantity: Number(u.quantity),
+              widthMm: u.width_mm != null ? Number(u.width_mm) : null,
+              heightMm: u.height_mm != null ? Number(u.height_mm) : null,
+              amount: detail && u.amount != null ? Number(u.amount) : null,
+              currency: u.currency,
+              ...(u.status ? { status: u.status } : {}),
+            })),
           };
         });
-      const direction: 'out' | 'in' = t.fromShopId === info.shopId ? 'out' : 'in';
+
+      const side: 'seller' | 'buyer' = t.fromShopId === me ? 'seller' : 'buyer';
+      const myWrite = can(info.permissions, side === 'seller' ? 'sales' : 'purchases', 'write');
+      const initiator = t.initiatorShopId ?? t.fromShopId;
+      const initiatedByMe = initiator === me;
+      const otherId = side === 'seller' ? t.toShopId : t.fromShopId;
+      const otherModule = side === 'seller' ? 'purchases' : 'sales';
+      const cancelBy = t.cancelRequestedByShopId ?? null;
+      const bothSides = live && !cancelBy ? await manageBoth(otherId, otherModule) : false;
+      const cancelRequest = live && cancelBy
+        ? {
+            byShopName: cancelBy === t.fromShopId ? t.fromShop?.name ?? '—' : t.toShop?.name ?? '—',
+            byMe: cancelBy === me,
+            at: t.cancelRequestedAt ?? null,
+            note: t.cancelNote ?? null,
+          }
+        : null;
+      const allInStock = items.every((i) => i.state === 'in_stock' || i.state === 'untracked');
+
       views.push({
         id: t.id,
         transferNo: t.transferNo,
         transferDate: t.transferDate,
-        status: t.status,
+        status,
         currency: t.currency,
         totalAmount: Number(t.totalAmount),
         note: t.note ?? null,
         fromShop: { id: t.fromShopId, name: t.fromShop?.name ?? '—' },
         toShop: { id: t.toShopId, name: t.toShop?.name ?? '—' },
-        direction,
+        direction: side === 'seller' ? 'out' : 'in',
         createdBy: t.createdBy ? { id: t.createdBy.id, fullName: t.createdBy.fullName } : null,
         cancelledAt: t.cancelledAt ?? null,
-        saleId: t.saleId ?? null,
-        purchaseOrderId: t.purchaseOrderId ?? null,
+        saleId: live && side === 'seller' ? t.saleId ?? null : live && trackingVisible ? t.saleId ?? null : null,
+        purchaseOrderId: live && side === 'buyer' ? t.purchaseOrderId ?? null : live && trackingVisible ? t.purchaseOrderId ?? null : null,
         detailVisible: detail,
-        canCancel:
-          !cancelled &&
-          direction === 'out' &&
-          can(info.permissions, 'sales', 'write') &&
-          items.every((i) => i.state === 'in_stock'),
+        initiatorShopId: initiator,
+        initiatedByMe,
+        autoApproved: !!t.autoApproved,
+        decidedAt: t.decidedAt ?? null,
+        decisionNote: t.decisionNote ?? null,
+        canDecide: status === ShopTransferStatus.PENDING && !initiatedByMe && myWrite,
+        canWithdraw: status === ShopTransferStatus.PENDING && initiatedByMe && myWrite,
+        canCancel: bothSides && myWrite && allInStock,
+        canRequestCancel: live && !cancelBy && !bothSides && myWrite,
+        cancelRequest,
+        trackingVisible,
         summary: {
           items: items.length,
           inStock: items.filter((i) => i.state === 'in_stock').length,

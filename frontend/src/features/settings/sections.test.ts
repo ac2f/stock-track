@@ -45,11 +45,11 @@ describe('Ayarlar bölümleri', () => {
 
 describe('İşletme özellikleri', () => {
   it('Corel varsayılan kapalı; rehber ve ağ açık', () => {
-    expect(defaultFeatures()).toEqual({ corel: false, network: true, directory: true });
+    expect(defaultFeatures()).toEqual({ corel: false, network: true, directory: true, trade: true });
   });
 
   it('eski oturum bilgisinde özellik yoksa varsayılanlar geçer; yazılan değer ezer', () => {
     expect(resolveFeatures(undefined)).toEqual(defaultFeatures());
-    expect(resolveFeatures({ corel: true, directory: false })).toEqual({ corel: true, network: true, directory: false });
+    expect(resolveFeatures({ corel: true, directory: false })).toEqual({ corel: true, network: true, directory: false, trade: true });
   });
 });

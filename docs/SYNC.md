@@ -376,7 +376,7 @@ bu adımları kendi koduyla aynı sonuçla geçmelidir.
 
 ## 11. Sınırlar
 
-- Dükkânlar arası satış, ekip/dükkân yönetimi, yedek, Telegram ayarları,
+- İşletmeler arası satış (onay/ret, yetkiler, stok paylaşımı), ekip/dükkân yönetimi, yedek, Telegram ayarları,
   Corel anahtarı yerelde yapılmaz (merkezde yapılır).
 - Dosya yükleyen uçlar (yedek geri yükleme) yerelde yoktur.
 - Merkez yokken yerelde yapılan iş, bağlantı gelince merkezde **yeniden

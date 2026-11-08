@@ -6,6 +6,8 @@ import { PaymentDirection } from '../../../common/enums/payment-direction.enum';
 import { Customer } from '../../customers/entities/customer.entity';
 import { NotificationType } from '../enums/notification.enums';
 import { NotificationsService } from '../notifications.service';
+import { NotificationTopic } from '../enums/notification-topic';
+import { ShopContext } from '../../../common/shop/shop-context';
 
 export interface PaymentReceivedEvent {
   customerId: string;
@@ -107,6 +109,25 @@ export class NotificationListeners {
       body: `${e.shopName} (${e.province}/${e.district}) — ${e.ownerName}, ${e.phone}.`,
       relatedType: 'shop',
     });
+  }
+
+  /**
+   * İşletmeler arası teklif/onay/ret/geri alma: bildirim, olayı BAŞLATAN değil, haberdar edilecek
+   * işletmenin bağlamında ve o işletmenin Telegram grubuna (satış konusu) gider. İçerikte yalnız
+   * karşı işletmenin adı ve belge numarası vardır.
+   */
+  @OnEvent('shop-transfer.activity')
+  async onShopTransferActivity(e: { shopId: string; subject: string; body: string; transferId: string }): Promise<void> {
+    await ShopContext.forShop(e.shopId, () =>
+      this.notifications.notify({
+        type: NotificationType.GENERIC,
+        subject: e.subject,
+        body: e.body,
+        topic: NotificationTopic.SALES,
+        relatedType: 'shop-transfer',
+        relatedId: e.transferId,
+      }),
+    );
   }
 
   @OnEvent('stock.low')

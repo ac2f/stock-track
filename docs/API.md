@@ -317,73 +317,92 @@ Yerel sunucuda (`SYNC_ROLE=replica`) yönetim uçları 409 döner; yazma
 istekleri giden kutusuna yazılır. Hata gövdesinde makinelerin okuduğu `code`
 alanı olabilir (ör. `RESNAPSHOT`).
 
-## Shop transfers (Dükkânlar arası satış)
-Seçili dükkân (`X-Shop-Id`) **satan** taraftır.
+## İşletmeler arası ticaret (satış teklifi · onay/ret · yetkiler · "bende var" · pazar yeri)
+
+Hepsi **ticaret** özelliğini ister (`trade`; sistem sahibi işletme başına kapatabilir → `403`). Her işletme
+herhangi bir işletmeye satış teklifi gönderebilir (satıcı) ya da onun paylaştığı stoktan alım talebi açabilir
+(alıcı). Belge **karşı taraf onaylayana kadar "onay bekliyor"** kalır; bu sürede iki tarafta da stok, satış,
+alış ve cari kaydı **yazılmaz**. Onay anında satıcıda satış, alıcıda alış tek transaction'da yazılır.
+Seçili dükkân (`X-Shop-Id`) işlemi yapan taraftır.
+
+### Belgeler (`/shop-transfers`)
 
 | Metot | Yol | İzin | Açıklama |
 |-------|-----|------|----------|
-| GET | `/shop-transfers/targets` | satış yazma | Malzeme satılabilecek diğer açık dükkânlar: `[{ id, name, canSell }]` — `canSell`: kullanıcının o dükkânda satın alma yazma izni var mı |
-| POST | `/shop-transfers` | satış yazma (+ alan dükkânda satın alma yazma) | Satış + karşı dükkânda alış, tek transaction |
-| GET | `/shop-transfers` | satış ya da satın alma okuma | `?direction=out\|in&search=&page=&limit=` — out: bu dükkânın sattıkları (satış okuma), in: aldıkları (satın alma okuma), boş: izin verdiği kadarı |
-| GET | `/shop-transfers/:id` | (aynı) | Belge ayrıntısı (izleme bilgisiyle) |
-| POST | `/shop-transfers/:id/cancel` | satış yazma, yalnız satan dükkân (+ alan dükkânda satın alma yazma) | Hiçbir parçası kullanılmamış belgeyi geri alır |
+| GET | `/shop-transfers/targets?q=` | üye | Teklif/talep edilebilecek işletmeler: `[{ id, name, province, district, own, canSell }]` — kendi şubelerim, **rehberde görünenler** ve daha önce ilişkide olduklarım. Rehberde olmayan işletme aranarak bulunamaz; beni engelleyen çıkmaz |
+| GET | `/shop-transfers/pending-count` | üye | `{ awaitingMe, waitingOthers }` — menü rozeti |
+| POST | `/shop-transfers` | satış yazma | **Satış teklifi** (satıcı olarak). Hız sınırı: kullanıcı başına saatte 40 |
+| POST | `/shop-transfers/request` | satın alma yazma | **Alım talebi** (alıcı olarak); kalemler yalnız satıcının bu işletmeye **listelediği** stoktan seçilebilir |
+| GET | `/shop-transfers` | satış ya da satın alma okuma | `?direction=out\|in&status=open\|pending\|completed\|rejected\|cancelled&search=&page=&limit=` — `open`: karar/onay bekleyenler + açık geri alma talepleri |
+| GET | `/shop-transfers/:id` | (aynı) | Ayrıntı |
+| POST | `/shop-transfers/:id/approve` | karşı tarafın ilgili yazma izni | Teklifi onaylar (ya da açık **geri alma talebini** uygular). Gövde: `{ note?, warehouseId? }` |
+| POST | `/shop-transfers/:id/reject` | karşı tarafın ilgili yazma izni | Teklifi ya da geri alma talebini reddeder (`{ note? }`) |
+| POST | `/shop-transfers/:id/cancel` | ilgili yazma izni | Bekleyen teklifi **geri çeker**; tamamlanmışı iki tarafı da yönetiyorsanız hemen geri alır, aksi hâlde karşı onaylı **geri alma talebi** açar; kendi açtığınız talebi çeker (`{ note? }`) |
 
-`POST /shop-transfers` gövdesi:
-```json
-{
-  "toShopId": "…",
-  "warehouseId": "…",
-  "transferDate": "2026-10-21",
-  "currency": "TRY",
-  "note": "irsaliye 42",
-  "items": [
-    { "plateId": "…", "quantity": 2, "widthMm": 1220, "heightMm": 500, "unitPrice": 1000 },
-    { "plateId": "…", "quantity": 10, "unitPrice": 5 }
-  ]
-}
-```
-- Tabakada `unitPrice` m² başına, `quantity` parça adedi (tam sayı); ölçü
-  verilmezse kalan tabakanın tamamı satılır. Diğerlerinde ölçü birimi başına.
-- Satan dükkânda alan dükkânı temsil eden cari (`customers.linked_shop_id`),
-  alan dükkânda satan dükkânı temsil eden tedarikçi (`suppliers.linked_shop_id`)
-  ilk satışta kendiliğinden açılır.
-- Alan dükkânda katalog karşılığı (tür, marka, renk, kalınlık, standart
-  tabaka) adla bulunur, yoksa açılır. Tabakada her parça ayrı stok kalemidir.
+`POST /shop-transfers` (satıcı) gövdesi `toShopId, warehouseId?, transferDate?, currency?, note?, items[]`;
+`POST /shop-transfers/request` (alıcı) gövdesi `fromShopId, currency?, note?, items[]`. Kalem:
+`{ plateId, quantity, unitPrice, widthMm?, heightMm? }` (tabakada `unitPrice` m² başına, `quantity` parça adedi;
+ölçü verilmezse kalan tabakanın tamamı).
 
-Yanıt (liste satırı da aynı biçimdedir):
-```json
-{
-  "id": "…", "transferNo": "DA-2026-0001", "status": "completed",
-  "direction": "out", "fromShop": { "id": "…", "name": "Merkez" }, "toShop": { "id": "…", "name": "Şube 2" },
-  "totalAmount": 1270, "currency": "TRY", "saleId": "…", "purchaseOrderId": "…",
-  "detailVisible": true, "canCancel": false,
-  "summary": { "items": 3, "inStock": 1, "partial": 1, "sold": 1 },
-  "items": [
-    {
-      "plateName": "…", "measurementType": "area", "quantity": 1, "widthMm": 1220, "heightMm": 500,
-      "unitPrice": 1000, "lineTotal": 610, "targetPlateId": "…",
-      "state": "sold", "remainingRatio": 0,
-      "usages": [
-        { "kind": "sale", "at": "…", "customerName": "Son Alıcı", "toShopName": null,
-          "quantity": 1, "widthMm": 1220, "heightMm": 500, "amount": 915, "currency": "TRY" }
-      ]
-    }
-  ]
-}
-```
-- `state`: `in_stock` · `partial` · `sold` · `removed` (satış kaydı olmadan
-  stoktan çıktı) · `cancelled`. `remainingRatio`: tabakada kalan alan,
-  diğerlerinde kalan miktar oranı.
-- `usages`: alan dükkândaki satış kalemleri (`kind: sale`) ve iptal edilmemiş
-  işleme işleri (`kind: processing`, `status` ile). `toShopName`: müşteri
-  başka bir dükkânı temsil ediyorsa (zincir satış).
-- `detailVisible: false` → kullanıcı alan dükkânda satışları göremez;
-  `customerName` ve `amount` `null` döner.
+**Hemen tamamlanma** (onay beklemeden): kullanıcı karşı işletmeyi de yönetiyorsa (kendi şubeleri) ya da karşı
+işletme gönderen işletmeye geçerli bir **otomatik onay** yetkisi (aşağıda) vermişse. Diğer her durumda onay gerekir.
 
-İlgili alanlar: `GET /plates` her kaleme (başka dükkândan alındıysa)
-`origin: { transferId, transferNo, transferDate, fromShopName }`; `GET /sales`
-satışa `shopTransfer: { id, transferNo, toShopName }`, kaleme
-`origin: { transferNo, fromShopName }` ekler.
+**Güvenlik kuralları:** başkasının belgesine erişim `404` (varlığı belli edilmez); onay/ret yalnız **başlatmayan**
+tarafın ilgili yazma iznine sahip üyesine açıktır (başlatan kendi teklifini onaylayamaz); onay anında
+satıcı stoğu yeniden doğrulanır (aynı kalem iki işletmeye teklif edilmişse ikinci onay `409`/`400` ile reddedilir,
+hayalet stok oluşmaz); işletme başına aynı karşı tarafa en çok 25 bekleyen teklif; satıcı alıcının stoğunu, maliyetini
+ya da müşterilerini hiçbir zaman görmez — alıcı işletme malzemeyi kendi stoğunda yönetir (`trackingVisible`,
+`state: untracked`); yalnız iki işletmeyi de yöneten kullanıcı için izleme bilgisi görünür.
+
+Yanıtta (liste satırı da aynı) şu alanlar vardır: `status` (`pending|completed|rejected|cancelled`), `direction`,
+`initiatorShopId`, `initiatedByMe`, `autoApproved`, `decidedAt`, `decisionNote`, `canDecide` (karar bizi bekliyor ve
+yetkimiz var), `canWithdraw`, `canCancel` (hemen geri alma), `canRequestCancel`, `cancelRequest`
+(`{ byShopName, byMe, at, note }`), `trackingVisible`, `detailVisible`, `summary`, `items[]` (kalem
+`state`: `pending · untracked · in_stock · partial · sold · removed · cancelled`, `remainingRatio`, `usages[]`).
+İlgili alanlar: `GET /plates` (başka işletmeden alınan kalemde) `origin`, `GET /sales` satışta `shopTransfer`.
+
+### İşletmeler arası yetkiler (`/partners`)
+
+| Metot | Yol | İzin | Açıklama |
+|-------|-----|------|----------|
+| GET | `/partners/grants` | ayar okuma | `{ given, received }` — verdiğim ve bana tanınan **geçerli** yetkiler. Engeller karşı tarafa gösterilmez |
+| PUT | `/partners/grants` | **işletme yöneticisi** | `{ granteeShopId, permission, expiresAt?, note? }` — yetki ver/güncelle |
+| DELETE | `/partners/grants/:id` | **işletme yöneticisi** | Yalnız kendi verdiğim yetkiyi kaldırır (başkasınınki `404`) |
+
+`permission`: `auto_approve` (o işletmenin bana yönelttiği teklif/talepler onay beklemeden tamamlanır) ·
+`view_stock` ("yalnız yetki verdiklerim" paylaşımlarımı görür) · `block` (beni göremez, işlem yönlendiremez, stoğumu
+göremez; verdiğim diğer yetkiler kalkar; engelliyken yetki verilemez). `expiresAt` boş = **süresiz**; verilirse
+gelecekte ve en çok 5 yıl sonrası olmalı. **Süresi dolan yetki okuma anında geçersiz sayılır** (zamanlayıcıya
+bağlı değildir). Kendine yetki verilemez.
+
+### "Bende var, satıyorum" (`/stock-shares`) ve pazar yeri (`/marketplace`)
+
+| Metot | Yol | İzin | Açıklama |
+|-------|-----|------|----------|
+| GET | `/stock-shares` | stok okuma | Kendi paylaşım kurallarım: `[{ id, kind, refId, label, visibility, isActive, note, itemCount }]` |
+| PUT | `/stock-shares` | stok yazma | `{ kind: plate\|template\|category, refId, visibility?: public\|partners, isActive?, note? }` — kural ekle/güncelle (kalem, ürün türü ya da malzeme türü grubu; yalnız **kendi** kaydım olabilir) |
+| PATCH | `/stock-shares/:id` | stok yazma | `visibility` / `isActive` / `note` |
+| DELETE | `/stock-shares/:id` | stok yazma | Kuralı siler |
+| POST | `/stock-shares/set-all` | stok yazma | `{ isActive }` — bütün paylaşımı tek tuşla aç/kapat |
+| GET | `/marketplace/listings?search=&shopId=&category=&page=&limit=` | satın alma okuma | Diğer işletmelerin **bana** listelediği stok |
+
+Bir kalem bana şu **hepsi** doğruysa listelenir: kalem stokta, etkin ve silinmemiş; satıcı etkin ve ticarete açık;
+satıcı beni engellememiş; kalemi kapsayan etkin bir kural var (kalem / türü / malzeme türü) ve kural ya
+`public` ya da satıcı bana geçerli `view_stock` vermiş. **Aynı kural alım talebi doğrulamasında kullanılır**:
+listelenmeyen kalem için talep açılamaz. Listede yalnız ad, tür, marka, renk, kalınlık, ebat, adet ve (varsa)
+liste fiyatı bulunur; **maliyet, alış, tedarikçi ve müşteri bilgisi hiçbir zaman yoktur.**
+
+### Başka işletmelerin ürün türlerinden seçme
+
+| Metot | Yol | İzin | Açıklama |
+|-------|-----|------|----------|
+| GET | `/material-templates/community?q=&categoryName=&brandName=&colorName=&thicknessMm=&sheetWidthMm=&sheetHeightMm=` | katalog yazma + `trade` | Yeni ürün türü eklerken benzer, **kendi kataloğunuzda olmayan** türler: `[{ categoryName, templateName, measurementType, brandName, colorName, colorCode, thicknessMm, sheetWidthMm, sheetHeightMm, variant, shops }]` |
+
+`categoryName` ya da `q` zorunludur (bütün ortak katalog dökülemez); sonuç aynı özellikteki türleri tek satırda
+toplar, `shops` o özellikte türü olan işletme **sayısıdır** (işletme kimliği, adı, stok ve fiyat verilmez). Benzerlik
+yazılan özelliklerle eşleşen alan sayısına göre sıralanır; ortak kullanım yalnız eşitlik bozar. Seçilen öneri
+arayüzde formu doldurur; tür **kendi kataloğunuzda** açılır (başkasının kaydına bağlanmaz). Hız sınırı: kullanıcı
+başına dakikada 60.
 
 ## Processing (İşleme)
 | Metot | Yol | Yetki | Açıklama |

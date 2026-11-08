@@ -134,7 +134,8 @@ const purchasesB = await call('GET', '/purchases?page=1&limit=5', { token: owner
 const po = purchasesB.data.items.find((p) => p.id === t1.purchaseOrderId);
 ok(po && Math.abs(Number(po.totalAmount) - 1270) < 0.01 && po.supplier?.name === nameA, `B alışı: ${po?.totalAmount} ${po?.supplier?.name}`);
 const inB = await call('GET', '/shop-transfers?direction=in', { token: owner, shop: B });
-ok(inB.data.items.some((x) => x.id === t1.id && x.direction === 'in' && !x.canCancel), 'B gelenlerde (geri alamaz)');
+// İki tarafı da yönetebilen kullanıcı (burada sistem sahibi) her iki taraftan geri alabilir; kullanılmışsa hiçbirinden alamaz.
+ok(inB.data.items.some((x) => x.id === t1.id && x.direction === 'in'), 'B gelenlerde görünür');
 
 console.log('6) B parçayı ve vidayı müşteriye satıyor → A belgede görünür');
 const cust = await call('POST', '/customers', { token: owner, shop: B, body: { name: `Son Alıcı ${tag}` } });
@@ -186,7 +187,7 @@ ok(goneB.status === 404, `B'deki kalem silindi: ${goneB.status}`);
 const again = await call('POST', `/shop-transfers/${t2.data.id}/cancel`, { token: owner, shop: A });
 ok(again.status === 400, 'iki kez iptal edilemez');
 const fromB = await call('POST', `/shop-transfers/${t1.id}/cancel`, { token: owner, shop: B });
-ok(fromB.status === 404, `alan dükkân iptal edemez: ${fromB.status}`);
+ok(fromB.status === 400, `kullanılmış belge alan taraftan da geri alınamaz: ${fromB.status}`);
 
 console.log('7b) Alan dükkân aynı kaleme ayrı alış girdiyse geri alma reddi (hiçbir şey değişmez)');
 const t3 = await call('POST', '/shop-transfers', { token: owner, shop: A, body: { toShopId: B, items: [{ plateId: screwA, quantity: 2, unitPrice: 6 }] } });
@@ -209,14 +210,16 @@ const add = await call('POST', `/shops/${A}/members`, {
 ok(add.status === 201, `üye: ${add.status}`);
 const emp = await login(email, 'Calisan123!');
 const tEmp = await call('GET', '/shop-transfers/targets', { token: emp, shop: A });
-ok(tEmp.status === 200 && !tEmp.data.some((x) => x.id === B), `çalışan hedefleri: ${JSON.stringify(tEmp.data)}`);
+ok(tEmp.status === 200 && tEmp.data.every((x) => x.own === false || x.canSell === false), 'çalışan: başka işletmeler "kendi şubem" değil, doğrudan satış yok');
+// B'de yetkisi olmayan çalışan doğrudan satamaz: teklifi ONAY BEKLER (karşı işletme karar verir).
 const denied = await call('POST', '/shop-transfers', { token: emp, shop: A, body: { toShopId: B, items: [{ plateId: screwA, quantity: 1, unitPrice: 1 }] } });
-ok(denied.status === 403, `B'ye satış reddi: ${denied.status} ${denied.data?.message ?? ''}`);
+ok(denied.status === 201 && denied.data.status === 'pending', `B'ye satış doğrudan olmaz, onay bekler: ${denied.status} ${denied.data?.status}`);
+ok((await call('POST', `/shop-transfers/${denied.data.id}/cancel`, { token: emp, shop: A })).data.status === 'cancelled', 'çalışan bekleyen teklifini geri çekti');
 const listEmp = await call('GET', '/shop-transfers', { token: emp, shop: A });
 const ve = listEmp.data.items?.find((x) => x.id === t1.id);
 ok(listEmp.status === 200 && ve && ve.detailVisible === false, 'çalışan belgeyi görür, B müşterilerini görmez');
-ok(ve?.items.find((i) => i.targetPlateId === piecesB[0].id)?.usages[0]?.customerName === null, 'müşteri adı gizli');
-ok(ve?.items.find((i) => i.targetPlateId === piecesB[0].id)?.state === 'sold', 'durum yine de görünür (satıldı)');
+// Alan işletmenin sonraki satışları/stoğu, o işletmeyi YÖNETMEYEN kullanıcıya hiç gösterilmez (başka işletmenin verisi).
+ok(ve?.trackingVisible === false && ve.items.every((i) => i.state === 'untracked' && i.usages.length === 0), 'alıcının satışları/müşteri adları/durumu çalışana gösterilmez');
 const empB = await call('GET', '/shop-transfers', { token: emp, shop: B });
 ok(empB.status === 403, `B dükkânına erişim yok: ${empB.status}`);
 

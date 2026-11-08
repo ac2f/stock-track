@@ -43,7 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/customers', label: 'Cari', title: 'Müşteriler / Cari', icon: '💳', module: 'customers', keywords: 'müşteri borç ekstre' },
       { to: '/purchases', label: 'Satın Alma', title: 'Satın Alma', icon: '🛒', module: 'purchases', keywords: 'tedarikçi alış' },
-      { to: '/shop-transfers', label: 'Dükkânlar Arası', title: 'Dükkânlar Arası Satış', icon: '🔁', anyOf: ['sales', 'purchases'], multiShop: true, keywords: 'dükkân şube transfer aktarım satış alış' },
+      { to: '/shop-transfers', label: 'İşletmeler Arası', title: 'İşletmeler Arası Satış', icon: '🔁', anyOf: ['sales', 'purchases', 'stock', 'settings'], feature: 'trade', keywords: 'işletme dükkân şube transfer aktarım satış alış onay bende var stok paylaşım pazar yetki otomatik onay' },
       { to: '/expenses', label: 'Gider', title: 'Giderler', icon: '🧾', module: 'expenses', keywords: 'masraf' },
       { to: '/bank-reconciliation', label: 'Mutabakat', title: 'Banka Mutabakatı', icon: '🏦', module: 'banking', keywords: 'banka ekstre' },
       { to: '/reports', label: 'Rapor', title: 'Mali Dashboard', icon: '📊', module: 'reports', keywords: 'rapor kâr zarar dashboard' },

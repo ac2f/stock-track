@@ -138,7 +138,7 @@ export type ShopStatus = 'pending' | 'active' | 'suspended';
  * Sistem sahibinin işletmeye açtığı/kapattığı özellikler. İşletme bunları
  * değiştiremez; kapalı özellik arayüzden kalkar ve API'den de kullanılamaz.
  */
-export type ShopFeatureKey = 'corel' | 'network' | 'directory';
+export type ShopFeatureKey = 'corel' | 'network' | 'directory' | 'trade';
 export type ShopFeatures = Record<ShopFeatureKey, boolean>;
 
 export interface ShopAccess {

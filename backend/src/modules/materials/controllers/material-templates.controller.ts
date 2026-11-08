@@ -16,7 +16,10 @@ import {
   UpdateMaterialTemplateDto,
 } from '../dto/update-material-template.dto';
 import { MaterialTemplatesService } from '../services/material-templates.service';
-import { AnyShopMember, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { AnyShopMember, ShopAccess, ShopFeatureRequired, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { RateLimit } from '../../../common/cache/rate-limit';
+import { TemplateCommunityService } from '../services/template-community.service';
+import { CommunityTemplateQueryDto } from '../dto/community-template-query.dto';
 import { Cached } from '../../../common/cache/cached.decorator';
 import { CacheGroup } from '../../../common/cache/cache.groups';
 
@@ -25,12 +28,28 @@ import { CacheGroup } from '../../../common/cache/cache.groups';
 @ShopScope('catalog')
 @Controller({ path: 'material-templates', version: '1' })
 export class MaterialTemplatesController {
-  constructor(private readonly templatesService: MaterialTemplatesService) {}
+  constructor(
+    private readonly templatesService: MaterialTemplatesService,
+    private readonly communityService: TemplateCommunityService,
+  ) {}
 
   // Şablon tanımı kataloğu yönetir → Sahip yetkisi.
   @Post()
   create(@Body() dto: CreateMaterialTemplateDto) {
     return this.templatesService.create(dto);
+  }
+
+  /**
+   * Yeni ürün türü eklerken: BAŞKA işletmelerde tanımlı benzer türler (yalnız katalog özellikleri,
+   * işletme kimliği yok). Ticaret özelliği gerekir; katalog yazma izni olan kullanır.
+   * (`:id` rotasından ÖNCE tanımlıdır.)
+   */
+  @ShopFeatureRequired('trade')
+  @ShopAccess('catalog', 'write')
+  @RateLimit({ name: 'template-community', by: 'user', limit: 60, windowSeconds: 60 })
+  @Get('community')
+  community(@Query() q: CommunityTemplateQueryDto) {
+    return this.communityService.suggest(q);
   }
 
   @Cached({ group: CacheGroup.CATALOG, ttl: 600 })

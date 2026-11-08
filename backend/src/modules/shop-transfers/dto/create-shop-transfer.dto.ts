@@ -80,4 +80,9 @@ export class QueryShopTransferDto extends PaginationDto {
   @IsOptional()
   @IsIn(['out', 'in'])
   direction?: 'out' | 'in';
+
+  /** open: karar/onay bekleyenler (bekleyen teklifler + açık geri alma talepleri). */
+  @IsOptional()
+  @IsIn(['open', 'pending', 'completed', 'rejected', 'cancelled'])
+  status?: 'open' | 'pending' | 'completed' | 'rejected' | 'cancelled';
 }

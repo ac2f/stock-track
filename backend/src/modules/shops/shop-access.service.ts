@@ -128,12 +128,12 @@ export class ShopAccessService {
    * ('access' grubu) önbellek kendiliğinden silinir.
    */
   async featuresOf(shopId: string): Promise<ShopFeatures> {
-    if (!ShopContext.isUuid(shopId)) return resolveFeatures({ corel: false, network: false, directory: false });
+    if (!ShopContext.isUuid(shopId)) return resolveFeatures({ corel: false, network: false, directory: false, trade: false });
     return this.cache.wrap(GLOBAL_SCOPE, CacheGroup.ACCESS, `features:${shopId}`, 300, async () => {
       const shop = await this.shops.findOne({ where: { id: shopId } });
       return shop && shop.isActive && shop.status === 'active'
         ? resolveFeatures(shop.features)
-        : resolveFeatures({ corel: false, network: false, directory: false });
+        : resolveFeatures({ corel: false, network: false, directory: false, trade: false });
     });
   }
 

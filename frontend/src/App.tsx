@@ -69,10 +69,11 @@ function DirectoryGate({ children }: { children: ReactNode }) {
   return <>{hasFeature('directory') ? children : <NoAccess what="İşletme rehberi" />}</>;
 }
 
-/** Dükkânlar arası satış: satışları ya da satın almaları görebilen. */
+/** İşletmeler arası satış: ticaret özelliği açık işletmede satış/satın alma/stok/ayar alanlarından birini görebilen. */
 function TransfersGate({ children }: { children: ReactNode }) {
-  const { can } = useAuth();
-  return <>{can('sales') || can('purchases') ? children : <NoAccess what="Dükkânlar arası satış" />}</>;
+  const { can, hasFeature } = useAuth();
+  if (!hasFeature('trade')) return <NoAccess what="İşletmeler arası satış" />;
+  return <>{can('sales') || can('purchases') || can('stock') || can('settings') ? children : <NoAccess what="İşletmeler arası satış" />}</>;
 }
 
 function Placeholder({ title }: { title: string }) {

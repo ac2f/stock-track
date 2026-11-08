@@ -481,6 +481,19 @@ Belge numarası, eşzamanlı iki satışta çakışmasın diye transaction boyun
 `pg_advisory_xact_lock` ile alınır. Satış, alış, yeni stok kalemleri ve belge
 tek transaction'da yazılır; biri başarısız olursa hiçbiri kalmaz.
 
+## v7 Genişletme (işletmeler arası onay, yetkiler, stok paylaşımı)
+
+| Tablo / Kolon | Açıklama |
+| ------------- | -------- |
+| `shop_transfers.status` | Değerler `pending` (onay bekliyor), `completed`, `rejected`, `cancelled`. Eski kayıtlar `completed`/`cancelled` kalır (enum'a ekleme yapılır, veri silinmez). |
+| `shop_transfers.initiator_shop_id`, `warehouse_id`, `decided_by_id`, `decided_at`, `decision_note`, `auto_approved` (+kolon) | Belgeyi başlatan işletme (onaylayan karşı taraftır), satıcı çıkış deposu, karar veren/zamanı/notu, otomatik onayla tamamlandı mı. |
+| `shop_transfers.cancel_requested_by_shop_id`, `cancel_requested_by_id`, `cancel_requested_at`, `cancel_note` (+kolon) | Tamamlanmış belge için açık **geri alma talebi** (karşı onay bekler). |
+| `shop_partner_grants` | İşletmeler arası yetki: `grantor_shop_id` → `grantee_shop_id`, `permission` (`auto_approve`/`view_stock`/`block`), `expires_at` (boş = süresiz), `created_by_id`, `note`. (grantor, grantee, permission) benzersiz; silme yumuşaktır. Süresi dolan satır okuma anında geçersiz sayılır. **Yerel sunucuya eşitlenmez** (merkezde karar verilir). |
+| `shop_stock_shares` | "Bende var" kuralı (dükkâna ait): `kind` (`plate`/`template`/`category`), `ref_id`, `visibility` (`public`/`partners`), `is_active`, `note`. (shop, kind, ref) benzersiz. |
+
+Onay, tek transaction'da ve belge satırı kilitlenerek yazılır (çift onay tek sonuç verir); satıcı stoğu onay anında
+yeniden doğrulanır.
+
 ## v6 Genişletme (merkez ↔ yerel sunucu eşitlemesi)
 
 Ayrıntı: [`SYNC.md`](SYNC.md).

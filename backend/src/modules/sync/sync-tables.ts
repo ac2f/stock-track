@@ -16,7 +16,8 @@ export const NO_CAPTURE_TABLES = new Set([
   'idempotency_keys',
 ]);
 
-export const NOT_REPLICATED_TABLES = new Set([...NO_CAPTURE_TABLES, 'system_settings']);
+// İşletmeler arası yetkiler iki işletmeye birden aittir ve yerel sunucuya gerekmez (ticaret merkezde yapılır).
+export const NOT_REPLICATED_TABLES = new Set([...NO_CAPTURE_TABLES, 'system_settings', 'shop_partner_grants']);
 
 /** Bir tablonun replikaya hangi satırlarının gittiği. */
 export type TableScope =

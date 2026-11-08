@@ -35,6 +35,7 @@ import { PlatesService } from './services/plates.service';
 import { CatalogDedupeService } from './services/catalog-dedupe.service';
 import { PricingService } from './services/pricing.service';
 import { PlateIntakeService } from './services/plate-intake.service';
+import { TemplateCommunityService } from './services/template-community.service';
 import { SupplierPricesService } from './services/supplier-prices.service';
 import { PriceRulesService } from './services/price-rules.service';
 import { PlateCostService } from './services/plate-cost.service';
@@ -90,6 +91,7 @@ import { PlateCostService } from './services/plate-cost.service';
     CatalogDedupeService,
     PricingService,
     PlateIntakeService,
+    TemplateCommunityService,
     SupplierPricesService,
     PriceRulesService,
     PlateCostService,

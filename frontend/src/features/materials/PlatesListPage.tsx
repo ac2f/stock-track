@@ -1614,7 +1614,7 @@ function OwnerChip({ plate, className = '' }: { plate: Plate; className?: string
   );
 }
 
-/** Başka dükkândan alınan kalem: hangi dükkândan (belgeye bağlantı). */
+/** Başka işletmeden alınan kalem: hangi işletmeden (belgeye bağlantı). */
 function OriginChip({ plate }: { plate: Plate }) {
   if (!plate.origin) return null;
   return (
@@ -1623,19 +1623,19 @@ function OriginChip({ plate }: { plate: Plate }) {
       className="badge bg-sky-100 text-sky-800 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-200"
       title={`${plate.origin.transferNo} · ${formatDate(plate.origin.transferDate)} — kime satıldığını izlemek için açın`}
     >
-      🏬 {plate.origin.fromShopName} dükkânından
+      🏬 {plate.origin.fromShopName} işletmesinden
     </Link>
   );
 }
 
-/** Başka dükkâna satış bağlantısı (birden çok dükkâna girebilen, satış yetkili kullanıcıya). */
+/** Başka işletmeye satış bağlantısı (ticaret özelliği açık işletmede, satış yazma izni olana). */
 function SellToShopLink({ plate }: { plate: Plate }) {
-  const { can, shops } = useAuth();
-  if (!can('sales', 'write') || shops.filter((s) => s.isActive).length < 2) return null;
+  const { can, hasFeature } = useAuth();
+  if (!hasFeature('trade') || !can('sales', 'write')) return null;
   if (!(Number(plate.quantityInStock) > 0)) return null;
   return (
-    <Link className="btn-secondary btn-sm" to={`/shop-transfers?plate=${plate.id}`} title="Bu malzemeyi başka bir dükkâna sat">
-      🔁 Dükkâna sat
+    <Link className="btn-secondary btn-sm" to={`/shop-transfers?plate=${plate.id}`} title="Bu malzemeyi başka bir işletmeye sat">
+      🔁 İşletmeye sat
     </Link>
   );
 }

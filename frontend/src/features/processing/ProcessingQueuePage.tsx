@@ -216,9 +216,9 @@ function RecentSales() {
                 <Link
                   to={`/shop-transfers?q=${encodeURIComponent(s.shopTransfer.transferNo)}`}
                   className="badge mt-1 bg-sky-100 text-sky-800 hover:bg-sky-200 dark:bg-sky-900/50 dark:text-sky-200"
-                  title="Dükkânlar arası satış belgesi — malzemenin o dükkânda kime satıldığını gösterir"
+                  title="İşletmeler arası satış belgesi"
                 >
-                  🔁 {s.shopTransfer.toShopName} dükkânına · {s.shopTransfer.transferNo}
+                  🔁 {s.shopTransfer.toShopName} işletmesine · {s.shopTransfer.transferNo}
                 </Link>
               )}
             </div>

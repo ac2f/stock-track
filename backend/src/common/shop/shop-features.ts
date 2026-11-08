@@ -7,7 +7,7 @@
  * hiç kullanabilir"i, yalnız sistem sahibi belirler. İşletme yöneticisi bir
  * özelliği kendisi açamaz; kapalı özellik hem arayüzden hem API'den kalkar.
  */
-export const SHOP_FEATURES = ['corel', 'network', 'directory'] as const;
+export const SHOP_FEATURES = ['corel', 'network', 'directory', 'trade'] as const;
 
 export type ShopFeature = (typeof SHOP_FEATURES)[number];
 
@@ -29,6 +29,11 @@ export const SHOP_FEATURE_INFO: Record<ShopFeature, { label: string; hint: strin
   directory: {
     label: 'İşletme rehberi',
     hint: 'Diğer işletmeleri iş koluna, ile/ilçeye ve makineye göre arama; kendi işletmesini listeletme.',
+    default: true,
+  },
+  trade: {
+    label: 'İşletmeler arası satış ve stok paylaşımı',
+    hint: 'Başka işletmelere satış teklifi (onay/ret), paylaşılan stok listesi, ortak yetkileri ve başka işletmelerin ürün türlerinden seçme.',
     default: true,
   },
 };

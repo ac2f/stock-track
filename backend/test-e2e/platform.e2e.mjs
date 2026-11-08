@@ -162,7 +162,8 @@ const a = d.data.items.find((s) => s.id === A);
 ok(a && a.phone === '0532 111 22 33' && a.addressLine === 'Moda Cd. 12' && a.email === `a${tag}@test.local`, `etiketle bulundu + iletişim bilgisi görünür: ${a?.name}`);
 ok(a.labels.length === 2 && a.machines.length === 2, `etiketler ve makineler: ${a.labels.length} / ${a.machines.length}`);
 ok(!d.data.items.some((s) => s.id === B), 'B etiketine uymadığı için B listede yok');
-d = await dirB(`province=Istanbul&district=Kadikoy`);
+// Önceki çalıştırmalardan kalan işletmeler aynı ilçede olduğundan kendi etiketimizle daraltılır (sayfa 1'e sığsın).
+d = await dirB(`province=Istanbul&district=Kadikoy&labelIds=${lLaser.id}`);
 ok(d.data.items.some((s) => s.id === A), `il/ilçe (yazım farkıyla): ${d.data.meta.total}`);
 d = await dirB(`province=Ankara`);
 ok(!d.data.items.some((s) => s.id === A) && d.data.items.some((s) => s.id === B), 'Ankara: A yok, B var');
@@ -180,7 +181,9 @@ d = await dirB(`machineTypeId=${tCnc.id}&minWidthMm=2800&minHeightMm=1400`);
 ok(!d.data.items.some((s) => s.id === B), 'gizli (herkese açık olmayan) makine aramada sayılmaz');
 d = await dirB(`q=lazer`);
 ok(d.data.items.some((s) => s.id === A), `serbest arama (açıklama/etiket): ${d.data.meta.total}`);
-d = await dirB(`q=${encodeURIComponent('Tabela')}`);
+// Etiket adı her çalıştırmada aynı olduğundan, önceki çalıştırmaların işletmeleri sayfayı doldurmasın diye
+// bu çalıştırmanın etiketiyle daraltılır (arama yine ETİKET ADI üzerinden yapılır).
+d = await dirB(`q=${encodeURIComponent('Tabela')}&labelIds=${lSign.id}`);
 ok(d.data.items.some((s) => s.id === A) && d.data.items.some((s) => s.id === B), 'etiket adıyla arama (iki işletme)');
 const mh = await call('GET', `/directory/machines?machineTypeId=${tLaser.id}&minWidthMm=500&minHeightMm=300`, { token: tokB, shop: B });
 ok(mh.data.items.length === 2 && mh.data.items.every((m) => m.shop.id === A && m.shop.phone), `makine araması: ${mh.data.items.map((m) => m.name)}`);
@@ -195,6 +198,10 @@ ok(hide.status === 200 && !d.data.items.some((s) => s.id === A), `rehberden çı
 await call('PATCH', '/business-profile', { token: tokA, shop: A, body: { directoryVisible: true } });
 d = await dirB(`labelIds=${lLaser.id}`);
 ok(d.data.items.some((s) => s.id === A), 'geri açılınca ANINDA görünür');
+// Yazıdan hemen sonra başlayan okuma bilerek saklanmaz (saat kayması payı: yazıya yetişen okuma bayat olabilir).
+// Bu yüzden kısa bir bekleme + ısınma okumasından sonra tekrar okumanın önbellekten geldiği doğrulanır.
+await new Promise((r) => setTimeout(r, 400));
+await dirB(`labelIds=${lLaser.id}`);
 d = await dirB(`labelIds=${lLaser.id}`);
 ok(d.xcache === 'HIT', `tekrar okuma önbellekten: ${d.xcache}`);
 await call('PATCH', `/machines/${mA2.data.id}`, { token: tokA, shop: A, body: { isPublic: false } });

@@ -8,8 +8,8 @@ import {
 } from './shop-features';
 
 describe('işletme özellikleri', () => {
-  it('Corel varsayılan KAPALI; rehber ve ağ açık', () => {
-    expect(defaultFeatures()).toEqual({ corel: false, network: true, directory: true });
+  it('Corel varsayılan KAPALI; rehber, ağ ve işletmeler arası ticaret açık', () => {
+    expect(defaultFeatures()).toEqual({ corel: false, network: true, directory: true, trade: true });
   });
 
   it('yazılmamış özellik varsayılanına düşer, bilinmeyen anahtar ve boolean olmayan değer atılır', () => {
@@ -20,8 +20,9 @@ describe('işletme özellikleri', () => {
       corel: true,
       network: true,
       directory: true,
+      trade: true,
     });
-    expect(resolveFeatures({ network: false })).toEqual({ corel: false, network: false, directory: true });
+    expect(resolveFeatures({ network: false })).toEqual({ corel: false, network: false, directory: true, trade: true });
   });
 
   it('sistem sahibi için hepsi açık', () => {

@@ -45,11 +45,29 @@ hem de API'den kalkar — ilgili uçlar `403 … bu hesapta etkin değil` döner
 | **Corel eklentisi ve klasör oluşturucu** (`corel`) | Ayarlar › Corel entegrasyonu, runner durumu/rozeti, otomatik klasörler ve "klasör açılmasın" seçeneği, makine hızı / asgari alan ayarları, "Corel ve klasörler" Telegram konusu; Corel anahtarı (eskiden üretilmiş olsa bile) çalışmaz. **Corel, runner ve CDR Auto Renamer adları hiçbir ekranda geçmez.** | **Kapalı** |
 | **Müşteri ve borç ağı** (`network`) | Aynı telefonla başka işletmede kayıtlı müşteri önerisi ve borç uyarısı (hem alma hem verme) | Açık |
 | **İşletme rehberi** (`directory`) | Rehber ekranı; işletme rehberde listelenmez | Açık |
+| **İşletmeler arası satış ve stok paylaşımı** (`trade`) | İşletmeler Arası ekranı, satış teklifi/alım talebi, ortak yetkileri, "bende var" listesi, pazar yeri ve "benzer ürün türleri" önerisi; işletme başkalarının aramasında/pazar yerinde de çıkmaz | Açık |
 
 Platform › İşletmeler › işletme kartı › **Ayrıntı / not › Açılan özellikler** bölümünden açılır. Listeyi
 **iş kolu etiketine** (malzemeci, baskıcı, atölye, montaj …) ve **açık özelliğe** göre süzebilirsiniz.
 Sistem sahibi için her özellik her zaman açıktır. Yükseltmede Corel anahtarı üretmiş ya da runner bağlamış
 işletmelerin Corel özelliği **açık** yazılır (kesinti olmaz); sonradan kapatırsanız yeniden açılmaz.
+
+## İşletmeler arası ticaret (onay/ret, yetkiler, "bende var")
+
+İşletmeler birbirine **onay/ret ile** satış yapar (ayrıntı: README › *Ticaret*, API: `docs/API.md`). Sistem sahibi olarak bilmeniz gerekenler:
+
+- **Varsayılan açıktır** (`trade`); belirli bir işletmenin ticaretini Platform › İşletmeler › *Açılan özellikler*'den kapatabilirsiniz.
+  Kapanan işletme menüden, aramalardan ve pazar yerinden kalkar; bekleyen belgeleri karşı taraf için "onay bekliyor" kalır,
+  onaylanamaz.
+- Her işlem **karşı tarafın onayını** bekler; stok/cari yalnız onayda yazılır. Karşı onay yalnız şu iki durumda atlanır:
+  kullanıcı iki işletmeyi de yönetiyorsa (kendi şubeleri) ya da karşı işletme gönderene geçerli bir **otomatik onay** yetkisi vermişse.
+- Yetkiler (otomatik onay, stoğu görme, engel) yalnız **işletme yöneticisi** tarafından, işletme başına, **süreli** (en çok 5 yıl) ya da
+  **süresiz** verilir; süre dolunca yetki kendiliğinden düşer. Engellenen işletme bunu öğrenmez, engelleyeni aramada bulamaz.
+- "Bende var" listesi yalnız ad/ebat/adet/liste fiyatı gösterir; **maliyet, alış, tedarikçi ve müşteri bilgisi hiçbir yanıtta yoktur.**
+- Satıcı, malzeme alıcıya geçince onun stoğunu/satışlarını **izlemez** (yalnız iki işletmeyi birden yöneten kullanıcı görür).
+- **Ürün türü önerisi** başka işletmelerin kataloğundan yalnız özellikleri (tür, marka, renk, kalınlık, ebat) ve kaç işletmede olduğunu verir;
+  hangi işletmeler olduğu verilmez.
+- Yerel (replika) sunucuda bu uçlar **yalnız merkezde** çalışır (`@PrimaryOnly`); yetki tablosu eşitlenmez.
 
 ## Neler işletmeye gönderilmez (gizlilik)
 

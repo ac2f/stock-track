@@ -16,7 +16,7 @@ tek bir çatı altında toplar.
 - [Proje Klasör Yapısı](#proje-klasör-yapısı)
 - [Çekirdek İş Alanları (Domain)](#çekirdek-iş-alanları-domain)
 - [Dükkânlar ve Yetkiler](#dükkânlar-ve-yetkiler)
-- [Dükkânlar arası satış](#dükkânlar-arası-satış)
+- [Ticaret: işletmeler arası satış ve stok paylaşımı](#ticaret-işletmeler-arası-satış-ve-stok-paylaşımı)
 - [Telegram: dükkân ve konu başına sohbet](#telegram-dükkân-ve-konu-başına-sohbet)
 - [Çevrimdışı çalışma: yerel sunucu](#çevrimdışı-çalışma-yerel-sunucu)
 - [Arayüz ve Kısayollar](#arayüz-ve-kısayollar)
@@ -156,37 +156,39 @@ tahsilat, teklif, satış, iş, gider, satın alma ve stok girişi cihazda sıra
 alınır ve bağlantı gelince bir kez gönderilir (bkz.
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) § 6–8).
 
-## Dükkânlar arası satış
+## Ticaret: işletmeler arası satış ve stok paylaşımı
 
-Bir dükkân stoğundaki malzemeyi başka bir dükkâna satabilir (menü:
-**🔁 Dükkânlar Arası**, stok kartında **🔁 Dükkâna sat**, hızlı aramada
-"başka dükkâna malzeme sat"). Tek kayıtta iki taraf birden işlenir:
+Her işletme, herhangi bir işletmeye satış teklifi gönderebilir ya da onun "bende var" diye paylaştığı stoktan alım
+talebi açabilir (menü: **🔁 İşletmeler Arası**, stok kartında **🔁 İşletmeye sat**, hızlı aramada "başka işletmeye
+malzeme sat"). Ekranın dört bölümü vardır:
 
-| Satan dükkân | Alan dükkân |
-| ------------ | ----------- |
-| Alan dükkân adına açılan cariye **satış**: stok düşer (tabakadan parça satılabilir: en × boy), tutar o carinin borcuna yazılır. Ödeme gelince **Tahsilat**'tan girilir. | Satan dükkân adına açılan tedarikçiden **alış**: her kalem yeni stok kalemi olarak girer (tabakada her parça ayrı), alış fiyatı malzemenin **maliyeti** olur; sonraki satışta kâr bunun üzerinden hesaplanır. |
+| Bölüm | Ne yapar |
+| ----- | -------- |
+| **📄 Belgeler** | Sattıklarınız, aldıklarınız ve **onay bekleyenler** (menüde sayı rozeti). Karşı işletmenin teklifini **Onayla / Reddet**, kendi teklifinizi **Geri çek**; tamamlanmış belge için **Geri al** (iki tarafı da yönetiyorsanız hemen, değilse karşı onaylı talep). |
+| **🛍️ Pazar yeri** | Diğer işletmelerin sizinle paylaştığı "bende var" stokları. Kalemi **talebe ekleyip** tek işletmeye alım talebi gönderirsiniz. |
+| **📣 Bende var** | Kendi stoğunuzdan neyi listeleyeceğinizi seçersiniz: **tek kalem, ürün türü ya da bir malzeme türünün tamamı**; **herkese açık** ya da **yalnız yetki verdiklerinize**. Her kural tek tıkla açılıp kapanır, "Tümünü kapat" bütün paylaşımı durdurur. |
+| **🤝 Yetkiler** | İşletme başına **işlemlerini otomatik onayla**, **stoğumu görebilsin** ya da **engelle**; **süreli** (1 gün … 1 yıl, ya da tarih seçerek) veya **süresiz**. Süresi dolan yetki kendiliğinden geçersiz olur. Yalnız işletme yöneticisi değiştirir. |
 
-Belge `DA-YYYY-NNNN` numarası alır ve iki kaydı birbirine bağlar.
+**Onay akışı.** Teklif/talep karşı işletme onaylayana kadar **"onay bekliyor"** kalır ve bu sürede iki tarafta da stok
+ya da cari kaydı **oluşmaz**. Onaylanınca tek işlemde şunlar yazılır:
 
-**Kime satıldı?** Belge, her parçanın alan dükkândaki karşılığını izler. Parça
-orada bir müşteriye satılırsa (ya da işlenirse) belgede kalem altında
-**müşteri, tarih, satılan ölçü/miktar ve tutar** görünür; kalemin durumu
-*Stokta / Kısmen satıldı (kalan %) / Satıldı* olarak güncellenir. Ayrıca:
+| Satan işletme | Alan işletme |
+| ------------- | ------------ |
+| Alan işletme adına açılan cariye **satış**: stok düşer (tabakadan parça satılabilir: en × boy), tutar carinin borcuna yazılır. Ödeme gelince **Tahsilat**'tan girilir. | Satan işletme adına açılan tedarikçiden **alış**: her kalem yeni stok kalemi olarak girer (tabakada her parça ayrı), alış fiyatı malzemenin **maliyeti** olur. |
 
-- alan dükkânın stok kartında **🏬 X dükkânından** rozeti (belgeye bağlantı),
-- alan dükkânın satış listesinde kalemde **"X dükkânından alınan"** işareti,
-- satan dükkânın satış listesinde **"🔁 Y dükkânına · DA-…"** işareti.
+Reddedilirse hiçbir kayıt oluşmaz (ret notu karşı tarafa gider). **Hemen tamamlanan** durumlar: kendi şubeleriniz arası
+ve karşı işletmenin size **otomatik onay** yetkisi verdiği (süresi dolmamış) işlemler. Belge `DA-YYYY-NNNN` numarası alır.
 
-**Yetki:** satan dükkânda *satış yazma*, alan dükkânda *satın alma yazma*
-(stok girişi) gerekir; sistem sahibi her iki dükkânda yetkilidir. Belgeler
-satan dükkânda *satış*, alan dükkânda *satın alma* okuma iznine göre görünür.
-Müşteri adları ve tutarlar, kullanıcı alan dükkânda satışları görebiliyorsa
-gösterilir; göremiyorsa yalnız durum ("satıldı") görünür.
+**Gizlilik.** Satıcı, alıcı işletmenin sonraki stok/satış hareketlerini görmez (malzeme artık onun stoğundadır); pazar
+yeri listesinde maliyet, alış ve müşteri bilgisi yoktur; rehberde görünmeyen işletme aranarak bulunamaz; engellediğiniz
+işletme sizi göremez ve engellendiğini öğrenmez. Sistem sahibi **ticaret** özelliğini işletme başına kapatabilir.
 
-**Geri alma:** alan dükkânda hiçbir parça kullanılmadıysa (satılmadı,
-işlenmedi, teklife eklenmedi, kesilmedi) satan dükkân belgeyi **Geri al**
-ile iptal eder: satış silinir, stok ve cari eski haline döner, alan dükkândaki
-alış ve kalemler kaldırılır. Belge "iptal" olarak kalır.
+**Yetki:** satış tarafında *satış yazma*, alış tarafında *satın alma yazma* gerekir; onay/ret yalnız **başlatmayan**
+tarafın yetkili üyesine açıktır. Belgeler satıcıda *satış*, alıcıda *satın alma* okuma iznine göre görünür.
+
+**Yeni ürün türü eklerken** "Benzer ürün türleri" bölümü, başka işletmelerin kataloğunda aynı özellikte kayıtlı türleri
+listeler (yalnız özellikler ve kaç işletmede kayıtlı olduğu; kim olduğu gösterilmez). **Bunu kullan** formu doldurur,
+tür kendi kataloğunuzda açılır.
 
 ## Çevrimdışı çalışma: yerel sunucu
 

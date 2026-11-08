@@ -2,18 +2,106 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ensureTemplate,
+  fetchCommunityTemplates,
   fetchMaterialBrands,
   fetchMaterialColors,
   fetchMaterialSizes,
   fetchMaterialThicknesses,
+  type CommunityTemplate,
+  type CommunityTemplateQuery,
   type EnsureTemplateResult,
 } from '../../api/materials.api';
 import { PickOrNew } from '../../components/ui/PickOrNew';
+import { useAuth } from '../../context/AuthContext';
+import { useDebounced } from '../../hooks/useDebounced';
 import { useMaterialCategories } from '../../hooks/useReferenceData';
 import { fold } from '../../lib/search';
 import { parseTemplateQuery, type TemplateDraft } from '../../lib/templateDraft';
 import { Spinner } from '../../components/ui/Loading';
 import type { MaterialTemplate } from '../../types';
+
+/** "3 mm · 1220×2440 mm · Akpolimer · Şeffaf" */
+function suggestionMeta(s: CommunityTemplate): string {
+  return [
+    s.brandName,
+    s.colorName ? (s.colorCode ? `${s.colorName} · ${s.colorCode}` : s.colorName) : null,
+    s.thicknessMm != null ? `${Number(s.thicknessMm)} mm` : null,
+    s.sheetWidthMm && s.sheetHeightMm ? `${Number(s.sheetWidthMm)}×${Number(s.sheetHeightMm)} mm` : null,
+    s.variant,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/**
+ * Başka işletmelerin kataloğunda zaten tanımlı benzer ürün türleri: seçilirse form o özelliklerle dolar
+ * (kendi kataloğunuzda açılır; başkasının kaydına bağlanmaz). Yalnız katalog özellikleri gelir —
+ * işletme adı, stok ya da fiyat paylaşılmaz. Ticaret özelliği açık işletmelerde görünür.
+ */
+function CommunitySuggestions({
+  query,
+  draft,
+  onPick,
+}: {
+  query: string;
+  draft: TemplateDraft;
+  onPick: (s: CommunityTemplate) => void;
+}) {
+  const { hasFeature, can } = useAuth();
+  const enabled = hasFeature('trade') && can('catalog', 'write');
+  // Sunucu en az bir tür ya da arama sözcüğü ister; tür çıkarılamadıysa yazılan en uzun sözcük aranır.
+  const longestWord = query
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !/\d/.test(w))
+    .sort((a, b) => b.length - a.length)[0];
+  // Her render'da yeni nesne üretmemek için (hook bağımlılığı) özellikler metin olarak beklenir.
+  const paramsKey = useDebounced(
+    JSON.stringify({
+      categoryName: draft.categoryName.trim() || undefined,
+      q: draft.categoryName.trim() ? undefined : longestWord,
+      brandName: draft.brandName.trim() || undefined,
+      colorName: draft.colorName.trim() || undefined,
+      thicknessMm: draft.thicknessMm,
+      sheetWidthMm: draft.sheetWidthMm,
+      sheetHeightMm: draft.sheetHeightMm,
+    }),
+    500,
+  );
+  const params = JSON.parse(paramsKey) as CommunityTemplateQuery;
+  const hasKey = !!params.categoryName || !!params.q;
+  const { data } = useQuery({
+    queryKey: ['template-community', paramsKey],
+    queryFn: () => fetchCommunityTemplates(params),
+    enabled: enabled && hasKey,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const list = (data ?? []).slice(0, 6);
+  if (!enabled || !list.length) return null;
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-2.5 dark:border-slate-700 dark:bg-slate-900" data-community>
+      <div>
+        <p className="text-sm font-semibold">Benzer ürün türleri</p>
+        <p className="text-xs text-slate-500">Başka işletmelerde kayıtlı; seçerseniz alanlar o özelliklerle dolar.</p>
+      </div>
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {list.map((s, i) => (
+          <li key={`${s.templateName}-${i}`} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+            <span className="min-w-0 text-sm">
+              <span className="font-medium">{s.templateName}</span>
+              <span className="block text-xs text-slate-500">
+                {suggestionMeta(s) || s.categoryName} · {s.shops} işletmede kayıtlı
+              </span>
+            </span>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => onPick(s)}>
+              Bunu kullan
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /**
  * "Bu ürün türü yok" paneli: aranan metinden (yazım hatası, sıra, Türkçe
@@ -193,6 +281,23 @@ export function NewTemplatePanel({
           {hint ?? 'Alanlar aramanızdan dolduruldu; kontrol edip kaydedin.'}
         </p>
       </div>
+
+      <CommunitySuggestions
+        query={query}
+        draft={draft}
+        onPick={(s) =>
+          edit({
+            categoryName: s.categoryName,
+            brandName: s.brandName ?? '',
+            colorName: s.colorName ?? '',
+            colorCode: s.colorCode ?? '',
+            thicknessMm: s.thicknessMm ?? undefined,
+            sheetWidthMm: s.sheetWidthMm ?? undefined,
+            sheetHeightMm: s.sheetHeightMm ?? undefined,
+            variant: s.variant ?? '',
+          })
+        }
+      />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Her alan önce mevcut kayıtların LİSTESİDİR; listede yoksa "➕ Yeni …" ile yazılır. */}

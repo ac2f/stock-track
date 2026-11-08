@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDensity } from '../context/DensityContext';
 import { useBusinessSettings } from '../hooks/useReferenceData';
 import { fetchQueueCount } from '../api/processing.api';
+import { fetchPendingTransferCount } from '../api/shop-transfers.api';
 import { PageFallback } from '../components/ui/Loading';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { preloadPages } from '../lib/lazyPage';
@@ -46,6 +47,18 @@ function useQueueCount(enabled: boolean): number {
   return data?.count ?? 0;
 }
 
+/** Karşı işletmenin kararını değil BİZİM kararımızı bekleyen işlem sayısı (menü rozeti). */
+function usePendingTransferCount(enabled: boolean, shopId?: string): number {
+  const { data } = useQuery({
+    queryKey: ['shop-transfers', 'pending-count', shopId],
+    queryFn: fetchPendingTransferCount,
+    enabled,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  return data?.awaitingMe ?? 0;
+}
+
 /**
  * Mobil öncelikli kabuk:
  *  - Mobil: üstte sade başlık, altta dört ana öğe + "Menü" (bütün ekranlar
@@ -64,7 +77,9 @@ export function ResponsiveLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const queueCount = useQueueCount(can('processing'));
-  const badges: Record<string, number> = { '/queue': queueCount };
+  const tradeOn = hasFeature('trade') && (can('sales') || can('purchases'));
+  const transferCount = usePendingTransferCount(tradeOn, shop?.id);
+  const badges: Record<string, number> = { '/queue': queueCount, '/shop-transfers': transferCount };
 
   useGlobalShortcuts({
     openPalette: () => setPaletteOpen(true),

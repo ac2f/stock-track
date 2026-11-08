@@ -9,7 +9,7 @@ import { applyTheme, resolveInitialTheme } from '../lib/theme';
 import { applyFontScale, getFontScale } from '../lib/fontScale';
 import type { NavItem } from '../layouts/nav';
 import { visibleSections } from '../features/settings/sections';
-import type { ShopModule } from '../types';
+import type { ShopFeatureKey, ShopModule } from '../types';
 import { useDebounced } from '../hooks/useDebounced';
 import { useShopList, useSwitchShop } from './ShopSwitcher';
 
@@ -51,6 +51,8 @@ interface QuickAction {
   keywords?: string;
   /** Yalnız birden çok dükkâna girebilen kullanıcıya. */
   multiShop?: boolean;
+  /** Sistem sahibinin işletmeye açtığı özellik gerekir. */
+  feature?: ShopFeatureKey;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
@@ -61,7 +63,8 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: 'new-expense', icon: '🧾', label: 'Gider gir', to: '/expenses?new=1', module: 'expenses', level: 'write', keywords: 'masraf ekle' },
   { id: 'new-purchase', icon: '🛒', label: 'Yeni alım', to: '/purchases?new=1', module: 'purchases', level: 'write', keywords: 'satın alma tedarikçi' },
   { id: 'debtors', icon: '⚠️', label: 'Borçlu müşteriler', to: '/customers?debt=1', module: 'customers', level: 'read', keywords: 'alacak borç liste' },
-  { id: 'shop-transfer', icon: '🔁', label: 'Başka dükkâna malzeme sat', to: '/shop-transfers?new=1', module: 'sales', level: 'write', multiShop: true, keywords: 'dükkân şube transfer aktarım' },
+  { id: 'shop-transfer', icon: '🔁', label: 'Başka işletmeye malzeme sat', to: '/shop-transfers?new=1', module: 'sales', level: 'write', feature: 'trade', keywords: 'işletme dükkân şube transfer aktarım teklif' },
+  { id: 'marketplace', icon: '🛍️', label: 'Başka işletmelerin "bende var" stoğuna bak', to: '/shop-transfers?tab=market', module: 'purchases', level: 'read', feature: 'trade', keywords: 'pazar yeri stok ara bul malzeme tedarik' },
 ];
 
 const RECENT_KEY = 'st_palette_recent';
@@ -178,7 +181,7 @@ export function CommandPalette({
       });
     }
     for (const a of QUICK_ACTIONS) {
-      if (!can(a.module, a.level) || (a.multiShop && !multiShop)) continue;
+      if (!can(a.module, a.level) || (a.multiShop && !multiShop) || (a.feature && !hasFeature(a.feature))) continue;
       list.push({ id: a.id, group: 'İşlemler', icon: a.icon, label: a.label, keywords: a.keywords, run: () => go(a.to) });
     }
     if (managesAnyShop) {
