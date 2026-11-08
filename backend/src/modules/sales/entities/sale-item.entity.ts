@@ -11,6 +11,8 @@ import { Sale } from './sale.entity';
 /** Satış kalemi — bir malzemeden kaç birim, hangi fiyata, hangi stok kaynağıyla. */
 @Entity('sale_items')
 @Index(['saleId'])
+// Kalemin satış geçmişi / işletmeler arası izleme / kalem silme denetimi: plakaya göre arama (FK'ye PG indeks açmaz).
+@Index(['plateId'])
 export class SaleItem extends ShopScopedEntity {
   @ManyToOne(() => Sale, (sale) => sale.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sale_id' })

@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { existsSync, statSync } from 'fs';
+import { statSync } from 'fs';
 import { join } from 'path';
 import PDFDocument from 'pdfkit';
 import { DocModel, Party, Section } from './document-model';
@@ -80,6 +80,7 @@ function clean(v: unknown, ascii: boolean): string {
   if (s.length > MAX_TEXT) s = `${s.slice(0, MAX_TEXT - 1)}…`;
   s = s
     .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-control-regex -- kontrol karakterlerini ayıklamak bilerek
     .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g, ' ')
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
   if (ascii) {

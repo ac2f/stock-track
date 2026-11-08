@@ -140,7 +140,7 @@ export async function ignoreTransaction(txId: string): Promise<BankTransaction> 
  * kullanır.
  */
 export function readCsvHeaders(csv: string): string[] {
-  const first = csv.replace(/^﻿/, '').split(/\r?\n/).find((l) => l.trim());
+  const first = csv.replace(/^\uFEFF/, '').split(/\r?\n/).find((l) => l.trim());
   if (!first) return [];
   const delimiter =
     (first.match(/;/g)?.length ?? 0) >= (first.match(/,/g)?.length ?? 0)

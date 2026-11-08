@@ -8,7 +8,10 @@ import { Project } from './project.entity';
  * `expenseDate` ile dönem raporları çıkarılır.
  */
 @Entity('expenses')
-@Index(['expenseDate'])
+// Dönem raporları hep dükkân + tarih; tür/iş kırılımı (GROUP BY) için ilgili FK'ler.
+@Index(['shopId', 'expenseDate'])
+@Index(['categoryId'])
+@Index(['projectId'])
 export class Expense extends ShopScopedEntity {
   @ManyToOne(() => ExpenseCategory, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'category_id' })

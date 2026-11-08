@@ -4,3 +4,7 @@ dist
 *.log
 .env
 .env.*
+coverage
+test-e2e
+*.md
+Dockerfile

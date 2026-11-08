@@ -3,7 +3,8 @@
 #
 # Çalıştırma:
 #   1) cp backend/.env.example backend/.env   ve değerleri düzenleyin
-#      (güçlü JWT secret'ları, DB parolası; DB_SYNCHRONIZE=true — migration yoksa).
+#      (NODE_ENV=production'da JWT sırları en az 32 karakter ve örnek olmayan değerler olmalı, aksi hâlde
+#      API AÇILMAZ; install.sh/install.ps1 bunları rastgele üretir. DB_SYNCHRONIZE=true — migration yoksa).
 #   2) docker compose -f docker-compose.prod.yml up -d --build
 #      → OWNER hesabı + varsayılanlar API açılışında OTOMATİK oluşturulur
 #        (idempotent). Giriş: SEED_OWNER_EMAIL / SEED_OWNER_PASSWORD (.env).
@@ -72,6 +73,10 @@ services:
         # Log dosyalari sinirsiz buyumesin: servis basina en fazla 3 x 10 MB.
         max-size: '10m'
         max-file: '3'
+    # SIGTERM'den sonra süren isteklerin ve bağlantıların kapanması için süre (uygulama enableShutdownHooks kullanır).
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,8 +102,9 @@ services:
     build:
       context: ./frontend
       args:
-        # Boş → istemci API'yi window host'unun 3000 portunda varsayar (LAN için
-        # pratik). Sabit adres için: VITE_API_URL=http://sunucu-ip:3000/api/v1
+        # Boş (önerilen) → arayüz API'yi aynı kaynaktaki /api/v1 yolundan çağırır; nginx onu api servisine
+        # iletir (CORS/port sorunu yok). API ayrı adreste ise: VITE_API_URL=https://api.ornek.com/api/v1
+        # (nginx'teki CSP connect-src'e de o adres eklenmelidir).
         VITE_API_URL: ${VITE_API_URL:-}
     container_name: stocktrack-web
     restart: unless-stopped
@@ -108,6 +114,8 @@ services:
         # Log dosyalari sinirsiz buyumesin: servis basina en fazla 3 x 10 MB.
         max-size: '10m'
         max-file: '3'
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - api
     ports:

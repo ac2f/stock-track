@@ -338,7 +338,10 @@ function ProcessingHistory() {
   const setMany = (ids: string[], on: boolean) =>
     setSelected((s) => {
       const n = new Set(s);
-      for (const id of ids) (on ? n.add(id) : n.delete(id));
+      for (const id of ids) {
+        if (on) n.add(id);
+        else n.delete(id);
+      }
       return n;
     });
 
@@ -954,7 +957,8 @@ export function ProcessingQueuePage() {
 
   // Yükleniyorken sayfa (başlık + filtreler) yerinde kalır; yalnız liste
   // iskelete döner → arama kutusu yazarken kaybolmaz.
-  const groups = data ?? [];
+  // Her render'da yeni [] üretmemek için (aşağıdaki useMemo bağımlılığı).
+  const groups = useMemo(() => data ?? [], [data]);
   const empty = groups.every((g) => g.jobs.length === 0);
   const allJobs = groups.flatMap((g) => g.jobs);
   const nodes = useMemo(() => groupQueue(groups, groupBy), [groups, groupBy]);

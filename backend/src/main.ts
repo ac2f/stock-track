@@ -32,11 +32,29 @@ import { syncReplayMiddleware } from './modules/sync/sync-request';
 import { replaySecret } from './modules/sync/sync-replay.secret';
 import { PrimaryOnlyGuard } from './modules/sync/primary-only.guard';
 
+// Beklenmeyen hatalar sürecin sessizce ölmesine ya da sessizce yutulmasına yol açmasın.
+// Reddedilmiş söz: kaydedilir, süreç yaşar (tek bir arka plan işi API'yi düşürmesin).
+// Yakalanmamış istisna: durum bozuk olabilir → kaydedilir ve süreç kapanır; Docker/PM2 yeniden başlatır.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? (reason.stack ?? reason.message) : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err.stack ?? err.message);
+  setTimeout(() => process.exit(1), 100).unref();
+});
+
 async function bootstrap(): Promise<void> {
   // Şema, NestFactory.create sırasında eşitlenir (yeni tablo/sütun eklenir). Veri olan bir
   // veritabanı ilk kez yükseltiliyorsa ÖNCE tam yedek alınır (veri kaybına karşı emniyet).
   const upgrade = await preUpgradeBackup();
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: false,
+    // Üretimde ayrıntılı (debug/verbose) günlük yok: hem gürültü hem maliyet.
+    logger: process.env.NODE_ENV === 'production' ? ['log', 'warn', 'error'] : undefined,
+  });
+  // SIGTERM/SIGINT'te (docker stop, deploy): yeni bağlantı kabul edilmez, süren istekler biter,
+  // veritabanı/Redis bağlantıları kapatılır. Aksi hâlde yarım kalan işlem ve açık bağlantı kalırdı.
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const appConfig = configService.get<AppConfig>('app')!;
 
@@ -173,7 +191,16 @@ async function bootstrap(): Promise<void> {
 
   // Tüm ağ arayüzlerinden (0.0.0.0) dinle → yerel ağdaki diğer cihazlar
   // (telefon/tablet/başka bilgisayar) http://<sunucu-ip>:<port> ile bağlanabilir.
-  await app.listen(appConfig.port, '0.0.0.0');
+  const server = await app.listen(appConfig.port, '0.0.0.0');
+  // Ters vekilin (nginx) bağlantıyı kapatmasıyla yarışmasın diye keep-alive onun zaman aşımından uzun olsun
+  // (aksi hâlde arada "502 / ECONNRESET" görülür); başlık süresi de bunun üstünde.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
 }
 
-void bootstrap();
+// Açılış başarısız olursa (veritabanı yok, geçersiz yapılandırma, şema hatası ...) süreç KAPANMALI: sessizce
+// bekleyen, hiçbir porta bağlanmamış bir süreç yerine Docker/PM2 yeniden başlatsın ve hata görünsün.
+bootstrap().catch((err: unknown) => {
+  console.error('[açılış başarısız]', err instanceof Error ? (err.stack ?? err.message) : err);
+  process.exit(1);
+});

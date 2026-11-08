@@ -110,12 +110,10 @@ export class SalesService {
 
     // Kalemlerin plakalarını yükle (m² bazlı fiyatlama ölçüm tipine göre yapılır).
     // Serbest (plakasız) kalemler atlanır.
-    const plateById = new Map<string, MaterialPlate>();
-    for (const it of dto.items) {
-      if (it.plateId && !plateById.has(it.plateId)) {
-        plateById.set(it.plateId, await this.platesService.findOne(it.plateId));
-      }
-    }
+    // Tek sorguda (eskiden kalem başına ayrı sorgu + piyasa fiyatları ilişkisi yükleniyordu).
+    const plateById = await this.platesService.findMany(
+      dto.items.map((it) => it.plateId).filter((id): id is string => !!id),
+    );
 
     // Kalemlerin sahipliğini stok gerçeğine göre düzelt: müşteriye ait her
     // malzeme konsinye sayılır (bkz. resolveOwnership). Bundan sonraki tüm

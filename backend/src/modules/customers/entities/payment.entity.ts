@@ -18,6 +18,7 @@ import { Customer } from './customer.entity';
 @Entity('payments')
 // Müşteri ödeme geçmişi (tarihe göre) ve çalışan kasası (yöntem + tahsil durumu).
 @Index(['customerId', 'paymentDate'])
+@Index(['bankAccountId'])
 @Index(['receivedById', 'method', 'settledAt'])
 export class Payment extends ShopScopedEntity {
   @ManyToOne(() => Customer, (customer) => customer.payments, {

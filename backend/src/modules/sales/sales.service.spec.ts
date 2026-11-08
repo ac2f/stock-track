@@ -48,6 +48,10 @@ describe('SalesService — konsinye satışta sahip payı', () => {
       findOne: jest.fn((id: string) =>
         Promise.resolve(plate(id, opts.businessQty?.[id] ?? 0)),
       ),
+      // Satış kalemleri TEK sorguda yüklenir (kalem başına findOne yerine).
+      findMany: jest.fn((ids: string[]) =>
+        Promise.resolve(new Map([...new Set(ids)].map((id) => [id, plate(id, opts.businessQty?.[id] ?? 0)] as const))),
+      ),
       consignmentOwners: jest.fn((ids: string[]) =>
         Promise.resolve(
           new Map(

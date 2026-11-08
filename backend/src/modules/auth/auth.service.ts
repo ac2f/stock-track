@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { JwtConfig } from '../../config/configuration';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
-import { JwtPayload } from './strategies/jwt.strategy';
+import { issuedBeforePasswordChange, JwtPayload } from './strategies/jwt.strategy';
 import { LoginDto } from './dto/login.dto';
 
 export interface AuthTokens {
@@ -36,6 +36,7 @@ export class AuthService {
   async login(dto: LoginDto): Promise<AuthResult> {
     const user = await this.usersService.findByEmailWithPassword(dto.email);
     if (!user || !user.isActive) {
+      await UsersService.burnPasswordCheck(dto.password);
       throw new UnauthorizedException('E-posta veya parola hatalı.');
     }
     const valid = await UsersService.verifyPassword(
@@ -55,7 +56,7 @@ export class AuthService {
         { secret: this.jwtConfig.refreshSecret },
       );
       const user = await this.usersService.findOne(payload.sub);
-      if (!user.isActive) {
+      if (!user.isActive || issuedBeforePasswordChange(payload.iat, user.passwordChangedAt ? new Date(user.passwordChangedAt).getTime() : 0)) {
         throw new UnauthorizedException();
       }
       return this.signTokens(user);

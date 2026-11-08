@@ -13,6 +13,8 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 const SALT_ROUNDS = 10;
+/** Var olmayan hesapta sahte karşılaştırma için geçerli bir hash (açılışta bir kez üretilir; hiçbir kullanıcı parolası değildir). */
+const DUMMY_HASH = bcrypt.hashSync(`dummy-${Math.random()}-${Date.now()}`, SALT_ROUNDS);
 
 /** Sistem sahibinin kullanıcı yönetiminde gördüğü tam görünüm (parola hash'i yok). */
 export interface AdminUserView {
@@ -102,6 +104,7 @@ export class UsersService {
     Object.assign(user, rest);
     if (password) {
       user.passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+      user.passwordChangedAt = new Date();
     }
     return this.usersRepo.save(user);
   }
@@ -117,5 +120,13 @@ export class UsersService {
 
   static verifyPassword(plain: string, hash: string): Promise<boolean> {
     return bcrypt.compare(plain, hash);
+  }
+
+  /**
+   * Var olmayan hesapta da aynı süreyi harcamak için sahte karşılaştırma: aksi hâlde "kullanıcı yok"
+   * yanıtı bcrypt'siz anında döner ve yanıt süresinden hangi e-postaların kayıtlı olduğu anlaşılırdı.
+   */
+  static async burnPasswordCheck(plain: string): Promise<void> {
+    await bcrypt.compare(plain, DUMMY_HASH);
   }
 }

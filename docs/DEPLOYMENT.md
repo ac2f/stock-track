@@ -79,7 +79,7 @@ npm run dev                   # http://localhost:5173
 
 ```bash
 cp backend/.env.example backend/.env
-#  → JWT_ACCESS_SECRET / JWT_REFRESH_SECRET: güçlü, rastgele değerler
+#  → JWT_ACCESS_SECRET / JWT_REFRESH_SECRET: en az 32 karakter, rastgele, birbirinden farklı (aksi hâlde API açılmaz)
 #  → DB_PASSWORD: güçlü parola
 #  → DB_SYNCHRONIZE=true  (migration tanımlı olmadığından şema otomatik kurulur)
 
@@ -116,6 +116,29 @@ docker compose -f docker-compose.prod.yml up -d --build   # yeniden derle/başla
 ```
 
 > ⚠️ `down -v` veritabanı volume'ünü de siler — verileri kaybetmemek için kullanmayın.
+
+### Üretim kontrol listesi
+
+Canlıya almadan önce:
+
+| Konu | Ne yapılmalı / ne olur |
+| ---- | ---------------------- |
+| **Sırlar** | `JWT_ACCESS_SECRET` ve `JWT_REFRESH_SECRET`: en az 32 karakter, örnek olmayan, **birbirinden farklı** rastgele değerler (`openssl rand -hex 32`). `NODE_ENV=production`'da zayıf/örnek sır varsa API **açılmaz** ve nedenini yazar. `install.sh` / `install.ps1` bunları kendisi üretir. |
+| **Parolalar** | `DB_PASSWORD`, `REDIS_PASSWORD` (kök `.env`) ve sistem sahibi parolası (`SEED_OWNER_PASSWORD`) güçlü olmalı. Postgres ve Redis dışarıya **açılmaz**; yalnız compose ağında erişilir. |
+| **HTTPS** | Arayüzü internete açacaksanız önüne TLS sonlandıran bir ters vekil (Caddy, Traefik, HAProxy, bulut yük dengeleyici) koyun ve `X-Forwarded-Proto: https` iletin; nginx bu durumda HSTS başlığını kendiliğinden ekler. Vekil sayısına göre `TRUST_PROXY_HOPS` ayarlayın (nginx→api için 1, vekil→nginx→api için 2): gerçek istemci IP'si hız sınırı ve kayıtlarda buna bağlıdır. |
+| **API portu** | Compose, API'yi `:3000`'de de yayınlar (yerel sunucu/Corel/Runner doğrudan buraya bağlanır). Yalnız arayüz üzerinden kullanıyorsanız `ports:` satırını silin ya da `127.0.0.1:3000:3000` yapın; internete açıksa güvenlik duvarıyla kısıtlayın. |
+| **CORS** | Arayüz ve API aynı kaynaktan (nginx `/api`) sunulduğunda gerekmez. `APP_CORS_ORIGIN=*` açılışta uyarı verir; arayüz adresine kısıtlayın. |
+| **Güvenlik başlıkları** | nginx şunları ekler: `Content-Security-Policy` (betik yalnız aynı kaynaktan), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`; `server_tokens off`. API ayrı bir adresteyse `frontend/security-headers.conf` içindeki `connect-src`'e o adresi ekleyin. |
+| **Konteynerler** | API **root olmayan** kullanıcıyla çalışır (giriş betiği yedek birimini düzeltip yetkiyi düşürür), `tini` ile sinyalleri doğru alır; `docker stop` → SIGTERM → süren istekler biter, veritabanı/Redis bağlantıları kapanır (`stop_grace_period: 30s`). Hem API hem web için `HEALTHCHECK` vardır (`docker ps` → `healthy`). |
+| **Veritabanı havuzu** | Varsayılanlar: 20 bağlantı, bağlantı bekleme 10 sn, sorgu üst süresi 120 sn, açık kalıp boşta bekleyen işlem 120 sn. Ayar: `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS`, `DB_IDLE_TX_TIMEOUT_MS` (`0` = kapalı). Postgres'in `max_connections` değeri (varsayılan 100) API sayısı × `DB_POOL_MAX`'ı karşılamalı. |
+| **Şema** | `DB_SYNCHRONIZE=true`: şema açılışta kodla eşitlenir (henüz migration yoktur). Yükseltmede veri varsa **önce tam yedek** alınır (`PRE_UPGRADE_BACKUP=auto`; `required` yedek alınamazsa açılmaz). Sürüm notlarında "indeks/kolon kaldırıldı" geçiyorsa yedeği doğrulayın. PM2 cluster'da ilk açılışı **tek süreçle** yapın (bkz. `ecosystem.config.js`). |
+| **Yedek** | Günlük otomatik yedek `api_backups` volume'ündedir; şifre çözme anahtarı da burada. Volume'ü ve anahtarı ayrıca saklayın, **geri yüklemeyi bir kez deneyin** (Ayarlar › Yedekleme). |
+| **Oturumlar** | Parola değişince (ya da hesap pasife alınınca) o hesabın eski access/refresh oturumları hemen geçersiz olur. Girişte hesap yoksa da aynı sürede aynı hata döner (hesap sızdırmaz). |
+| **Günlükler** | Konteyner günlükleri 3 × 10 MB ile sınırlıdır. Üretimde yalnız `log/warn/error` yazılır. Beklenmeyen hata (`[uncaughtException]`) sürecin kapanıp yeniden başlamasına yol açar; açılış başarısız olursa süreç `[açılış başarısız]` yazıp 1 koduyla çıkar. |
+| **Sürekli tümleştirme** | `.github/workflows/ci.yml`: her push'ta derleme, `eslint`, birim testler, `npm audit` (yüksek/kritik açık derlemeyi kırar) ve gerçek PostgreSQL + Redis ile uçtan uca denemeler (yalıtım, yetki, ticaret, eşzamanlılık, oturum). |
+
+**Bilinen bağımlılık uyarıları (orta düzey, kabul edilen).** `npm audit --omit=dev` aşağıdakileri raporlar; hepsinin kapanması NestJS'in iki majör sürüm atlamasını (10 → 12) gerektirir ve ilgili özellikler kullanılmaz ya da yalnız kimliği doğrulanmış sistem sahibi tarafından erişilir:
+`@nestjs/core` (SSE/başlık enjeksiyonu — SSE kullanılmıyor), `multer` (yalnız sistem sahibinin yedek yükleme ucu), `file-type` (dosya doğrulama borusu kullanılmıyor), `glob`/`minimatch` (yalnız yapılandırmadaki sabit varlık desenleri), `uuid` (`buf` argümanı verilmiyor), `exceljs`. Yüksek/kritik düzeyler giderildi (`bcrypt` 6, `lodash`, `js-yaml`, `qs`, `body-parser` yamalı sürümleri `package.json › overrides`). Arayüzde `react-router` için açık yönlendirme uyarısı vardır; uygulama kullanıcıdan gelen bir adrese yönlendirme yapmadığı için etkilenmez.
 
 ## 3) Kalıcı veritabanı volume'ü
 

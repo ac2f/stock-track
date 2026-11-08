@@ -5,3 +5,6 @@
 *.woff2 binary
 *.png binary
 *.ico binary
+
+# Kabuk betikleri Windows çıkışında bile LF kalmalı: CRLF, konteynerde "exec format error" verir.
+*.sh text eol=lf

@@ -10,6 +10,7 @@ import {
   Brackets,
   DataSource,
   EntityManager,
+  In,
   IsNull,
   Repository,
 } from "typeorm";
@@ -577,6 +578,21 @@ export class PlatesService {
     return plate;
   }
 
+  /**
+   * Birden çok kalemi TEK sorguda yükler (satış/alış kalem döngülerinde kalem başına sorgu yerine).
+   * `findOne`'dan farkı: piyasa fiyatları (`supplierPrices`) yüklenmez; yalnız kalem ve şablonu gerekir.
+   * Bulunamayan kalem varsa `findOne` ile aynı hata.
+   */
+  async findMany(ids: string[]): Promise<Map<string, MaterialPlate>> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return new Map();
+    const rows = await this.platesRepo.find({ where: { id: In(unique) } });
+    if (rows.length !== unique.length) {
+      throw new NotFoundException("Stok kalemi bulunamadı.");
+    }
+    return new Map(rows.map((p) => [p.id, p]));
+  }
+
   /** Bir kalemin depo/sahip bazlı stok seviyeleri (konsinye dahil). */
   listStockLevels(plateId: string): Promise<StockLevel[]> {
     return this.stockLevelsRepo.find({ where: { plateId } });
@@ -643,30 +659,39 @@ export class PlatesService {
     manager?: EntityManager,
     allowNegative = false,
   ): Promise<StockLevel> {
-    const slRepo = manager
-      ? manager.getRepository(StockLevel)
-      : this.stockLevelsRepo;
-    const plateRepo = manager
-      ? manager.getRepository(MaterialPlate)
-      : this.platesRepo;
+    // İşlem dışında çağrılırsa kendi işlemini açar: kilitsiz oku-değiştir-yaz, eşzamanlı iki düşüşte
+    // biri diğerinin sonucunu ezerdi (kayıp güncelleme → fazla satış). Bugün tüm çağıranlar işlem içinde;
+    // bu, yarın eklenecek bir çağıranın sessizce güvensiz olmasını engeller.
+    if (!manager?.queryRunner?.isTransactionActive) {
+      return this.dataSource.transaction((m) =>
+        this.adjustStock(plateId, warehouseId, delta, ownerCustomerId, m, allowNegative),
+      );
+    }
+    const slRepo = manager.getRepository(StockLevel);
+    const plateRepo = manager.getRepository(MaterialPlate);
 
-    // Transaction içindeyse seviye satırı kilitlenir: aynı stoğa eşzamanlı iki
-    // düşüş birbirinin sonucunu görür (fazla satış / kayıp güncelleme olmaz).
-    const inTx = !!manager?.queryRunner?.isTransactionActive;
-    let level = await slRepo.findOne({
-      where: {
-        plateId,
-        warehouseId,
-        ownerCustomerId: ownerCustomerId ?? IsNull(),
-      },
-      // FOR UPDATE, eager ilişkilerin dış birleşimine uygulanamaz.
-      ...(inTx
-        ? {
-            lock: { mode: "pessimistic_write" as const },
-            loadEagerRelations: false,
-          }
-        : {}),
-    });
+    // Seviye satırı kilitlenir: aynı stoğa eşzamanlı iki düşüş birbirinin sonucunu görür.
+    const findLevel = () =>
+      slRepo.findOne({
+        where: {
+          plateId,
+          warehouseId,
+          ownerCustomerId: ownerCustomerId ?? IsNull(),
+        },
+        // FOR UPDATE, eager ilişkilerin dış birleşimine uygulanamaz.
+        lock: { mode: "pessimistic_write" as const },
+        loadEagerRelations: false,
+      });
+    let level = await findLevel();
+    if (!level) {
+      // Satır henüz yok: kilitlenecek bir şey de yok. Sahipsiz (işletme) stokta benzersiz kısıt NULL'u ayrı
+      // sayar → iki eşzamanlı ilk giriş iki ayrı satır açıp stoğu ikiye bölebilirdi. Anahtar bazlı danışma
+      // kilidiyle ilk oluşturma sıraya girer; kilidi alan, diğeri açtıysa onun satırını bulur.
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `stock_level:${plateId}:${warehouseId}:${ownerCustomerId ?? "-"}`,
+      ]);
+      level = await findLevel();
+    }
     if (!level) {
       level = slRepo.create({
         plateId,

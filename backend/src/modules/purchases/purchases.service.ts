@@ -56,8 +56,9 @@ export class PurchasesService {
       // marka, renk, kalınlık, ebat) söyler; tabakalar tam ebatlı açılır, alışta
       // parça ölçüsü yazıldıysa o ölçüde. Alış kaleminin plakası ilk yeni tabakadır.
       const purchased: { plateId: string; sheets: boolean }[] = [];
+      const platesById = await this.platesService.findMany(dto.items.map((it) => it.plateId));
       for (const it of dto.items) {
-        const plate = await this.platesService.findOne(it.plateId);
+        const plate = platesById.get(it.plateId)!;
         if (plate.measurementType !== MeasurementType.AREA) {
           purchased.push({ plateId: it.plateId, sheets: false });
           continue;

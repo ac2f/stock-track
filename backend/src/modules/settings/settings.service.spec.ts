@@ -13,7 +13,6 @@ const SHOP = '00000000-0000-4000-8000-000000000001';
 const OTHER_SHOP = '00000000-0000-4000-8000-000000000002';
 /** Testler bir dükkânın içinden çalışır (istek bağlamı gibi). */
 const inShop = <T>(fn: () => Promise<T>) => ShopContext.forShop(SHOP, fn);
-const inOtherShop = <T>(fn: () => Promise<T>) => ShopContext.forShop(OTHER_SHOP, fn);
 
 /**
  * Veritabanı sahtesi: servisin ham SQL'lerini içeriğine göre yanıtlar.

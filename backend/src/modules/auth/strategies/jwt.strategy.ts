@@ -13,6 +13,14 @@ export interface JwtPayload {
   email: string;
   role: string;
   fullName: string;
+  /** Verilme zamanı (sn); jsonwebtoken kendiliğinden ekler. Parola değişikliğinden öncekileri reddetmek için. */
+  iat?: number;
+}
+
+/** Token, parola değişikliğinden ÖNCE mi verilmiş? (saniye hassasiyeti: aynı saniyedeki yeni oturum etkilenmez) */
+export function issuedBeforePasswordChange(iat: number | undefined, passwordChangedAtMs: number): boolean {
+  if (!passwordChangedAtMs) return false;
+  return (iat ?? 0) < Math.floor(passwordChangedAtMs / 1000);
 }
 
 /**
@@ -50,10 +58,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     const user = await this.cache.wrap(GLOBAL_SCOPE, CacheGroup.USERS, `jwt:${payload.sub}`, 300, async () => {
       const row = await this.usersService.findById(payload.sub);
       return row
-        ? { id: row.id, email: row.email, role: row.role, fullName: row.fullName, isActive: row.isActive }
+        ? {
+            id: row.id,
+            email: row.email,
+            role: row.role,
+            fullName: row.fullName,
+            isActive: row.isActive,
+            pwdAt: row.passwordChangedAt ? new Date(row.passwordChangedAt).getTime() : 0,
+          }
         : null;
     });
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || issuedBeforePasswordChange(payload.iat, user.pwdAt ?? 0)) {
       throw new UnauthorizedException(
         'Oturum geçersiz. Lütfen yeniden giriş yapın.',
       );

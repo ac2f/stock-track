@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { ShopScopedEntity } from '../../../common/shop/shop-scoped.entity';
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { Vehicle } from '../../vehicles/entities/vehicle.entity';
@@ -14,6 +14,9 @@ import { PurchaseOrderItem } from './purchase-order-item.entity';
  * kayıt altına alınır. Kalemler stoğa giriş yapar.
  */
 @Entity('purchase_orders')
+// Tedarikçi hesap dökümü ve alış listesi (dükkân + tarih).
+@Index(['supplierId'])
+@Index(['shopId', 'purchaseDate'])
 export class PurchaseOrder extends ShopScopedEntity {
   @ManyToOne(() => Supplier, { eager: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'supplier_id' })

@@ -282,10 +282,10 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
         const pipeline = this.client.pipeline();
         if (scope === '*') {
           // Henüz hash'i olmayan kapsamlarda süren okumalar da eski veri yazmasın.
-          pipeline.set(this.tombKey('*', group), String(now), 'EX', TOMBSTONE_SECONDS);
+          void pipeline.set(this.tombKey('*', group), String(now), 'EX', TOMBSTONE_SECONDS); // kuyruğa eklenir; sonuç exec()'te
         }
         for (const s of scopes) {
-          (pipeline as unknown as RedisCommands).stInvalidate(
+          void (pipeline as unknown as RedisCommands).stInvalidate(
             this.hashKey(s, group),
             this.tombKey(s, group),
             String(now),

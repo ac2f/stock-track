@@ -103,7 +103,7 @@ export class TelegramChannel implements NotificationChannelPort {
 
   /** Telegram'ın eski Markdown biçiminde özel karakterleri kaçırır. */
   static escapeMarkdown(s: string): string {
-    return s.replace(/([_*`\[])/g, '\\$1');
+    return s.replace(/([_*`[])/g, '\\$1');
   }
 
   /**

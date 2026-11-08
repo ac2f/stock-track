@@ -102,7 +102,9 @@ export function parseDate(value: unknown): string | null {
 
   const dmy = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
   if (dmy) {
-    let [, d, m, y] = dmy;
+    const [, d0, m0, y] = dmy;
+    let d = d0;
+    let m = m0;
     if (Number(m) > 12 && Number(d) <= 12) [d, m] = [m, d];
     const year = y.length === 2 ? `20${y}` : y;
     return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -185,7 +187,7 @@ export function parseRow(
  * Tırnak içindeki ayraçlar korunur.
  */
 export function parseCsv(text: string): Record<string, string>[] {
-  const clean = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const clean = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   const lines = clean.split('\n').filter((l) => l.trim().length > 0);
   if (!lines.length) return [];
 

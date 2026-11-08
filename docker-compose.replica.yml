@@ -48,6 +48,9 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       replica-db:
         condition: service_healthy

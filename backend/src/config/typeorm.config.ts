@@ -24,6 +24,20 @@ export function buildTypeOrmOptions(
     synchronize: db.synchronize, // sadece geliştirmede true
     logging: db.logging,
     namingStrategy: undefined, // varsayılan snake_case @Column adlarıyla kullanılır
+    // Havuz ve zaman aşımları: pg'nin varsayılanları (10 bağlantı, bağlantı beklemede SINIRSIZ,
+    // sorgu süresiz) yoğun saatte isteklerin sonsuza dek asılı kalmasına yol açar.
+    poolSize: db.poolMax,
+    connectTimeoutMS: db.connectTimeoutMs,
+    extra: {
+      max: db.poolMax,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: db.connectTimeoutMs,
+      application_name: 'stocktrack-api',
+      ...(db.statementTimeoutMs > 0 ? { statement_timeout: db.statementTimeoutMs } : {}),
+      ...(db.idleInTransactionTimeoutMs > 0
+        ? { idle_in_transaction_session_timeout: db.idleInTransactionTimeoutMs }
+        : {}),
+    },
   };
 }
 
@@ -49,6 +63,10 @@ const cliDb: DatabaseConfig = {
   database: process.env.DB_NAME ?? 'stocktrack',
   synchronize: false,
   logging: process.env.DB_LOGGING === 'true',
+  poolMax: 5,
+  connectTimeoutMs: 10000,
+  statementTimeoutMs: 0, // CLI/migration uzun sürebilir
+  idleInTransactionTimeoutMs: 0,
 };
 
 export default new DataSource(buildTypeOrmOptions(cliDb));

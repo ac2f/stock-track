@@ -12,6 +12,8 @@ API=http://localhost:3000/api/v1 node test-e2e/transfer.e2e.mjs   # işletmeler 
 API=http://localhost:3000/api/v1 node test-e2e/trade.e2e.mjs      # yetkiler (süreli), "bende var", pazar yeri, tür önerisi, eşzamanlılık
 API=http://localhost:3000/api/v1 node test-e2e/tenant-isolation.e2e.mjs  # işletmeler arası veri yalıtımı
 API=http://localhost:3000/api/v1 node test-e2e/catalog-storage.e2e.mjs  # kısa/atomik stok kodu, saklanmayan ad, arama, transferde alıcı kodu
+API=http://localhost:3000/api/v1 node test-e2e/session.e2e.mjs      # parola değişince eski oturumlar düşer, hesap sızdırmama, pasif hesap
+API=http://localhost:3000/api/v1 node test-e2e/concurrency.e2e.mjs  # paralel satış/alışta fazla satış ve çift stok satırı olmaz
 API=http://localhost:3000/api/v1 node test-e2e/idor.e2e.mjs       # başka işletme kimlikleri, sahte JWT, yetki yükseltme denemeleri
 API=http://localhost:3000/api/v1 node test-e2e/access-matrix.e2e.mjs  # her uç × kimlik (yönetici, çalışan, izinsiz, başka işletme, anonim) matrisi
 ```

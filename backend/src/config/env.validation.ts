@@ -4,6 +4,34 @@ import * as Joi from 'joi';
  * .env şema doğrulaması. Uygulama, eksik/yanlış bir ortam değişkeniyle
  * başlatılmaya çalışılırsa açılışta (fail-fast) hata verir.
  */
+/** Örnek/öntanımlı değerler: üretimde asla sır olarak kullanılmamalı. */
+const PLACEHOLDER = /change[-_ ]?me|access-secret|refresh-secret|secret123|example|changeit|password|^(test|dev|default)/i;
+
+/**
+ * Üretimde (NODE_ENV=production) JWT sırları: en az 32 karakter, örnek değer olmayan ve birbirinden farklı.
+ * Zayıf sır, herkesin geçerli oturum belgesi üretebilmesi demektir; bu yüzden uygulama AÇILMAZ (fail-fast).
+ * Kurulum betikleri (install.sh/install.ps1) 64 karakterlik rastgele sır üretir.
+ */
+function productionChecks(env: Record<string, unknown>, helpers: Joi.CustomHelpers) {
+  if (env.NODE_ENV !== 'production') return env;
+  const problems: string[] = [];
+  const a = String(env.JWT_ACCESS_SECRET ?? '');
+  const r = String(env.JWT_REFRESH_SECRET ?? '');
+  for (const [name, v] of [['JWT_ACCESS_SECRET', a], ['JWT_REFRESH_SECRET', r]] as const) {
+    if (v.length < 32) problems.push(`${name} en az 32 karakter olmalı (şu an ${v.length}).`);
+    else if (PLACEHOLDER.test(v)) problems.push(`${name} örnek/öntanımlı bir değer; rastgele bir sır üretin (openssl rand -hex 32).`);
+  }
+  if (a && a === r) problems.push('JWT_ACCESS_SECRET ve JWT_REFRESH_SECRET aynı olamaz.');
+  if (problems.length) return helpers.message({ custom: `Üretim yapılandırması güvensiz: ${problems.join(' ')}` });
+  // Kapıyı açık bırakmayan ama dikkat çekilmesi gerekenler (açılışı engellemez).
+  const warn: string[] = [];
+  if (['stocktrack', 'postgres', 'password'].includes(String(env.DB_PASSWORD))) warn.push('DB_PASSWORD öntanımlı/zayıf.');
+  if (String(env.APP_CORS_ORIGIN ?? '*') === '*') warn.push('APP_CORS_ORIGIN=* (her kaynaktan tarayıcı erişimi); arayüz API ile aynı kaynaktan sunuluyorsa kısıtlayın.');
+  if (env.DB_SYNCHRONIZE === true || env.DB_SYNCHRONIZE === 'true') warn.push('DB_SYNCHRONIZE=true: şema açılışta eşitlenir (yükseltme öncesi yedek PRE_UPGRADE_BACKUP ile alınır).');
+  for (const w of warn) console.warn(`[uyarı] ${w}`);
+  return env;
+}
+
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
@@ -80,4 +108,10 @@ export const envValidationSchema = Joi.object({
   WHATSAPP_TOKEN: Joi.string().allow('').optional(),
   WHATSAPP_PHONE_NUMBER_ID: Joi.string().allow('').optional(),
   WHATSAPP_API_VERSION: Joi.string().default('v21.0'),
-});
+
+  // Veritabanı bağlantı havuzu ve zaman aşımları (bkz. config/typeorm.config.ts)
+  DB_POOL_MAX: Joi.number().integer().min(2).max(200).default(20),
+  DB_CONNECT_TIMEOUT_MS: Joi.number().integer().min(1000).default(10000),
+  DB_STATEMENT_TIMEOUT_MS: Joi.number().integer().min(0).default(120000),
+  DB_IDLE_TX_TIMEOUT_MS: Joi.number().integer().min(0).default(120000),
+}).unknown(true).custom(productionChecks);

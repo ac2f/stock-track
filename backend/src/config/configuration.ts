@@ -20,6 +20,14 @@ export interface DatabaseConfig {
   database: string;
   synchronize: boolean;
   logging: boolean;
+  /** Bağlantı havuzu üst sınırı (varsayılan 20; pg'nin 10'u yoğun saatte sıra bekletir). */
+  poolMax: number;
+  /** Havuzdan bağlantı alma zaman aşımı (ms). pg'de varsayılan SINIRSIZ bekleme; takılan istek asılı kalmasın. */
+  connectTimeoutMs: number;
+  /** Tek sorgunun üst süresi (ms; 0 = kapalı). Kaçak bir sorgu havuzu tüketmesin. */
+  statementTimeoutMs: number;
+  /** İşlem açık kalıp boşta beklerse (ms; 0 = kapalı) oturum sonlandırılır; kilitler serbest kalır. */
+  idleInTransactionTimeoutMs: number;
 }
 
 export interface JwtConfig {
@@ -149,6 +157,10 @@ export default (): RootConfig => ({
     database: process.env.DB_NAME ?? 'stocktrack',
     synchronize: process.env.DB_SYNCHRONIZE === 'true',
     logging: process.env.DB_LOGGING === 'true',
+    poolMax: Math.max(2, parseInt(process.env.DB_POOL_MAX ?? '20', 10) || 20),
+    connectTimeoutMs: Math.max(1000, parseInt(process.env.DB_CONNECT_TIMEOUT_MS ?? '10000', 10) || 10000),
+    statementTimeoutMs: Math.max(0, parseInt(process.env.DB_STATEMENT_TIMEOUT_MS ?? '120000', 10) || 0),
+    idleInTransactionTimeoutMs: Math.max(0, parseInt(process.env.DB_IDLE_TX_TIMEOUT_MS ?? '120000', 10) || 0),
   },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET ?? 'access-secret',
@@ -176,8 +188,12 @@ export default (): RootConfig => ({
   scheduler: {
     // Yerel sunucuda (replika) zamanlanmış görevler çalışmaz: Telegram botu,
     // hatırlatma, yedek ve kur çekimi merkezde bir kez çalışmalı.
+    // PM2 cluster'da süreçlerin hepsi aynı kodu çalıştırır: zamanlanmış görevler (yedek, Telegram, hatırlatma)
+    // yalnız 0 numaralı süreçte çalışır (PM2 NODE_APP_INSTANCE verir; Docker'da değişken yoktur → açık).
     enabled:
-      process.env.SYNC_ROLE !== 'replica' && (process.env.SCHEDULER_ENABLED ?? 'true') === 'true',
+      process.env.SYNC_ROLE !== 'replica' &&
+      (process.env.SCHEDULER_ENABLED ?? 'true') === 'true' &&
+      (process.env.NODE_APP_INSTANCE ?? '0') === '0',
   },
   backup: {
     dir: process.env.BACKUP_DIR ?? 'backups',

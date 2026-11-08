@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { Payment } from '../../customers/entities/payment.entity';
 import { Expense } from '../../expenses/entities/expense.entity';

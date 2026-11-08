@@ -26,6 +26,13 @@ export class User extends BaseEntity {
   isActive: boolean;
 
   /**
+   * Parola en son ne zaman değişti. Bundan ÖNCE verilmiş oturumlar (access/refresh) geçersizdir:
+   * parolası değiştirilen ya da sıfırlanan hesabın eski oturumları (çalınmış token dahil) hemen düşer.
+   */
+  @Column({ name: 'password_changed_at', type: 'timestamptz', nullable: true })
+  passwordChangedAt?: Date | null;
+
+  /**
    * Telegram kullanıcı kimliği (botta /idx ile öğrenilir). Doluysa bu kişi
    * Telegram botunda yalnız üye olduğu dükkânları, kendi izinleriyle görür.
    */

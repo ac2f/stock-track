@@ -6,6 +6,8 @@ import { PurchaseOrder } from './purchase-order.entity';
 /** Satın alma kalemi — bir plakadan kaç adet, hangi birim fiyatla alındı. */
 @Entity('purchase_order_items')
 @Index(['purchaseOrderId'])
+// Kalem maliyeti ve alış geçmişi plakaya göre aranır.
+@Index(['plateId'])
 export class PurchaseOrderItem extends ShopScopedEntity {
   @ManyToOne(() => PurchaseOrder, (order) => order.items, {
     onDelete: 'CASCADE',

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, P
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentShop } from '../../common/decorators/current-shop.decorator';
 import { AuthenticatedUser, CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AnyShopMember, ShopAccess, ShopFeatureRequired, ShopScope } from '../../common/shop/shop-access.decorator';
+import { ShopAccess, ShopFeatureRequired, ShopScope } from '../../common/shop/shop-access.decorator';
 import { PrimaryOnly } from '../sync/sync.decorators';
 import type { ShopAccessInfo } from '../shops/shop-access.service';
 import {
