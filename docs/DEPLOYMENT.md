@@ -90,9 +90,14 @@ docker compose -f docker-compose.prod.yml up -d --build
 > **İlk kurulum hesabı otomatik oluşur.** API açılışında (şema hazır olduğunda)
 > idempotent tohumlama çalışır: OWNER kullanıcısı + varsayılan tarife/depo/türler.
 > Yani ayrıca bir seed komutu çalıştırmanıza gerek yoktur. Giriş bilgileri
-> `backend/.env` içindeki `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` değerleridir
-> (varsayılan: `owner@stocktrack.local` / `Owner123!`). Bu davranışı kapatmak için
-> `SEED_ON_BOOT=false` ayarlayın. İsterseniz elle de çalıştırabilirsiniz:
+> `backend/.env` içindeki `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` değerleridir.
+> `install.sh` / `install.ps1` parolayı **rastgele üretir** ve kurulum sonunda gösterir;
+> herkesin bildiği örnek parola (`Owner123!`) yalnız geliştirmede kullanılır — üretimde
+> (`NODE_ENV=production`) parola verilmediyse ya da örnek bırakıldıysa API rastgele bir parola
+> üretip yalnız ilk oluşturmada günlüğe **bir kez** yazar. Eski bir kurulumda hesap hâlâ örnek
+> parolayla duruyorsa açılışta uyarı verilir: giriş yapıp parolayı değiştirin. Bu davranışı
+> kapatmak için `SEED_ON_BOOT=false` ayarlayın. Üretimde Swagger (`/api/docs`) kapalıdır;
+> gerekirse `SWAGGER_ENABLED=true`. İsterseniz elle de çalıştırabilirsiniz:
 >
 > ```bash
 > docker compose -f docker-compose.prod.yml run --rm api node dist/database/seed.js

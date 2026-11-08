@@ -114,8 +114,8 @@ Sistem sahibi (👔, dükkân seçimi gerekmez, yalnız merkez sunucu):
 | Metot | Yol | Açıklama |
 |-------|-----|----------|
 | GET / PATCH | `/platform/settings` | `{ registrationOpen, registrationAutoApprove, trialDays }` |
-| GET | `/platform/businesses/stats`, `/platform/businesses`, `/platform/businesses/:id` | İşletmeler (`?status&search&province&district&expiring`) |
-| PATCH | `/platform/businesses/:id` | `{ status, plan, subscriptionUntil, extendDays, adminNote, isActive, directoryVisible }` |
+| GET | `/platform/businesses/stats`, `/platform/businesses`, `/platform/businesses/:id` | İşletmeler (`?status&search&province&district&expiring&labelId&feature`); satırda `labelIds[]` ve `features` |
+| PATCH | `/platform/businesses/:id` | `{ status, plan, subscriptionUntil, extendDays, adminNote, isActive, directoryVisible, features }` — `features: { corel?, network?, directory? }` (yalnız gönderilenler değişir; bilinmeyen ad 400) |
 | POST | `/platform/businesses/:id/approve` | Onayla (deneme süresi yazılır) |
 | CRUD | `/platform/labels` | İş kolu etiketleri |
 | CRUD | `/platform/machine-types`, `POST /platform/machine-types/:id/sizes`, `PATCH/DELETE /platform/machine-type-sizes/:sizeId` | Makine türü ağacı ve standart ebatlar |
@@ -510,13 +510,22 @@ Sahibe ödeme (OUTGOING): `POST /customers/:ownerId/payments` gövdesine `"direc
 | POST | `/notifications/telegram/reload` | Telegram'ı "yeniden başlat": ayarları tazeler, jetonu `getMe` ile doğrular. Yanıt: `{ ok, botUsername, chatId, backupChatId, error? }` |
 | POST | `/notifications/telegram/test?topic=` | Ayarlardaki sohbete (konu verilirse o konunun sohbetine) deneme mesajı gönderir |
 
-### Settings (Ayarlar — 👔 OWNER yazma)
+### Settings (Ayarlar)
 | Metot | Yol | Açıklama |
 |-------|-----|----------|
-| GET | `/settings/business` | İşletme kimliği (belgelerde/portalda kullanılır) |
-| PUT | `/settings/business` | İşletme kimliğini güncelle |
-| GET | `/settings/telegram` | Telegram durumu. **Jeton maskeli döner**, asla açık değil. Mesajın gideceği sohbet kimlikleri burada |
-| PUT | `/settings/telegram` | Jeton/sohbet kimliklerini güncelle. Alan gönderilmezse değişmez, **boş** gönderilirse temizlenir (`.env` değerine düşer). `telegramRoutes: { sales: { chatId }, corel: { off: true }, … }` dükkânın konu hedefleri (verilen nesne öncekinin yerine geçer) |
+| GET | `/settings/business` | İşletme kimliği (belgelerde kullanılır). `portalBaseUrl` ve `logoPath` **yalnız sistem sahibine dolu** gelir, işletmeye boş |
+| PUT | `/settings/business` | İşletme kimliğini güncelle; yanıt çözümlenmiş kimliktir (ham ayar satırı değil). `portalBaseUrl` / `businessLogoPath` işletmeden gelirse **403** (boş değer yok sayılır); `portalBaseUrl` http(s):// olmalı |
+| GET / PUT | `/settings/pricing` | Malzeme satış kâr yüzdesi ve konsinye komisyonu |
+| GET / PUT | `/settings/cut-pricing` | **İşleme birim ücretleri — tek menü:** `areaRate` (m²), `meterRate` (metre), `hourlyRate` + `minMinutes` (süre), `pieceRate` (adet). `minArea`, `feedMmS`, `rapidMmS`, `plungeSec`, `passDepthMm` yalnız **Corel özelliği açık** işletmede gelir/yazılır |
+| GET / PUT | `/settings/telegram` | Telegram. **İşletme görünümü:** `{ configured, botReady, botUsername, chatId, routes[], ownerView:false }` — bot jetonu, yedek sohbeti, yetkili kullanıcılar, `.env` sohbeti ve başka işletme adları **hiç yoktur**. **Sistem sahibi görünümü** (`ownerView:true`): ayrıca maskeli jeton, kaynak, yedek sohbeti, `allowedUserIds`, `chatSharedWith`. PUT: `telegramChatId` ve `telegramRoutes` işletmenin; `telegramBotToken`, `backupTelegramChatId`, `telegramAllowedUserIds` yalnız sistem sahibinin (işletmeden **403**). İşletme yeni sohbet kimliği yazarken biçim denetlenir ve bot o grupta mı Telegram'dan doğrulanır (kişisel sohbet reddedilir). Alan gönderilmezse değişmez, **boş** gönderilirse temizlenir. `telegramRoutes: { sales: { chatId }, … }` verilen nesne öncekinin yerine geçer |
+| GET / POST / DELETE | `/settings/corel`, `/settings/corel/rotate` | Corel anahtarı — **Corel özelliği gerekir** (kapalıysa 403) |
+| GET / PUT | `/settings/folders` | Klasör oluşturucu — **Corel özelliği gerekir** |
+| GET | `/corel-runners` | Runner durumu — **Corel özelliği gerekir** |
+
+**Özellik yetkisi (`ShopFeatureRequired`)**: `corel` → yukarıdaki uçlar + `/corel/*` (anahtar kapalı
+işletmede de reddedilir) + `POST /quotes/:id/request-folders`; `directory` → `/directory/*`;
+`network` → `/customer-network/*`. Kapalıyken yanıt `403` ve `… bu hesapta etkin değil`.
+`GET /shops/mine` ve `GET /auth/me` işletme başına çözülmüş `features` döner.
 
 **Telegram konuları** (`routes` her dükkânın kendisinin): `sales` satışlar,
 `payments` tahsilat (sohbeti olmayan müşterinin), `stock` kritik stok, `debt`
@@ -526,8 +535,9 @@ koptu / geri geldi). Her konu bildirim sohbetine, başka bir sohbete gider ya
 da kapalıdır. Dükkânlar aynı sohbeti paylaşabilir; birden çok açık dükkân
 varken mesajın ilk satırı `🏪 Dükkân adı`dır. Müşterinin kendi sohbetine
 giden mesaj ve yedek yönlendirmeden etkilenmez. `GET /settings/telegram`
-`routes[]` (`mode: default|chat|off`, `effectiveChatId`, `sharedWith[]`) ve
-`chatSharedWith[]` döner.
+`routes[]` (`mode: default|chat|off`, `effectiveChatId`) döner; `sharedWith[]`
+ve `chatSharedWith[]` (aynı sohbeti kullanan diğer dükkânlar) **yalnız sistem
+sahibine** gelir. Corel özelliği kapalı işletmede `corel` konusu listelenmez.
 
 ### Backups (Yedekleme — 👔 OWNER)
 | Metot | Yol | Açıklama |

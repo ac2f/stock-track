@@ -34,10 +34,54 @@ Sistem sahibi hiçbir durumdan etkilenmez.
 Kötüye kullanıma karşı: kayıt IP başına saatte 20, e-posta başına saatte 10 deneme; girişte hesap
 başına 15 dakikada 50, IP başına 300 deneme (Redis'te sayılır; bkz. [REDIS.md](REDIS.md)).
 
+## Özellik yetkileri: hangi işletme neyi kullanabilir
+
+Bazı hizmetleri **yalnız siz** (sistem sahibi) işletme işletme açıp kapatırsınız. İşletme yöneticisi
+bunları kendisi açamaz; kapalı özellik hem arayüzden (menü, ayar bölümü, arama, bildirim konusu, metinler)
+hem de API'den kalkar — ilgili uçlar `403 … bu hesapta etkin değil` döner.
+
+| Özellik | Kapalıyken işletme ne görmez / yapamaz | Varsayılan |
+|---|---|---|
+| **Corel eklentisi ve klasör oluşturucu** (`corel`) | Ayarlar › Corel entegrasyonu, runner durumu/rozeti, otomatik klasörler ve "klasör açılmasın" seçeneği, makine hızı / asgari alan ayarları, "Corel ve klasörler" Telegram konusu; Corel anahtarı (eskiden üretilmiş olsa bile) çalışmaz. **Corel, runner ve CDR Auto Renamer adları hiçbir ekranda geçmez.** | **Kapalı** |
+| **Müşteri ve borç ağı** (`network`) | Aynı telefonla başka işletmede kayıtlı müşteri önerisi ve borç uyarısı (hem alma hem verme) | Açık |
+| **İşletme rehberi** (`directory`) | Rehber ekranı; işletme rehberde listelenmez | Açık |
+
+Platform › İşletmeler › işletme kartı › **Ayrıntı / not › Açılan özellikler** bölümünden açılır. Listeyi
+**iş kolu etiketine** (malzemeci, baskıcı, atölye, montaj …) ve **açık özelliğe** göre süzebilirsiniz.
+Sistem sahibi için her özellik her zaman açıktır. Yükseltmede Corel anahtarı üretmiş ya da runner bağlamış
+işletmelerin Corel özelliği **açık** yazılır (kesinti olmaz); sonradan kapatırsanız yeniden açılmaz.
+
+## Neler işletmeye gönderilmez (gizlilik)
+
+Sunucu aşağıdakileri işletmeye **hiçbir yanıtta** vermez (arayüzde gizlemek yetmez, alan hiç yoktur):
+
+- **Telegram bot jetonu** (maskeli önizleme dahil), **yedek sohbeti**, **yetkili kullanıcılar** ve `.env`
+  sohbet kimliği. Tek bir sistem botu vardır; işletme jeton girmez, botu **kendi grubuna ekler** ve
+  grubun kimliğini (grupta `/idx`) kaydeder. Kayıtta bot o grupta mı diye Telegram'dan doğrulanır, kişisel
+  sohbetler reddedilir. İşletmenin sohbeti tanımsızsa bildirimleri **sizin sohbetinize düşmez**.
+- **Müşteri portalı temel adresi** ve logo yolu: yalnız siz görür ve değiştirirsiniz (portal bağlantıları
+  hep sizin belirlediğiniz adresten üretilir).
+- Başka işletmelerin adı, sohbet paylaşımı, ekip/kullanıcı bilgisi; sizin işletme için yazdığınız **yönetici notu**;
+  platform yöneticisinin adı (personel listesinde).
+- Satış/ödeme/iş kayıtlarına gömülü kullanıcı yalnız **id ve ad** olarak gider (e-posta, telefon, rol,
+  Telegram kimliği yok). Nakit tahsilatta "teslim alan" yalnız o dükkânın personeli olabilir.
+- Ekibe kullanıcı eklerken işletme yöneticisi başka işletmenin hesabını e-postayla ekleyemez; olan ve olmayan
+  e-posta aynı yanıtı verir (e-posta taraması yok).
+
+Telegram botundaki sistem yetkili listesindeki kimlikler (sizin güvendikleriniz) bir işletme yöneticisi
+tarafından bir hesaba bağlanamaz.
+
+## Fiyatlandırma (tek menü)
+
+Ayarlar › **Fiyatlandırma**: işleme kalemleri **metre, m², süre (saatlik ücret + asgari dakika) ve adet**
+ücretleriyle tek ekrandan tanımlanır; teklifte birim seçilince ücret hazır gelir. Malzeme satış kârı ve
+konsinye komisyonu da aynı menüdedir. Makine hızları / asgari alan yalnız Corel özelliği açık işletmede görünür.
+
 ## İş kolu etiketleri ve makine türleri
 
-- **Etiketler** (Platform › İş kolu etiketleri): "Lazer Kesim", "CNC Router", "Tabela ve Reklam"…
-  Ekleyin, yeniden adlandırın, pasife alın. İşletmeler kayıtta ve profillerinde bunlardan (en çok 8) seçer.
+- **Etiketler** (Platform › İş kolu etiketleri): "Malzemeci", "Baskıcı", "Atölye", "Montaj", "Sublimasyon",
+  "Lazer Kesim", "CNC Router", "Tabela ve Reklam"… Ekleyin, yeniden adlandırın, pasife alın. İşletmeler kayıtta
+  ve profillerinde bunlardan (en çok 8) seçer; rehber ve **Platform › İşletmeler** listesi etikete göre süzülür.
 - **Makine türleri** (Platform › Makine türleri): **ağaç** — "Lazer › CO2 lazer / Fiber lazer",
   "CNC Router". Envanterde gördüğünüz makinelere göre alt kategori ekleyin. Her türe **standart
   çalışma alanı ebatları** tanımlanır ("Fiber lazer 1300×900 / 1500×3000"): aynı makine türünde
