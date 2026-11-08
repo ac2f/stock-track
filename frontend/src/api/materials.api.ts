@@ -42,7 +42,8 @@ export async function fetchMaterialCategories(): Promise<MaterialCategory[]> {
 
 export interface MaterialCategoryInput {
   name: string;
-  code: string;
+  /** Boşsa sunucu addan benzersiz bir kod üretir (boş metin gönderilmez). */
+  code?: string;
   defaultMeasurementType?: MaterialCategory['defaultMeasurementType'];
   isActive?: boolean;
 }

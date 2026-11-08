@@ -1,5 +1,5 @@
 import { Suspense, type ReactNode } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Protected, ResponsiveLayout } from './layouts/ResponsiveLayout';
 import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
@@ -10,14 +10,7 @@ import { PageFallback } from './components/ui/Loading';
 import { lazyPage } from './lib/lazyPage';
 
 const PlatesListPage = lazyPage(() => import('./features/materials/PlatesListPage'), 'PlatesListPage');
-const MaterialCategoriesPage = lazyPage(
-  () => import('./features/materials/MaterialCategoriesPage'),
-  'MaterialCategoriesPage',
-);
-const MaterialTemplatesPage = lazyPage(
-  () => import('./features/materials/MaterialTemplatesPage'),
-  'MaterialTemplatesPage',
-);
+const CatalogPage = lazyPage(() => import('./features/materials/CatalogPage'), 'CatalogPage');
 const PriceRulesPage = lazyPage(() => import('./features/materials/PriceRulesPage'), 'PriceRulesPage');
 const CustomersListPage = lazyPage(() => import('./features/customers/CustomersListPage'), 'CustomersListPage');
 const DashboardPage = lazyPage(() => import('./features/reports/DashboardPage'), 'DashboardPage');
@@ -67,6 +60,18 @@ function TeamGate({ children }: { children: ReactNode }) {
 function DirectoryGate({ children }: { children: ReactNode }) {
   const { hasFeature } = useAuth();
   return <>{hasFeature('directory') ? children : <NoAccess what="İşletme rehberi" />}</>;
+}
+
+/** Eski /material-templates ve /material-categories adresleri → /catalog (?new=1 yeni tür formunu açar). */
+function CatalogRedirect({ categories = false }: { categories?: boolean }) {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  if (categories && params.has('new')) {
+    params.delete('new');
+    params.set('newCategory', '1');
+  }
+  const qs = params.toString();
+  return <Navigate to={`/catalog${qs ? `?${qs}` : ''}`} replace />;
 }
 
 /** İşletmeler arası satış: ticaret özelliği açık işletmede satış/satın alma/stok/ayar alanlarından birini görebilen. */
@@ -141,22 +146,17 @@ export default function App() {
             </Can>
           }
         />
+        {/* Ürün türleri ve malzeme türleri tek pencerede. Eski adresler (yer imi, hızlı arama) buraya yönlenir. */}
         <Route
-          path="/material-categories"
+          path="/catalog"
           element={
             <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
-              <MaterialCategoriesPage />
+              <CatalogPage />
             </Can>
           }
         />
-        <Route
-          path="/material-templates"
-          element={
-            <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
-              <MaterialTemplatesPage />
-            </Can>
-          }
-        />
+        <Route path="/material-templates" element={<CatalogRedirect />} />
+        <Route path="/material-categories" element={<CatalogRedirect categories />} />
         <Route
           path="/price-rules"
           element={

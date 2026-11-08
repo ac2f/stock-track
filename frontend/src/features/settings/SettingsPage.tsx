@@ -185,22 +185,17 @@ function SettingsSection({
       hidden={visible ? !visible.has(id) : false}
       className="card scroll-mt-20 space-y-3 focus:outline-none lg:scroll-mt-28"
     >
-      <div className="flex items-start gap-3">
-        <span
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xl leading-none"
-          aria-hidden
-        >
-          {meta.icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h2 id={`${domId}-baslik`} className="text-base font-semibold sm:text-lg">
-              {meta.title}
-            </h2>
-            {badge}
-          </div>
-          <p className="text-sm text-slate-500">{meta.description}</p>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-base leading-none" aria-hidden>
+            {meta.icon}
+          </span>
+          <h2 id={`${domId}-baslik`} className="text-sm font-semibold">
+            {meta.title}
+          </h2>
+          {badge}
         </div>
+        <p className="mt-0.5 text-xs text-slate-500">{meta.description}</p>
       </div>
       {children}
     </section>
@@ -401,15 +396,12 @@ export function SettingsPage() {
       {!canWrite && (
         <div
           role="note"
-          className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+          className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
         >
-          <span className="text-xl leading-none" aria-hidden>
-            🔒
+          <span aria-hidden>🔒</span>
+          <span>
+            <b>Salt okunur:</b> ayarları görebilirsiniz ama değiştiremezsiniz (yazma izni yok).
           </span>
-          <div className="min-w-0">
-            <div className="font-semibold">Salt okunur</div>
-            <p>Bu dükkânın ayarlarını görebilirsiniz ama değiştiremezsiniz (yazma izni yok).</p>
-          </div>
         </div>
       )}
 

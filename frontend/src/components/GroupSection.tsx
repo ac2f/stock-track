@@ -67,10 +67,10 @@ export function GroupSection({
 }) {
   const tone = toneOf(title);
   return (
-    <div className={`space-y-2 border-l-4 pl-3 ${tone.bar}`}>
+    <div className={`space-y-1.5 border-l-2 pl-2 ${tone.bar}`}>
       <div className="flex items-center gap-2">
         <span
-          className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${tone.chip}`}
+          className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold ${tone.chip}`}
         >
           {title}
         </span>

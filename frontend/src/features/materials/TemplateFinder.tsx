@@ -116,8 +116,8 @@ export function TemplateFinder({
     ) : (
       <p className="text-sm text-slate-500">
         Önce bir ürün türü tanımlayın:{' '}
-        <Link to="/material-templates?new=1" className="font-medium text-blue-600 underline">
-          Ürün Türleri
+        <Link to="/catalog?new=1" className="font-medium text-blue-600 underline">
+          Katalog
         </Link>
       </p>
     );

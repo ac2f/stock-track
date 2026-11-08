@@ -135,8 +135,8 @@ export function StockSharesSection() {
       </div>
 
       {canWrite && (
-        <div className="card space-y-3">
-          <h2 className="font-semibold">Paylaşıma ekle</h2>
+        <div className="card space-y-2">
+          <h2 className="text-sm font-semibold">Paylaşıma ekle</h2>
           {add.isError && (
             <p role="alert" className={alertBox}>
               {apiErrorMessage(add.error, 'Eklenemedi.')}
@@ -148,7 +148,7 @@ export function StockSharesSection() {
                 key={k}
                 type="button"
                 aria-pressed={kind === k}
-                className={`rounded-xl border p-3 text-left text-sm ${kind === k ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200 dark:border-slate-700'}`}
+                className={`rounded-lg border px-2.5 py-1.5 text-left text-sm ${kind === k ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200 dark:border-slate-700'}`}
                 onClick={() => {
                   setKind(k);
                   setRefId('');
@@ -156,7 +156,7 @@ export function StockSharesSection() {
                 }}
               >
                 <span className="block font-semibold">{KIND_LABEL[k]}</span>
-                <span className="block text-xs text-slate-500">{KIND_HINT[k]}</span>
+                <span className="block text-[11px] text-slate-500">{KIND_HINT[k]}</span>
               </button>
             ))}
           </div>

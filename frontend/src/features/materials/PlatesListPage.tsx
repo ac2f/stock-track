@@ -1629,13 +1629,18 @@ function OriginChip({ plate }: { plate: Plate }) {
 }
 
 /** Başka işletmeye satış bağlantısı (ticaret özelliği açık işletmede, satış yazma izni olana). */
-function SellToShopLink({ plate }: { plate: Plate }) {
+function SellToShopLink({ plate, compact = false }: { plate: Plate; compact?: boolean }) {
   const { can, hasFeature } = useAuth();
   if (!hasFeature('trade') || !can('sales', 'write')) return null;
   if (!(Number(plate.quantityInStock) > 0)) return null;
   return (
-    <Link className="btn-secondary btn-sm" to={`/shop-transfers?plate=${plate.id}`} title="Bu malzemeyi başka bir işletmeye sat">
-      🔁 İşletmeye sat
+    <Link
+      className="btn-secondary btn-sm"
+      to={`/shop-transfers?plate=${plate.id}`}
+      title="Bu malzemeyi başka bir işletmeye sat"
+      aria-label="İşletmeye sat"
+    >
+      🔁{compact ? '' : ' İşletmeye sat'}
     </Link>
   );
 }
@@ -1769,6 +1774,7 @@ function PlateMiniRow({ plate }: { plate: Plate }) {
           <OriginChip plate={plate} />
         </div>
         <QtyBadge plate={plate} />
+        <SellToShopLink plate={plate} compact />
         <button
           className="btn-secondary btn-sm shrink-0"
           aria-expanded={editing}
@@ -2506,11 +2512,8 @@ export function PlatesListPage() {
         actions={
           <>
             <Can module="catalog">
-              <Link to="/material-templates" className="btn-secondary btn-sm">
-                Ürün Türlerini Yönet
-              </Link>
-              <Link to="/material-categories" className="btn-secondary btn-sm">
-                Türleri Yönet
+              <Link to="/catalog" className="btn-secondary btn-sm">
+                Katalog
               </Link>
             </Can>
             {!showForm && (

@@ -66,7 +66,7 @@ function UsageLine({ u, unit, hidden }: { u: TransferUsage; unit: string; hidden
 function ItemRow({ item, transfer }: { item: ShopTransferItem; transfer: ShopTransfer }) {
   const remaining = item.state === 'partial' ? ` · kalan %${Math.round(item.remainingRatio * 100)}` : '';
   return (
-    <li className="space-y-1 py-2">
+    <li className="space-y-0.5 py-1">
       <div className="flex items-start justify-between gap-3">
         <span className="min-w-0">
           <span className="font-medium text-slate-700">{stripNamePlaceholders(item.plateName) || 'Malzeme'}</span>
@@ -195,7 +195,7 @@ export function TransferCard({ t }: { t: ShopTransfer }) {
   const cr = t.cancelRequest;
 
   return (
-    <div className={`card space-y-2 !p-3 ${dead ? 'opacity-80' : ''}`} data-transfer={t.transferNo} data-status={t.status}>
+    <div className={`card space-y-1.5 !p-2.5 ${dead ? 'opacity-80' : ''}`} data-transfer={t.transferNo} data-status={t.status}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
@@ -260,7 +260,7 @@ export function TransferCard({ t }: { t: ShopTransfer }) {
 
       {/* Karar bekleyen teklif/talep */}
       {t.status === 'pending' && t.canDecide && (
-        <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+        <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
             {t.direction === 'out'
               ? `"${other.name}" sizden bu malzemeleri satın almak istiyor.`
@@ -293,7 +293,7 @@ export function TransferCard({ t }: { t: ShopTransfer }) {
         </p>
       )}
       {t.status === 'pending' && t.canWithdraw && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
           <span>"{other.name}" onayı bekleniyor; o zamana kadar stok ve cari değişmez.</span>
           <button
             type="button"
@@ -310,7 +310,7 @@ export function TransferCard({ t }: { t: ShopTransfer }) {
 
       {/* Tamamlanmış belgenin geri alınması */}
       {t.status === 'completed' && cr && (
-        <div className="space-y-2 rounded-xl border border-orange-300 bg-orange-50 p-3 dark:border-orange-800 dark:bg-orange-950/30">
+        <div className="space-y-1.5 rounded-lg border border-orange-300 bg-orange-50 p-2.5 dark:border-orange-800 dark:bg-orange-950/30">
           {cr.byMe ? (
             <>
               <p className="text-sm font-medium text-orange-900 dark:text-orange-200">

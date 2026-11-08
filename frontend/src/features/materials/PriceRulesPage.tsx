@@ -108,7 +108,7 @@ function ChipRow<T extends { id: string }>({
           </button>
         ))}
         {items && !items.length && (
-          <span className="py-1.5 text-xs text-slate-400">Bu türde kayıt yok (Ürün Türleri ekranından eklenir).</span>
+          <span className="py-1.5 text-xs text-slate-400">Bu türde kayıt yok (Katalog ekranından eklenir).</span>
         )}
       </div>
     </div>

@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 /**
- * Sayfa başlığı: solda başlık (ve kısa açıklama), sağda eylemler. Telefonda
- * eylemler başlığın altına iner ve satır satır sarılır; taşma olmaz.
+ * Sayfa başlığı: solda küçük başlık, sağda eylemler. Açıklama (subtitle) yer kaplamasın diye
+ * başlığın yanındaki ⓘ düğmesinin arkasındadır; tıklayınca açılır. Telefonda eylemler başlığın
+ * yanında kalır, sığmazsa alta sarılır.
  */
 export function PageHeader({
   title,
@@ -15,20 +16,33 @@ export function PageHeader({
   icon?: string;
   actions?: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 sm:text-2xl">
+    <div className="mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-semibold text-slate-900">
           {icon && (
-            <span className="text-2xl leading-none" aria-hidden>
+            <span className="text-lg leading-none" aria-hidden>
               {icon}
             </span>
           )}
           <span className="min-w-0 break-words">{title}</span>
+          {subtitle && (
+            <button
+              type="button"
+              className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+              aria-label="Açıklama"
+              aria-expanded={open}
+              title="Bu ekran ne işe yarar?"
+              onClick={() => setOpen((o) => !o)}
+            >
+              i
+            </button>
+          )}
         </h1>
-        {subtitle && <p className="mt-1 max-w-3xl text-sm text-slate-500">{subtitle}</p>}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">{actions}</div>}
+      {subtitle && open && <p className="mt-1 max-w-3xl text-xs text-slate-500">{subtitle}</p>}
     </div>
   );
 }

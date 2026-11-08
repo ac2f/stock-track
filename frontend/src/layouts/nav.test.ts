@@ -25,6 +25,15 @@ describe('menü', () => {
     expect(only('quotes')).not.toContain('/shop-transfers');
   });
 
+  it('ürün türleri ve malzeme türleri tek "Katalog" öğesinde; katalog izni gerekir', () => {
+    const all = items(() => true);
+    expect(all).toContain('/catalog');
+    expect(all).not.toContain('/material-templates');
+    expect(all).not.toContain('/material-categories');
+    const noCatalog = visibleNav((m) => m !== 'catalog', false, 1, false, () => true).flatMap((g) => g.items.map((i) => i.to));
+    expect(noCatalog).not.toContain('/catalog');
+  });
+
   it('Ayarlar menüsünün arama sözcüklerinde Corel geçmez', () => {
     const settings = visibleNav(all, false, 1, false, () => false)
       .flatMap((g) => g.items)

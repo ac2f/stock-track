@@ -254,8 +254,8 @@ tür kendi kataloğunuzda açılır.
   *Bunu mu demek istediniz* önerir; ürün türü kayıtlı değilse aramadan **dolu bir
   "yeni ürün türü" formu** açar (tür/marka/renk/kalınlık/ebat çıkarılır; katalogda
   olmayanlar kaydederken açılır) ve stok ekleme ya da teklif formu kaldığı
-  yerden devam eder. *Ürün Türleri*'nde hiç türü olmayan tür çipine (＋) dokunmak
-  formu o türle dolu açar.
+  yerden devam eder. *Katalog*'ta soldaki panelden bir malzeme türü seçip
+  **＋ Ürün türü** demek formu o türle hazır açar.
 - Seçilmiş kutular (müşteri, ürün türü, malzeme…) **tümüyle tıklanabilir**;
   sağdaki *Değiştir* yalnız ipucudur.
 - **Cari ekstre PDF:** *Müşteriler › ekstre* ekranındaki **📄 PDF** ekstreyi sayfanın
@@ -350,7 +350,7 @@ yanındaki kod çipleriyle seçilir; seçili markanın kodları önce gelir, ba�
 markanın kodları seçilemez, yeni kod aynı yerden eklenir.
 
 **Ürün türleri** aynı özelliklerle (tür + marka + renk + ebat + kalınlık +
-alt tür) ikinci kez açılamaz; eski kopyalar *Ürün Türleri* ekranında tek
+alt tür) ikinci kez açılamaz; eski kopyalar *Katalog* ekranında tek
 dokunuşla birleştirilir. Stok girişinde, teklifin malzeme seçicisinde, ürün
 türleri ve stok listesinde tür seçince **marka / kalınlık / ebat / renk
 çipleri** çıkar; arama sözcük sırasından bağımsızdır ("beyaz 2,8 akpolimer").
@@ -503,3 +503,12 @@ bulunur. Aynı telefonla müşteri kaydederken diğer işletmelerdeki bilgi öne
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Katmanlar, klasör ağacı, ilkeler
 - [`docs/DATABASE.md`](docs/DATABASE.md) — Varlık-ilişki (ER) şeması, tüm tablolar
 - [`docs/API.md`](docs/API.md) — Uç noktalar (endpoints) ve örnek istek/yanıtlar
+
+## Arayüz ve katalog
+
+- **Minimal arayüz:** düğme, girdi ve kartlar sıkı ölçülerdedir; yan menü dardır; ekran açıklamaları başlığın yanındaki **ⓘ** düğmesinin
+  arkasındadır; liste süzgeçleri **Filtreler** düğmesiyle açılır (etkin filtre varsa açık kalır); stok ve diğer listeler varsayılan olarak
+  tek satırlık **mini** görünümdedir (listenin üstündeki *Detaylı* ile değişir, tercih cihazda saklanır).
+- **Katalog (tek pencere):** *Malzeme türleri* (Pleksi, Dekota… üst kategoriler) ve *ürün türleri* aynı ekrandadır. Solda malzeme türleri
+  satır içinde eklenir, düzenlenir, silinir ve sağdaki ürün türlerini süzer; sağda seçili türün ürün türleri yönetilir. Telefonda tür seçici
+  açılır bir şeritte durur. Eski `/material-templates` ve `/material-categories` adresleri `/catalog`'a yönlenir.

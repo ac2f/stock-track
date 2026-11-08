@@ -17,15 +17,15 @@ export function EmptyState({
   return (
     <div
       className={`flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/60 text-center dark:bg-slate-800/40 ${
-        compact ? 'px-4 py-6' : 'px-6 py-12'
+        compact ? 'px-3 py-4' : 'px-4 py-7'
       }`}
     >
-      <div className={compact ? 'text-3xl' : 'text-5xl'} aria-hidden>
+      <div className={compact ? 'text-2xl' : 'text-3xl'} aria-hidden>
         {icon}
       </div>
-      <div className="mt-3 font-semibold text-slate-700">{title}</div>
-      {hint && <div className="mt-1 max-w-md text-sm text-slate-500">{hint}</div>}
-      {action && <div className="mt-4 flex flex-wrap justify-center gap-2">{action}</div>}
+      <div className="mt-1.5 text-sm font-semibold text-slate-700">{title}</div>
+      {hint && <div className="mt-0.5 max-w-md text-xs text-slate-500">{hint}</div>}
+      {action && <div className="mt-2.5 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
 }

@@ -124,10 +124,10 @@ export function ResponsiveLayout() {
         {/* Masaüstü yan menü */}
         <aside
           className={`hidden shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] md:flex ${
-            collapsed ? 'w-[76px]' : 'w-64'
+            collapsed ? 'w-[60px]' : 'w-52'
           }`}
         >
-          <div className={`flex items-center gap-2 px-3 pt-4 ${collapsed ? 'justify-center' : ''}`}>
+          <div className={`flex items-center gap-2 px-2.5 pt-3 ${collapsed ? 'justify-center' : ''}`}>
             <BrandMark name={brandName} />
             {!collapsed && (
               <div className="min-w-0 flex-1">
@@ -141,13 +141,13 @@ export function ResponsiveLayout() {
           {collapsed ? (
             shops.length > 1 && <ShopChip className="mx-auto mt-3" compact />
           ) : (
-            <ShopSwitcher className="mx-3 mt-3" />
+            <ShopSwitcher className="mx-2.5 mt-2" />
           )}
 
-          <div className="px-3 pt-3">
+          <div className="px-2.5 pt-2">
             <button
               onClick={() => setPaletteOpen(true)}
-              className={`flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm text-slate-500 hover:border-slate-300 hover:bg-white ${
+              className={`flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs text-slate-500 hover:border-slate-300 hover:bg-white ${
                 collapsed ? 'justify-center px-0' : ''
               }`}
               title="Ara veya git (Ctrl+K)"
@@ -162,13 +162,13 @@ export function ResponsiveLayout() {
             </button>
           </div>
 
-          <nav className="mt-2 flex-1 overflow-y-auto px-3 pb-3" aria-label="Ana menü">
+          <nav className="mt-1 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Ana menü">
             {groups.map((g) => (
-              <div key={g.label} className="mt-3">
+              <div key={g.label} className="mt-2">
                 {collapsed ? (
                   <div className="mx-auto mb-1 h-px w-8 bg-slate-200" />
                 ) : (
-                  <div className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <div className="mb-0.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                     {g.label}
                   </div>
                 )}
@@ -181,8 +181,8 @@ export function ResponsiveLayout() {
             ))}
           </nav>
 
-          <div className="border-t border-slate-200 p-3">
-            {!collapsed && <CurrencyTicker className="mb-2" />}
+          <div className="border-t border-slate-200 p-2">
+            {!collapsed && <CurrencyTicker className="mb-1.5" />}
             <UserMenu
               collapsed={collapsed}
               onToggleCollapse={toggleCollapsed}
@@ -214,7 +214,7 @@ export function ResponsiveLayout() {
           </header>
 
           {/* Kaydırma yalnızca burada olur → menü/başlık sabit kalır. */}
-          <main className="flex-1 overflow-y-auto p-3 pb-28 sm:p-4 md:p-6 md:pb-6">
+          <main className="flex-1 overflow-y-auto p-3 pb-28 md:p-4 md:pb-4">
             <div className="mx-auto max-w-7xl">
               {/* Ekran parçası yüklenirken menü/başlık yerinde kalır. */}
               <ErrorBoundary resetKey={location.pathname}>
@@ -307,7 +307,7 @@ function SideLink({ item, collapsed, badge }: { item: NavItem; collapsed: boolea
       to={item.to}
       title={collapsed ? item.title : undefined}
       className={({ isActive }) =>
-        `relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
+        `relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition ${
           collapsed ? 'justify-center px-0' : ''
         } ${
           isActive
@@ -319,7 +319,7 @@ function SideLink({ item, collapsed, badge }: { item: NavItem; collapsed: boolea
       {({ isActive }) => (
         <>
           {isActive && !collapsed && (
-            <span className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-blue-600" aria-hidden />
+            <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-blue-600" aria-hidden />
           )}
           <span className="text-base leading-none" aria-hidden>
             {item.icon}

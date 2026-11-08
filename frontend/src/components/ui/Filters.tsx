@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from 'react';
 
 /**
- * Filtre kutusu. Masaüstünde hep açık; telefonda ekranı kaplamasın diye
- * "Filtreler" düğmesinin arkasında durur ve kaç filtrenin etkin olduğunu söyler.
- * `search` verilirse arama kutusu telefonda da her zaman görünür kalır.
+ * Filtre kutusu. Ekranı kaplamasın diye süzgeçler "Filtreler" düğmesinin arkasında durur ve
+ * kaç filtrenin etkin olduğunu söyler; etkin filtre varsa kutu açık başlar.
+ * `search` verilirse arama kutusu her zaman görünür kalır.
  */
 export function Filters({
   children,
@@ -18,16 +18,16 @@ export function Filters({
   onClear?: () => void;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(activeCount > 0);
   return (
-    <div className={`card mb-4 space-y-3 ${className}`}>
+    <div className={`card mb-3 space-y-2 ${className}`}>
       {(search || children) && (
         <div className="flex items-center gap-2">
           {search && <div className="min-w-0 flex-1">{search}</div>}
           {children && (
             <button
               type="button"
-              className={`btn-secondary shrink-0 md:hidden ${search ? '' : 'w-full'}`}
+              className={`btn-secondary shrink-0 ${search ? '' : 'w-full'}`}
               onClick={() => setOpen((o) => !o)}
               aria-expanded={open}
             >
@@ -40,7 +40,7 @@ export function Filters({
           )}
         </div>
       )}
-      {children && <div className={`${open ? 'block' : 'hidden'} space-y-3 md:block`}>{children}</div>}
+      {children && <div className={`${open ? 'block' : 'hidden'} space-y-2`}>{children}</div>}
       {onClear && activeCount > 0 && (
         <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
           <span>{activeCount} filtre etkin</span>

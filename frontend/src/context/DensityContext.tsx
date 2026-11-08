@@ -37,7 +37,7 @@ const Ctx = createContext<DensityCtx>({
 
 export function DensityProvider({ children }: { children: ReactNode }) {
   const [density, setDensity] = useState<Density>(() =>
-    localStorage.getItem(KEY) === 'mini' ? 'mini' : 'detailed',
+    localStorage.getItem(KEY) === 'detailed' ? 'detailed' : 'mini',
   );
   const [grouped, setGroupedState] = useState<boolean>(
     () => localStorage.getItem(GROUP_KEY) === '1',

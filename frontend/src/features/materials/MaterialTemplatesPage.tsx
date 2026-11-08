@@ -138,13 +138,27 @@ function CatalogBlock({ title, children }: { title: string; children: ReactNode 
  * tanımlı kayıt başka kategoride seçilemez. Stok kalemi eklerken bu
  * şablonlardan biri seçilip miras alınır (override edilebilir).
  */
-export function MaterialTemplatesPage() {
+export function MaterialTemplatesPage({
+  embedded = false,
+  categoryFilter: controlledCategory,
+  onCategoryFilterChange,
+}: {
+  /** Katalog penceresinin içinde: başlık ve tür çipleri yok (sol paneldeki malzeme türleri süzer). */
+  embedded?: boolean;
+  categoryFilter?: string;
+  onCategoryFilterChange?: (id: string) => void;
+} = {}) {
   const qc = useQueryClient();
   const { can } = useAuth();
   const [form, setForm] = useState<MaterialTemplateInput | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [innerCategory, setInnerCategory] = useState('');
+  const categoryFilter = controlledCategory ?? innerCategory;
+  const setCategoryFilter = (id: string) => {
+    setInnerCategory(id);
+    onCategoryFilterChange?.(id);
+  };
   // Aramadan/ekli olmayan türden açılan formun doldurulacak metni ve katalogda
   // bulunamayan (forma "ekle" olarak yazılan) öğeler.
   const [prefill, setPrefill] = useState<{ categoryId: string; query: string } | null>(null);
@@ -360,6 +374,8 @@ export function MaterialTemplatesPage() {
   });
 
   const openCreate = () => {
+    // Soldaki panelden bir malzeme türü seçiliyse form o türle hazır açılır.
+    if (categoryFilter) return openCreateFor(categoryFilter);
     setEditingId(null);
     setForm(EMPTY);
     setNameTouched(false);
@@ -533,25 +549,22 @@ export function MaterialTemplatesPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        icon="🧩"
-        title="Ürün Türleri"
-        subtitle="Stok kalemleri bu şablonlardan oluşturulur; marka, renk, ebat ve kalınlık türden miras alınır."
-        actions={
-          !form && (
-            <Can module="catalog" level="write">
-              <button
-                className="btn-primary"
-                data-hotkey="n"
-                title="Yeni ürün türü (N)"
-                onClick={openCreate}
-              >
-                + Yeni Ürün Türü
-              </button>
-            </Can>
-          )
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          icon="🧩"
+          title="Ürün Türleri"
+          subtitle="Stok kalemleri bu şablonlardan oluşturulur; marka, renk, ebat ve kalınlık türden miras alınır."
+          actions={
+            !form && (
+              <Can module="catalog" level="write">
+                <button className="btn-primary" data-hotkey="n" title="Yeni ürün türü (N)" onClick={openCreate}>
+                  + Yeni Ürün Türü
+                </button>
+              </Can>
+            )
+          }
+        />
+      )}
 
       {mutationError && (
         <p className="card text-sm text-red-600">
@@ -1178,21 +1191,31 @@ export function MaterialTemplatesPage() {
       {!isLoading && !!data?.length && (
         <Filters
           search={
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Ara: beyaz 2,8 akpolimer…"
-              aria-label="Ürün türlerinde ara"
-            />
+            <div className="flex items-center gap-2">
+              <SearchInput
+                className="min-w-0 flex-1"
+                value={search}
+                onChange={setSearch}
+                placeholder="Ürün türü ara: beyaz 2,8 akpolimer…"
+                aria-label="Ürün türlerinde ara"
+              />
+              {embedded && !form && (
+                <Can module="catalog" level="write">
+                  <button className="btn-primary shrink-0" data-hotkey="n" title="Yeni ürün türü (N)" onClick={openCreate}>
+                    ＋<span className="hidden sm:inline"> Ürün türü</span>
+                  </button>
+                </Can>
+              )}
+            </div>
           }
-          activeCount={facets.activeCount + (categoryFilter ? 1 : 0)}
+          activeCount={facets.activeCount + (!embedded && categoryFilter ? 1 : 0)}
           onClear={() => {
             setCategoryFilter('');
             facets.clear();
           }}
         >
           <div className="space-y-2">
-            <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+            <div className={`-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 ${embedded ? 'hidden' : ''}`}>
               {[{ id: '', name: 'Tümü' }, ...(categories ?? [])].map((c) => {
                 // Bu türde hiç ürün türü yok: tıklayınca form tür seçili ve
                 // aramadan doldurulmuş açılır.
@@ -1285,7 +1308,7 @@ export function MaterialTemplatesPage() {
           }
         />
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-3">
           {/* #3 Malzemeler kategorilerine göre gruplanır. */}
           {groupByCategory(visible).map(([catName, tpls]) => (
             <GroupSection
@@ -1303,16 +1326,17 @@ export function MaterialTemplatesPage() {
                 return (
                   <div
                     key={t.id}
-                    className={`card flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${
+                    className={`flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800 ${
                       editingId === t.id ? 'ring-2 ring-blue-500/40' : ''
-                    }`}
+                    } ${t.isActive ? '' : 'opacity-60'}`}
                   >
-                    <div className="min-w-0 space-y-1.5">
-                      <h3 className="flex flex-wrap items-center gap-2 font-semibold">
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium">
                         <span className="break-words">{title}</span>
-                        {!t.isActive && (
-                          <span className="badge bg-slate-100 text-slate-500">Pasif</span>
-                        )}
+                        <span className="badge bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200">
+                          {MEASUREMENT_LABELS[t.measurementType as MaterialMeasurementType] ?? t.measurementType}
+                        </span>
+                        {!t.isActive && <span className="badge bg-slate-100 text-slate-500">Pasif</span>}
                         {incomplete && (
                           <span
                             className="badge bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
@@ -1321,33 +1345,23 @@ export function MaterialTemplatesPage() {
                             Ad eksik
                           </span>
                         )}
-                      </h3>
-                      <p className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
-                        <span className="badge bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200">
-                          {MEASUREMENT_LABELS[t.measurementType as MaterialMeasurementType] ??
-                            t.measurementType}
-                        </span>
-                        {t.defaultVariant && <span>{t.defaultVariant}</span>}
                       </p>
-                      {specs.length > 0 ? (
-                        <p className="flex flex-wrap gap-1.5">
-                          {specs.map((sp) => (
-                            <span
-                              key={sp.key}
-                              className="badge bg-slate-100 font-normal text-slate-600"
-                            >
-                              <span className="text-slate-400">{sp.label}:</span> {sp.value}
-                            </span>
-                          ))}
+                      {(specs.length > 0 || t.defaultVariant || t.description) && (
+                        <p
+                          className="mt-0.5 truncate text-[11px] text-slate-500"
+                          title={[...specs.map((sp) => `${sp.label}: ${sp.value}`), t.defaultVariant, t.description]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        >
+                          {[...specs.map((sp) => sp.value), t.defaultVariant, t.description].filter(Boolean).join(' · ')}
                         </p>
-                      ) : null}
-                      {t.description && (
-                        <p className="text-xs text-slate-400">{t.description}</p>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
+                    <div className="flex shrink-0 gap-0.5">
                       <button
-                        className="btn-secondary btn-sm"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+                        title="Düzenle"
+                        aria-label={`${title} düzenle`}
                         onClick={() => {
                           setEditingId(t.id);
                           setNameTouched(true);
@@ -1365,10 +1379,12 @@ export function MaterialTemplatesPage() {
                           });
                         }}
                       >
-                        ✏️ Düzenle
+                        ✏️
                       </button>
                       <button
-                        className="btn-danger-soft btn-sm"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-sm hover:bg-red-100 dark:hover:bg-red-900/40"
+                        title="Sil"
+                        aria-label={`${title} sil`}
                         disabled={deleteMut.isPending}
                         onClick={async () => {
                           if (await confirmDelete(`"${title}" ürün türü silinsin mi?`)) {
@@ -1376,7 +1392,7 @@ export function MaterialTemplatesPage() {
                           }
                         }}
                       >
-                        🗑️ Sil
+                        🗑️
                       </button>
                     </div>
                   </div>

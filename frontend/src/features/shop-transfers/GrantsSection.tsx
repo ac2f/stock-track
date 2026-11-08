@@ -160,8 +160,8 @@ export function GrantsSection() {
       </p>
 
       {isShopAdmin ? (
-        <div className="card space-y-3">
-          <h2 className="font-semibold">Yetki ver</h2>
+        <div className="card space-y-2">
+          <h2 className="text-sm font-semibold">Yetki ver</h2>
           {save.isError && (
             <p role="alert" className={alertBox}>
               {apiErrorMessage(save.error, 'Yetki kaydedilemedi.')}
@@ -176,11 +176,11 @@ export function GrantsSection() {
               {PERMISSIONS.map((p) => (
                 <label
                   key={p.id}
-                  className={`cursor-pointer rounded-xl border p-3 text-sm ${permission === p.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200 dark:border-slate-700'}`}
+                  className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-sm ${permission === p.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-slate-200 dark:border-slate-700'}`}
                 >
                   <input type="radio" name="grant-permission" className="sr-only" checked={permission === p.id} onChange={() => setPermission(p.id)} />
                   <span className="block font-semibold">{p.title}</span>
-                  <span className="block text-xs text-slate-500">{p.hint}</span>
+                  <span className="block text-[11px] leading-snug text-slate-500">{p.hint}</span>
                 </label>
               ))}
             </div>
