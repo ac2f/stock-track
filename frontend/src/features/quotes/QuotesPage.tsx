@@ -612,7 +612,9 @@ export function QuotesPage() {
 
   // Hızlı arama (Ctrl+K) bağlantıları: ?new=1 yeni teklif formunu açar (yazma
   // izni varsa), ?q=… aramayı doldurur (beklemeden uygulanır).
-  const { can } = useAuth();
+  const { can, hasFeature } = useAuth();
+  // Corel/runner/klasör: yalnız sistem sahibinin açtığı işletmelerde (kapalıysa ad bile görünmez).
+  const corel = hasFeature('corel');
   useUrlParam('new', () => {
     if (can('quotes', 'write')) setShowForm(true);
   });
@@ -627,7 +629,7 @@ export function QuotesPage() {
     // Yeni dönen ya da klasörü istenen teklif varken klasörün açıldığı
     // kendiliğinden görünsün.
     refetchInterval: (query) =>
-      query.state.data?.items.some((q) => folderPending(q)) ? 8_000 : false,
+      corel && query.state.data?.items.some((q) => folderPending(q)) ? 8_000 : false,
   });
   // Listedeki satış kalemlerinin alış maliyeti: kartta kâr gösterilir.
   const costIds = [
@@ -719,7 +721,7 @@ export function QuotesPage() {
     Record<string, boolean>
   >({});
   // Dükkân bilgisayarındaki runner (klasörleri açan) ve klasör isteği.
-  const { data: runners } = useRunners();
+  const { data: runners } = useRunners(corel);
   const folderMut = useMutation({
     mutationFn: (id: string) => requestQuoteFolders(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
@@ -742,12 +744,14 @@ export function QuotesPage() {
       if (res.saleId) parts.push('satış oluşturuldu');
       if (res.processingJobIds.length)
         parts.push(`${res.processingJobIds.length} işleme kuyruğa eklendi`);
-      const runner = runnerSummary(qc.getQueryData(['corel-runners']));
-      parts.push(
-        runner.tone === 'ok' || runner.tone === 'warn'
-          ? 'klasörler dükkân bilgisayarında açılıyor'
-          : `klasörler açılamayacak: ${runner.text.toLowerCase()}`,
-      );
+      if (corel) {
+        const runner = runnerSummary(qc.getQueryData(['corel-runners']));
+        parts.push(
+          runner.tone === 'ok' || runner.tone === 'warn'
+            ? 'klasörler dükkân bilgisayarında açılıyor'
+            : `klasörler açılamayacak: ${runner.text.toLowerCase()}`,
+        );
+      }
       setConvertMsg({
         text: parts.length
           ? `Dönüştürüldü: ${parts.join(' · ')}.`
@@ -812,7 +816,7 @@ export function QuotesPage() {
         subtitle="Satış ve işleme kalemlerini tek teklifte toplayın; kabul edilen teklifi satışa ve üretim kuyruğuna dönüştürün."
         actions={
           <>
-            <RunnerBadge />
+            {corel && <RunnerBadge />}
             <DensityToggle mini={mini} onToggle={toggleMini} />
             <Can module="quotes" level="write">
               {showForm ? (
@@ -887,11 +891,13 @@ export function QuotesPage() {
                       ? `${c.processingJobIds.length} işleme tamamlanmış olarak işlendi`
                       : `${c.processingJobIds.length} işleme kuyruğa eklendi`,
                   );
-                parts.push(
-                  saved?.skipFolders
-                    ? 'geriye dönük kayıt: bugün için klasör açılmadı'
-                    : 'klasörler dükkân bilgisayarında açılıyor',
-                );
+                if (corel) {
+                  parts.push(
+                    saved?.skipFolders
+                      ? 'geriye dönük kayıt: bugün için klasör açılmadı'
+                      : 'klasörler dükkân bilgisayarında açılıyor',
+                  );
+                }
                 setConvertMsg({
                   text: `${saved?.quoteNo ?? 'Teklif'} kaydedildi ve dönüştürüldü: ${parts.join(' · ')}.`,
                   queued: c.completed ? 0 : c.processingJobIds.length,
@@ -1061,7 +1067,7 @@ export function QuotesPage() {
                       {q.skipFolders && (
                         <span
                           className="badge bg-slate-100 text-slate-600"
-                          title="Geriye dönük kayıt: bugün için klasör açılmaz"
+                          title={corel ? 'Geriye dönük kayıt: bugün için klasör açılmaz' : 'Geriye dönük kayıt'}
                         >
                           🕘 geriye dönük
                         </span>
@@ -1100,14 +1106,16 @@ export function QuotesPage() {
                 {!mini && q.note && (
                   <p className="line-clamp-2 text-xs italic text-slate-500">“{q.note}”</p>
                 )}
-                <QuoteFolders
-                  quote={q}
-                  runners={runners}
-                  compact={mini}
-                  canRequest={can('quotes', 'write')}
-                  requesting={folderMut.isPending && folderMut.variables === q.id}
-                  onRequest={() => folderMut.mutate(q.id)}
-                />
+                {corel && (
+                  <QuoteFolders
+                    quote={q}
+                    runners={runners}
+                    compact={mini}
+                    canRequest={can('quotes', 'write')}
+                    requesting={folderMut.isPending && folderMut.variables === q.id}
+                    onRequest={() => folderMut.mutate(q.id)}
+                  />
+                )}
 
                 {/* Eylemler: sıradaki adım dolgulu, diğerleri ikincil, Sil en sonda. */}
                 <div
@@ -1629,6 +1637,8 @@ function NewQuoteForm({
   onCancel: () => void;
   editQuote?: Quote;
 }) {
+  // Corel/klasör seçenekleri yalnız sistem sahibinin açtığı işletmede görünür.
+  const corel = useAuth().hasFeature('corel');
   // Yeni teklifte ilk alana (alıcı arama) odaklan; düzenlemede odak değişmez.
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2213,20 +2223,22 @@ function NewQuoteForm({
                 </label>
               ))}
             </div>
-            <label className="flex min-h-[32px] cursor-pointer items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={skipFolders}
-                onChange={(e) => {
-                  setSkipFolders(e.target.checked);
-                  setModeTouched(true);
-                }}
-              />
-              <span>
-                <b>Klasör açılmasın</b> — dükkân bilgisayarı bu iş için bugüne klasör oluşturmaz
-                (istersen sonradan teklif kartından, işin gerçek gününe istenir)
-              </span>
-            </label>
+            {corel && (
+              <label className="flex min-h-[32px] cursor-pointer items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={skipFolders}
+                  onChange={(e) => {
+                    setSkipFolders(e.target.checked);
+                    setModeTouched(true);
+                  }}
+                />
+                <span>
+                  <b>Klasör açılmasın</b> — dükkân bilgisayarı bu iş için bugüne klasör oluşturmaz
+                  (istersen sonradan teklif kartından, işin gerçek gününe istenir)
+                </span>
+              </label>
+            )}
           </div>
         )}
       </div>
@@ -2862,14 +2874,19 @@ function NewQuoteForm({
                   value={item.billingUnit}
                   onChange={(e) => {
                     const unit = e.target.value as QuoteItemInput['billingUnit'];
-                    // Süre seçilince saatlik, m² seçilince m² ücreti gelir
-                    // (Ayarlar › Kesim fiyatlandırması'nda tanımlıysa).
+                    // Birim seçilince Ayarlar › Fiyatlandırma'daki ücret hazır gelir:
+                    // süre → saatlik, m² → m² ücreti, metre → metre ücreti, adet → adet ücreti
+                    // (tanımlıysa).
                     const rate =
                       unit === 'time'
                         ? cutPricing?.hourlyRate
                         : unit === 'area'
                           ? cutPricing?.areaRate
-                          : undefined;
+                          : unit === 'length'
+                            ? cutPricing?.meterRate
+                            : unit === 'piece'
+                              ? cutPricing?.pieceRate
+                              : undefined;
                     patch(i, {
                       billingUnit: unit,
                       ...(rate ? { unitPrice: rate } : {}),
@@ -2937,8 +2954,8 @@ function NewQuoteForm({
             <p className="text-xs text-slate-500">
               Birim fiyat saatliktir.
               {minMinutes > 0 && ` İş en az ${minMinutes} dk'dan faturalanır.`} En/boy,
-              tabakanın kullanılan parçası: stoktan o kadarı düşülür ve Corel takım
-              yolu klasörüne parça dosyası (u1350x1000) yazar. Tamamı
+              tabakanın kullanılan parçası: stoktan o kadarı düşülür
+              {corel && ' ve takım yolu klasörüne parça dosyası (u1350x1000) yazılır'}. Tamamı
               kullanıldıysa tabakanın ölçüsü kalsın.
             </p>
           )}

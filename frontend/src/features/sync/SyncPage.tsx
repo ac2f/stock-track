@@ -32,7 +32,7 @@ const LABELS: [RegExp, string][] = [
   [/\/v1\/purchases/, 'Satın alma'],
   [/\/v1\/expenses/, 'Gider'],
   [/\/v1\/plates/, 'Stok'],
-  [/\/v1\/corel\/jobs\/[^/]+\/folders/, 'Runner klasör bildirimi'],
+  [/\/v1\/corel\/jobs\/[^/]+\/folders/, 'Klasör bildirimi (otomatik)'],
   [/\/v1\/settings/, 'Dükkân ayarı'],
 ];
 function labelOf(o: OutboxItem): string {
@@ -82,7 +82,7 @@ function OutboxRow({ o }: { o: OutboxItem }) {
           <p className="font-semibold">{labelOf(o)}</p>
           <p className="text-xs text-slate-500">
             {formatDateTime(o.occurred_at)}
-            {o.user_name ? ` · ${o.user_name}` : o.actor === 'corel' ? ' · Corel/runner' : ''}
+            {o.user_name ? ` · ${o.user_name}` : o.actor === 'corel' ? ' · otomatik (dükkân bilgisayarı)' : ''}
             {o.shop_name ? ` · ${o.shop_name}` : ''}
           </p>
         </div>

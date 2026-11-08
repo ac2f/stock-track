@@ -50,7 +50,12 @@ export interface DirectoryFacets {
   machineTypes: { id: string; name: string; path: string; count: number }[];
 }
 
-const SHOP_VISIBLE = `s.deleted_at IS NULL AND s.is_active AND s.status = 'active' AND s.directory_visible`;
+/**
+ * Rehberde görünen işletme: etkin, profilinde "rehberde görünsün" diyen ve sistem
+ * sahibinin rehber özelliğini KAPATMADIĞI (yazılmamışsa açık) işletme.
+ */
+const SHOP_VISIBLE = `s.deleted_at IS NULL AND s.is_active AND s.status = 'active' AND s.directory_visible
+  AND COALESCE((s.features ->> 'directory')::boolean, true)`;
 
 /**
  * İşletme rehberi: işletmeler birbirini il/ilçe, iş kolu etiketi ve makineye

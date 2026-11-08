@@ -2,7 +2,12 @@ import { Body, Controller, Delete, Get, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentShop } from '../../common/decorators/current-shop.decorator';
 import type { ShopAccessInfo } from '../shops/shop-access.service';
-import { SettingsService } from './settings.service';
+import {
+  businessView,
+  COREL_ONLY_CUT_FIELDS,
+  cutPricingView,
+  SettingsService,
+} from './settings.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
 import { UpdatePricingDto } from './dto/update-pricing.dto';
@@ -10,16 +15,26 @@ import { UpdateDisplayDto } from './dto/update-display.dto';
 import { UpdateCutPricingDto } from './dto/update-cut-pricing.dto';
 import { UpdateMorningSummaryDto } from './dto/update-morning-summary.dto';
 import { UpdateFolderSettingsDto } from './dto/update-folder-settings.dto';
-import { AnyShopMember, ShopAccess, ShopScope } from '../../common/shop/shop-access.decorator';
+import {
+  AnyShopMember,
+  ShopAccess,
+  ShopFeatureRequired,
+  ShopScope,
+} from '../../common/shop/shop-access.decorator';
 import { PrimaryOnly } from '../sync/sync.decorators';
 import { Cached } from '../../common/cache/cached.decorator';
 import { CacheGroup } from '../../common/cache/cache.groups';
 
 /**
- * Dükkân ayarları. İşletme/proje kimliği (ad, adres, telefon, VKN, logo,
- * portal adresi), fiyatlar, bildirim sohbeti, Corel anahtarı ... her dükkânın
- * kendisinindir. Arayüzün ve formların ihtiyaç duyduğu okumalar dükkânın her
- * üyesine açıktır; gerisi "Dükkân ayarları" iznine bağlıdır.
+ * Dükkân ayarları. İşletme/proje kimliği (ad, adres, telefon, VKN), fiyatlar,
+ * bildirim sohbeti ... her dükkânın kendisinindir. Arayüzün ve formların
+ * ihtiyaç duyduğu okumalar dükkânın her üyesine açıktır; gerisi "Dükkân
+ * ayarları" iznine bağlıdır.
+ *
+ * Sistem ve platform ayarları İŞLETMEYE GÖNDERİLMEZ (alan bile yoktur):
+ *  - Telegram bot jetonu, yedek sohbeti, yetkili kullanıcılar → yalnız sistem sahibi.
+ *  - Portal temel adresi, logo yolu → yalnız sistem sahibi görür ve değiştirir.
+ *  - Corel / runner / klasör oluşturucu → yalnız sistem sahibinin açtığı işletmeler.
  */
 @ApiTags('settings')
 @ApiBearerAuth()
@@ -27,16 +42,19 @@ import { CacheGroup } from '../../common/cache/cache.groups';
 @Controller({ path: 'settings', version: '1' })
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
-  @Cached({ group: CacheGroup.SETTINGS, ttl: 300 })
+
+  // Yanıt, oturumdaki kullanıcının rolüne göre değişir (portal adresi yalnız sistem sahibine)
+  // → önbellek kullanıcı başınadır.
+  @Cached({ group: CacheGroup.SETTINGS, ttl: 300, perUser: true })
   @AnyShopMember()
   @Get('business')
-  getBusiness() {
-    return this.settings.getBusiness();
+  async getBusiness(@CurrentShop() shop: ShopAccessInfo) {
+    return businessView(await this.settings.getBusiness(), shop.isOwner);
   }
 
   @Put('business')
-  updateBusiness(@Body() dto: UpdateBusinessDto) {
-    return this.settings.update(dto);
+  updateBusiness(@Body() dto: UpdateBusinessDto, @CurrentShop() shop: ShopAccessInfo) {
+    return this.settings.update(dto, shop.isOwner);
   }
 
   /**
@@ -67,19 +85,24 @@ export class SettingsController {
   }
 
   /**
-   * Kesim fiyatlandırması: saatlik ücret ve asgari süre, m² ücreti ve asgari
-   * alan, makine hızları. Okuma her üyeye (teklif ekranı varsayılan fiyatı
-   * buradan alır).
+   * İşleme / hizmet fiyatlandırması — tek menü: m², metre, süre (saatlik ücret
+   * ve asgari süre), adet. Okuma her üyeye (teklif ekranı varsayılan fiyatı
+   * buradan alır). Makine hızları ve asgari alan yalnız Corel özelliği açık
+   * işletmeye döner.
    */
   @AnyShopMember()
   @Get('cut-pricing')
-  getCutPricing() {
-    return this.settings.getCutPricing();
+  async getCutPricing(@CurrentShop() shop: ShopAccessInfo) {
+    return cutPricingView(await this.settings.getCutPricing(), shop.features);
   }
 
   @Put('cut-pricing')
-  updateCutPricing(@Body() dto: UpdateCutPricingDto) {
-    return this.settings.updateCutPricing(dto);
+  async updateCutPricing(@Body() dto: UpdateCutPricingDto, @CurrentShop() shop: ShopAccessInfo) {
+    const patch: UpdateCutPricingDto = { ...dto };
+    // Corel özelliği kapalı işletme Corel'e özgü alanları yazamaz (arayüz zaten göstermez).
+    if (!shop.features.corel) for (const f of COREL_ONLY_CUT_FIELDS) delete patch[f];
+    await this.settings.updateCutPricing(patch);
+    return cutPricingView(await this.settings.getCutPricing(), shop.features);
   }
 
   /** Sabah özeti (Telegram): açık/kapalı ve gönderim zamanı. */
@@ -96,8 +119,10 @@ export class SettingsController {
   /**
    * CorelDRAW eklentisinin anahtarı. Eklentinin ayarına bir kez yapıştırılır;
    * bu dükkânın müşteri ve stok listesini okumasını sağlar. Anahtar bir tür
-   * paroladır: yalnız ayarları değiştirebilenler görür.
+   * paroladır: yalnız ayarları değiştirebilenler görür. Özellik, sistem
+   * sahibinin işletmeye açtığı bir hizmettir.
    */
+  @ShopFeatureRequired('corel')
   @ShopAccess('settings', 'write')
   @Get('corel')
   getCorel() {
@@ -105,6 +130,7 @@ export class SettingsController {
   }
 
   /** Yeni anahtar üretir; eski anahtarla gelen istekler reddedilir. */
+  @ShopFeatureRequired('corel')
   @PrimaryOnly()
   @Post('corel/rotate')
   rotateCorel() {
@@ -112,6 +138,7 @@ export class SettingsController {
   }
 
   /** Anahtarı siler, entegrasyonu kapatır. */
+  @ShopFeatureRequired('corel')
   @PrimaryOnly()
   @Delete('corel')
   disableCorel() {
@@ -122,33 +149,37 @@ export class SettingsController {
    * Dükkânın klasör oluşturucusu (runner): açık mı, belirteçteki işletme
    * kodu, malzeme satışına klasör, bu dükkânın gün klasörü kökü.
    */
+  @ShopFeatureRequired('corel')
   @Get('folders')
   getFolders() {
     return this.settings.getFolderSettings();
   }
 
+  @ShopFeatureRequired('corel')
   @Put('folders')
   updateFolders(@Body() dto: UpdateFolderSettingsDto) {
     return this.settings.updateFolderSettings(dto);
   }
 
   /**
-   * Telegram ayarlarının durumu (jeton maskeli) — mesajların gideceği sohbet
-   * kimlikleri burada görünür.
+   * Telegram durumu. İşletme yalnız kendi bildirim sohbetini, konu hedeflerini
+   * ve botun kullanıcı adını görür; bot jetonu, yedek sohbeti, yetkili
+   * kullanıcılar ve başka işletmelerin adları yalnız sistem sahibine döner.
    */
   @Get('telegram')
-  getTelegram() {
-    return this.settings.getTelegramStatus();
+  getTelegram(@CurrentShop() shop: ShopAccessInfo) {
+    return this.settings.getTelegramStatus(shop.isOwner, shop.features);
   }
 
   /**
-   * Telegram jetonu/sohbet kimliklerini arayüzden düzenler (anında geçerli).
-   * Bildirim sohbeti dükkânın; bot jetonu, yedek sohbeti ve yetkili
-   * kullanıcılar sistemin (yalnız sistem sahibi).
+   * Telegram ayarlarını arayüzden düzenler (anında geçerli). Bildirim sohbeti
+   * ve konu hedefleri dükkânın; bot jetonu, yedek sohbeti ve yetkili
+   * kullanıcılar sistemin (yalnız sistem sahibi). Tek bir sistem botu vardır:
+   * işletme jeton girmez, botu kendi grubuna ekleyip grubun kimliğini yazar.
    */
   @PrimaryOnly()
   @Put('telegram')
   updateTelegram(@Body() dto: UpdateTelegramDto, @CurrentShop() shop: ShopAccessInfo) {
-    return this.settings.updateTelegram(dto, shop.isOwner);
+    return this.settings.updateTelegram(dto, shop.isOwner, shop.features);
   }
 }

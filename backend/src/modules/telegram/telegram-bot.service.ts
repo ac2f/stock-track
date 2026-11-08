@@ -275,7 +275,7 @@ export class TelegramBotService {
             `Kullanıcı kimliğiniz: <code>${userId}</code>\n` +
             'Dükkân yöneticinizden bu kimliği web arayüzünde <i>Ekip</i> ekranında ' +
             'hesabınıza yazmasını isteyin (yalnız sizin dükkânlarınızı görürsünüz) ya da ' +
-            'işletme sahibinden <i>Ayarlar › Telegram › Yetkili kullanıcılar</i> listesine eklemesini.'
+            'sistem yöneticisinden bu kimliği yetkili listesine eklemesini.'
         : '⚠️ <b>Yetkili kullanıcı listesi boş.</b>\n\n' +
             `Kullanıcı kimliğiniz: <code>${userId}</code>\n` +
             'Bu kimliği web arayüzünde <i>Ayarlar › Telegram › Yetkili kullanıcılar</i> ' +
@@ -301,8 +301,7 @@ export class TelegramBotService {
         (allowed
           ? '✅ Bu hesap işlem yapmaya yetkili. /menu ile başlayın.'
           : '⛔ Bu hesap henüz yetkili değil. Kullanıcı kimliğini web arayüzünde ' +
-            '<i>Ekip</i> ekranında kişinin hesabına ya da ' +
-            '<i>Ayarlar › Telegram › Yetkili kullanıcılar</i> alanına yazın.'),
+            '<i>Ekip</i> ekranında kişinin hesabına yazın (yetkili listesi yalnız sistem yöneticisindedir).'),
     );
   }
 

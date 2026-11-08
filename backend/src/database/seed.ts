@@ -1,5 +1,6 @@
 import { config as loadEnv } from 'dotenv';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { DataSource, IsNull } from 'typeorm';
 import dataSource from '../config/typeorm.config';
 import { User } from '../modules/users/entities/user.entity';
@@ -15,6 +16,9 @@ import { Shop } from '../modules/shops/entities/shop.entity';
 import { migrateToShops } from '../modules/shops/shop-migration';
 import { ShopContext } from '../common/shop/shop-context';
 import { installShopScope } from '../common/shop/shop-scope.typeorm';
+
+/** Geliştirmede kullanılan örnek sistem sahibi parolası (üretimde ASLA). */
+const DEFAULT_OWNER_PASSWORD = 'Owner123!';
 
 /** Örnek malzeme türleri — İşletme Sahibi bunları dilediği gibi düzenleyebilir/silebilir. */
 const DEFAULT_MATERIAL_CATEGORIES: {
@@ -46,7 +50,20 @@ const DEFAULT_MATERIAL_CATEGORIES: {
  */
 export async function runSeed(ds: DataSource): Promise<void> {
   const email = process.env.SEED_OWNER_EMAIL ?? 'owner@stocktrack.local';
-  const password = process.env.SEED_OWNER_PASSWORD ?? 'Owner123!';
+  const production = process.env.NODE_ENV === 'production';
+  // Herkesin bildiği örnek parola yalnız geliştirmede kullanılır. Üretimde parola verilmediyse
+  // (ya da örnek değer bırakıldıysa) rastgele bir parola üretilir ve YALNIZ ilk oluşturmada,
+  // bir kez gösterilir.
+  let password = process.env.SEED_OWNER_PASSWORD;
+  let generated = false;
+  if (!password || (production && password === DEFAULT_OWNER_PASSWORD)) {
+    if (production) {
+      password = randomBytes(12).toString('base64url');
+      generated = true;
+    } else {
+      password = DEFAULT_OWNER_PASSWORD;
+    }
+  }
 
   // ── OWNER (sistem sahibi; dükkândan bağımsız) ──
   const usersRepo = ds.getRepository(User);
@@ -60,9 +77,30 @@ export async function runSeed(ds: DataSource): Promise<void> {
         passwordHash: await bcrypt.hash(password, 10),
       }),
     );
-    console.log(`✓ OWNER oluşturuldu: ${email} / ${password}`);
+    // Parola günlüğe yazılmaz; yalnız bu çalıştırmada kendiliğinden üretildiyse (aksi hâlde
+    // kaybolurdu) ve geliştirmede örnek parola ise gösterilir.
+    console.log(
+      generated
+        ? `✓ OWNER oluşturuldu: ${email} — GEÇİCİ PAROLA: ${password}  (giriş yapıp hemen değiştirin; bir daha gösterilmez)`
+        : production
+          ? `✓ OWNER oluşturuldu: ${email} (parola SEED_OWNER_PASSWORD'dan)`
+          : `✓ OWNER oluşturuldu: ${email} / ${password}`,
+    );
   } else {
     console.log(`• OWNER zaten mevcut: ${email}`);
+    if (production) {
+      const row = await usersRepo
+        .createQueryBuilder('u')
+        .addSelect('u.passwordHash')
+        .where('u.email = :email', { email })
+        .getOne();
+      if (row?.passwordHash && (await bcrypt.compare(DEFAULT_OWNER_PASSWORD, row.passwordHash))) {
+        console.warn(
+          `⚠️  GÜVENLİK: ${email} hesabı hâlâ herkesin bildiği örnek parolayı (${DEFAULT_OWNER_PASSWORD}) kullanıyor. ` +
+            'Hemen giriş yapıp parolayı değiştirin.',
+        );
+      }
+    }
   }
 
   // ── Her açık dükkânın varsayılanları ──

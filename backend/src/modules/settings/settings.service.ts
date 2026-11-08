@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -9,6 +9,7 @@ import {
   NotificationsConfig,
 } from '../../config/configuration';
 import { ShopContext } from '../../common/shop/shop-context';
+import { ShopFeatures } from '../../common/shop/shop-features';
 import { AppSetting } from './entities/app-setting.entity';
 import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateBusinessDto } from './dto/update-business.dto';
@@ -63,6 +64,10 @@ export interface CutPricingSettings {
   hourlyRate: number;
   minMinutes: number;
   areaRate: number;
+  /** Metre ile faturalanan işin metre ücreti. */
+  meterRate: number;
+  /** Adetle faturalanan işin adet ücreti. */
+  pieceRate: number;
   minArea: number;
   feedMmS: number;
   rapidMmS: number;
@@ -120,26 +125,65 @@ export interface TelegramRouteView {
 export type SettingSource = 'db' | 'env' | 'none';
 
 /**
- * Arayüze dönen Telegram durumu. Jeton ASLA açık gönderilmez; yalnızca
- * tanımlı olup olmadığı ve maskelenmiş bir önizleme paylaşılır.
+ * Arayüze dönen Telegram durumu.
+ *
+ * İKİ GÖRÜNÜM vardır:
+ *  - İşletme (varsayılan): yalnız kendi bildirim sohbeti ve konu hedefleri,
+ *    botun kullanıcı adı (gruba eklemek için) ve hazır olup olmadığı. Bot
+ *    JETONU, yedek sohbeti, yetkili kullanıcılar, .env değerleri ve başka
+ *    işletmelerin adları İŞLETMEYE ASLA GÖNDERİLMEZ (alan bile yoktur).
+ *  - Sistem sahibi (`ownerView`): hepsi; jeton yine maskelenmiş.
  */
 export interface TelegramStatus {
+  /** Bildirimler gidebilir durumda mı (bot hazır ve sohbet tanımlı). */
   configured: boolean;
-  tokenSet: boolean;
-  tokenMasked: string;
-  tokenSource: SettingSource;
+  /** Sistem botu hazır mı — jetonun kendisi değil, yalnız var/yok. */
+  botReady: boolean;
+  /** Botun kullanıcı adı (@olmadan): işletme botu kendi grubuna bununla ekler. */
+  botUsername: string | null;
+  /** Bu dükkânın bildirim sohbeti. */
   chatId: string;
-  chatIdSource: SettingSource;
-  backupChatId: string;
-  /** Yedeğin gerçekte gideceği sohbet (backupChatId boşsa chatId). */
-  effectiveBackupChatId: string;
-  backupCron: string;
-  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
-  allowedUserIds: string[];
   /** Konu başına hedefler. */
   routes: TelegramRouteView[];
+  /** true → aşağıdaki sistem alanları dolu (yalnız sistem sahibi). */
+  ownerView: boolean;
+
+  // ── Yalnız sistem sahibine ──
+  tokenSet?: boolean;
+  tokenMasked?: string;
+  tokenSource?: SettingSource;
+  chatIdSource?: SettingSource;
+  backupChatId?: string;
+  /** Yedeğin gerçekte gideceği sohbet (backupChatId boşsa chatId). */
+  effectiveBackupChatId?: string;
+  backupCron?: string;
+  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
+  allowedUserIds?: string[];
   /** Bildirim sohbetini kullanan diğer dükkânlar. */
-  chatSharedWith: string[];
+  chatSharedWith?: string[];
+}
+
+/** Telegram sohbet kimliği: sayısal (grup/kanal negatif) ya da @kanaladı. */
+export const CHAT_ID_RE = /^(-?\d{5,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/;
+
+/** Başka işletmelerden gelen çözümlenmiş işletme kimliğinden, görüntüleyene uygun olanı. */
+export function businessView(b: ResolvedBusiness, isOwner: boolean): ResolvedBusiness {
+  // Portal adresi ve logo yolu sunucu/platform ayarıdır: yalnız sistem sahibi görür ve değiştirir.
+  return isOwner ? b : { ...b, portalBaseUrl: '', logoPath: '' };
+}
+
+/** Corel'e özgü kesim alanları (Corel özelliği kapalı işletmeye gösterilmez). */
+export const COREL_ONLY_CUT_FIELDS = ['minArea', 'feedMmS', 'rapidMmS', 'plungeSec', 'passDepthMm'] as const;
+
+/** Kesim fiyatlandırmasından, işletmenin özelliklerine uygun olan görünüm. */
+export function cutPricingView(
+  c: CutPricingSettings,
+  features: Pick<ShopFeatures, 'corel'>,
+): Partial<CutPricingSettings> {
+  if (features.corel) return c;
+  const out: Partial<CutPricingSettings> = { ...c };
+  for (const f of COREL_ONLY_CUT_FIELDS) delete out[f];
+  return out;
 }
 
 /**
@@ -205,10 +249,36 @@ export class SettingsService {
     };
   }
 
-  async update(dto: UpdateBusinessDto): Promise<AppSetting> {
+  /**
+   * İşletme kimliğini günceller ve görüntüleyene uygun hâlini döndürür (ham
+   * satır DEĞİL: satırda Corel anahtarı gibi alanlar vardır).
+   *
+   * Portal temel adresi ve logo yolu sunucu/platform ayarıdır: yalnız sistem
+   * sahibi değiştirir. Bir işletme bunları değiştirirse müşterilerine giden
+   * bağlantılar (portal jetonu dahil) başka bir adrese yönlenebilirdi.
+   */
+  async update(dto: UpdateBusinessDto, isOwner: boolean): Promise<ResolvedBusiness> {
+    const patch: UpdateBusinessDto = { ...dto };
+    if (!isOwner) {
+      for (const key of ['portalBaseUrl', 'businessLogoPath'] as const) {
+        const v = patch[key];
+        if (v === undefined) continue;
+        // Arayüz bu alanları işletmeye boş gösterir; boş değer "dokunma" demektir.
+        if (v.trim() !== '') {
+          throw new ForbiddenException(
+            'Portal adresini ve logo yolunu yalnız sistem sahibi değiştirebilir.',
+          );
+        }
+        delete patch[key];
+      }
+    }
+    if (patch.portalBaseUrl !== undefined) {
+      patch.portalBaseUrl = patch.portalBaseUrl.trim().replace(/\/+$/, '');
+    }
     const s = await this.getOrCreate();
-    Object.assign(s, dto);
-    return this.repo.save(s);
+    Object.assign(s, patch);
+    await this.repo.save(s);
+    return businessView(await this.getBusiness(), isOwner);
   }
 
   // ── Görünüm ─────────────────────────────────────────────────────────
@@ -259,6 +329,8 @@ export class SettingsService {
       hourlyRate: Number(s.cutHourlyRate ?? 0),
       minMinutes: Number(s.cutMinMinutes ?? 0),
       areaRate: Number(s.cutAreaRate ?? 0),
+      meterRate: Number(s.cutMeterRate ?? 0),
+      pieceRate: Number(s.cutPieceRate ?? 0),
       minArea: Number(s.cutMinArea ?? 0),
       feedMmS: Number(s.cutFeedMmS ?? 20),
       rapidMmS: Number(s.cutRapidMmS ?? 100),
@@ -276,6 +348,8 @@ export class SettingsService {
       ['hourlyRate', 'cutHourlyRate'],
       ['minMinutes', 'cutMinMinutes'],
       ['areaRate', 'cutAreaRate'],
+      ['meterRate', 'cutMeterRate'],
+      ['pieceRate', 'cutPieceRate'],
       ['minArea', 'cutMinArea'],
       ['feedMmS', 'cutFeedMmS'],
       ['rapidMmS', 'cutRapidMmS'],
@@ -413,22 +487,72 @@ export class SettingsService {
    * Öncelik: veritabanı → .env. Bot ve yedek sohbeti sisteme, bildirim
    * sohbeti o anki dükkâna aittir; dükkân bağlamı yoksa (yedek görevi) ilk
    * dükkânın sohbeti kullanılır. Yedek sohbeti boşsa bildirim sohbetine düşer.
+   *
+   * .env'deki sistem sahibi sohbeti (TELEGRAM_OWNER_CHAT_ID) YALNIZ ilk
+   * (sistem sahibinin kendi) dükkânı için yedektir. Kendi sohbetini
+   * tanımlamamış başka bir işletmenin bildirimleri sistem sahibinin
+   * sohbetine DÜŞMEZ: aksi hâlde her işletmenin satış/ödeme/stok olayları
+   * sistem sahibinin sohbetine akardı.
    */
   async getTelegram(): Promise<ResolvedTelegram> {
     const sys = await this.getSystem();
     const botToken =
       sys.telegramBotToken?.trim() || this.envNotifications.telegramBotToken || '';
-    const shopChat = ShopContext.shopId()
+    const shopId = ShopContext.shopId();
+    const shopChat = shopId
       ? (await this.getOrCreate()).telegramChatId?.trim()
       : await this.firstShopChat();
-    const chatId = shopChat || this.envNotifications.telegramOwnerChatId || '';
+    const envChat =
+      !shopId || (await this.isHomeShop(shopId)) ? this.envNotifications.telegramOwnerChatId || '' : '';
+    const chatId = shopChat || envChat;
     const backupChatId =
       sys.backupTelegramChatId?.trim() || this.envBackup.telegramChatId || '';
     return { botToken, chatId, backupChatId: backupChatId || chatId };
   }
 
-  /** Arayüz için durum — jeton maskelenir, asla açık dönmez. */
-  async getTelegramStatus(): Promise<TelegramStatus> {
+  /** İlk (en eski) açık dükkân: sistem sahibinin kendi işletmesi. Kısa süre önbelleğe alınır. */
+  private homeShop: { id: string; at: number } | null = null;
+  private async isHomeShop(shopId: string): Promise<boolean> {
+    const now = Date.now();
+    if (!this.homeShop || now - this.homeShop.at > 60_000) {
+      const rows: { id: string }[] = await this.repo.query(
+        `SELECT "id" FROM "shops" WHERE "deleted_at" IS NULL ORDER BY "created_at" ASC LIMIT 1`,
+      );
+      this.homeShop = { id: rows[0]?.id ?? '', at: now };
+    }
+    return this.homeShop.id === shopId;
+  }
+
+  /**
+   * Sistem botunun kullanıcı adı (getMe): işletmeler botu kendi grubuna bu adla
+   * ekler. Jeton gösterilmez; yalnız kamuya açık kullanıcı adı döner. 10 dk önbellek.
+   */
+  private botName: { value: string | null; at: number } | null = null;
+  async botUsername(): Promise<string | null> {
+    const now = Date.now();
+    if (this.botName && now - this.botName.at < 10 * 60_000) return this.botName.value;
+    const token = await this.getBotToken();
+    let value: string | null = null;
+    if (token) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+        const body = (await res.json()) as { ok?: boolean; result?: { username?: string } };
+        value = res.ok && body.ok ? body.result?.username ?? null : null;
+      } catch {
+        value = null;
+      }
+    }
+    // Başarısızlık kısa süre saklanır (ağ yokken her istekte denenmesin).
+    this.botName = { value, at: value ? now : now - 9 * 60_000 };
+    return value;
+  }
+
+  /**
+   * Arayüz için durum. `isOwner` false (varsayılan) → işletme görünümü: jeton,
+   * yedek sohbeti, yetkili kullanıcılar, .env değerleri ve başka işletmelerin
+   * adları hiç taşınmaz (bkz. TelegramStatus).
+   */
+  async getTelegramStatus(isOwner = false, features?: Pick<ShopFeatures, 'corel'>): Promise<TelegramStatus> {
     const sys = await this.getSystem();
     const s = await this.getOrCreate();
     const dbToken = sys.telegramBotToken?.trim() ?? '';
@@ -436,61 +560,79 @@ export class SettingsService {
     const token = dbToken || envToken;
 
     const dbChat = s.telegramChatId?.trim() ?? '';
-    const envChat = this.envNotifications.telegramOwnerChatId ?? '';
-    const chatId = dbChat || envChat;
-
-    const backupChatId = sys.backupTelegramChatId?.trim() ?? '';
     const resolved = await this.getTelegram();
+    const botReady = !!token;
+    // İşletme yalnız kendi yazdığı sohbeti görür; .env'deki sohbet sistem sahibinindir.
+    const chatId = isOwner ? dbChat || (this.envNotifications.telegramOwnerChatId ?? '') : dbChat;
+    const defaultChat = isOwner ? resolved.chatId : dbChat;
 
+    const base: TelegramStatus = {
+      configured: botReady && !!resolved.chatId,
+      botReady,
+      botUsername: await this.botUsername(),
+      chatId,
+      routes: [],
+      ownerView: isOwner,
+    };
+    const { routes, chatSharedWith } = await this.routeViews(s, defaultChat, isOwner, features);
+    base.routes = routes;
+    if (!isOwner) return base;
+
+    const envChat = this.envNotifications.telegramOwnerChatId ?? '';
     return {
-      configured: !!token && !!resolved.chatId,
-      tokenSet: !!token,
+      ...base,
+      tokenSet: botReady,
       tokenMasked: this.maskToken(token),
       tokenSource: dbToken ? 'db' : envToken ? 'env' : 'none',
-      chatId,
       chatIdSource: dbChat ? 'db' : envChat ? 'env' : 'none',
-      backupChatId,
+      backupChatId: sys.backupTelegramChatId?.trim() ?? '',
       effectiveBackupChatId: resolved.backupChatId,
       backupCron: this.envBackup.telegramCron,
       allowedUserIds: await this.getAllowedUserIds(),
-      ...(await this.routeViews(s, resolved.chatId)),
+      chatSharedWith,
     };
   }
 
   /**
-   * Konu başına hedefler ve hangi sohbeti başka hangi dükkânların
-   * kullandığı (arayüz "Merkez de bu sohbete gönderiyor" der).
+   * Konu başına hedefler. Sistem sahibi ayrıca hangi sohbeti başka hangi
+   * dükkânların kullandığını görür; işletmeye başka işletmenin adı verilmez.
+   * Corel özelliği kapalı işletmede "Corel ve klasörler" konusu hiç listelenmez.
    */
   private async routeViews(
     s: AppSetting,
     defaultChat: string,
+    isOwner: boolean,
+    features?: Pick<ShopFeatures, 'corel'>,
   ): Promise<{ routes: TelegramRouteView[]; chatSharedWith: string[] }> {
-    const others = await this.otherShopTargets();
+    const others = isOwner ? await this.otherShopTargets() : [];
     const sharers = (chat: string) =>
       chat ? [...new Set(others.filter((o) => o.chats.includes(chat)).map((o) => o.name))] : [];
-    const routes = NOTIFICATION_TOPICS.map(({ key, label, hint }) => {
-      const r = (s.telegramRoutes ?? {})[key] ?? {};
-      const chatId = (r.chatId ?? '').trim();
-      const mode: TelegramRouteView['mode'] = r.off ? 'off' : chatId ? 'chat' : 'default';
-      const effectiveChatId = mode === 'off' ? '' : chatId || defaultChat;
-      return { topic: key, label, hint, mode, chatId, effectiveChatId, sharedWith: sharers(effectiveChatId) };
-    });
+    const routes = NOTIFICATION_TOPICS.filter(({ key }) => key !== 'corel' || isOwner || !!features?.corel).map(
+      ({ key, label, hint }) => {
+        const r = (s.telegramRoutes ?? {})[key] ?? {};
+        const chatId = (r.chatId ?? '').trim();
+        const mode: TelegramRouteView['mode'] = r.off ? 'off' : chatId ? 'chat' : 'default';
+        const effectiveChatId = mode === 'off' ? '' : chatId || defaultChat;
+        return { topic: key, label, hint, mode, chatId, effectiveChatId, sharedWith: sharers(effectiveChatId) };
+      },
+    );
     return { routes, chatSharedWith: sharers(defaultChat) };
   }
 
-  /** Diğer açık dükkânların adları ve bildirim gönderdikleri sohbetler. */
+  /** Diğer açık dükkânların adları ve bildirim gönderdikleri sohbetler (yalnız sistem sahibi görünümü). */
   private async otherShopTargets(): Promise<{ name: string; chats: string[] }[]> {
     const shopId = ShopContext.shopId();
-    const rows: { name: string; chat: string; routes: AppSetting['telegramRoutes'] | null }[] =
+    const rows: { shop_id: string; name: string; chat: string; routes: AppSetting['telegramRoutes'] | null }[] =
       await this.repo.query(
-        `SELECT sh."name" AS name, s."telegram_chat_id" AS chat, s."telegram_routes" AS routes
+        `SELECT s."shop_id" AS shop_id, sh."name" AS name, s."telegram_chat_id" AS chat, s."telegram_routes" AS routes
            FROM "app_settings" s JOIN "shops" sh ON sh."id" = s."shop_id"
           WHERE s."deleted_at" IS NULL AND sh."is_active" = true AND s."shop_id" <> $1`,
         [shopId ?? '00000000-0000-0000-0000-000000000000'],
       );
     const envChat = this.envNotifications.telegramOwnerChatId || '';
+    const home = rows.length ? await this.homeShopId() : '';
     return rows.map((r) => {
-      const base = (r.chat ?? '').trim() || envChat;
+      const base = (r.chat ?? '').trim() || (r.shop_id === home ? envChat : '');
       const chats = new Set<string>();
       for (const { key } of NOTIFICATION_TOPICS) {
         const route = (r.routes ?? {})[key] ?? {};
@@ -500,6 +642,11 @@ export class SettingsService {
       }
       return { name: r.name, chats: [...chats] };
     });
+  }
+
+  private async homeShopId(): Promise<string> {
+    await this.isHomeShop('');
+    return this.homeShop?.id ?? '';
   }
 
   /**
@@ -546,29 +693,72 @@ export class SettingsService {
    *  - alan verilmediyse (undefined) DEĞİŞMEZ,
    *  - boş string gönderilirse TEMİZLENİR (→ .env değerine geri düşer).
    * Bot jetonu, yedek sohbeti ve yetkili kullanıcılar sisteme aittir:
-   * yalnız sistem sahibi (`system: true`) değiştirebilir. Bildirim sohbeti
+   * yalnız sistem sahibi (`isOwner: true`) değiştirebilir. Bildirim sohbeti
    * dükkânındır.
+   *
+   * İşletme sohbet kimliğini yazarken kimlik biçimi denetlenir ve sistem
+   * botunun o sohbette gerçekten bulunduğu (botun eklendiği bir grup/kanal)
+   * Telegram'dan doğrulanır; özel (kişi) sohbetleri işletmeye kapalıdır.
+   * Böylece bir işletme, başkasının kişisel sohbetine bot adıyla mesaj
+   * gönderemez.
    */
-  async updateTelegram(dto: UpdateTelegramDto, system: boolean): Promise<TelegramStatus> {
+  async updateTelegram(
+    dto: UpdateTelegramDto,
+    isOwner: boolean,
+    features?: Pick<ShopFeatures, 'corel'>,
+  ): Promise<TelegramStatus> {
     const touchesSystem =
       dto.telegramBotToken !== undefined ||
       dto.backupTelegramChatId !== undefined ||
       dto.telegramAllowedUserIds !== undefined;
-    if (touchesSystem && !system) {
+    if (touchesSystem && !isOwner) {
       throw new ForbiddenException(
         'Bot jetonu, yedek sohbeti ve yetkili kullanıcıları yalnız sistem sahibi değiştirebilir.',
       );
     }
     if (dto.telegramChatId !== undefined || dto.telegramRoutes !== undefined) {
       const s = await this.getOrCreate();
-      if (dto.telegramChatId !== undefined) s.telegramChatId = dto.telegramChatId.trim();
-      if (dto.telegramRoutes !== undefined) s.telegramRoutes = cleanRoutes(dto.telegramRoutes);
+      const nextRoutes = dto.telegramRoutes !== undefined ? cleanRoutes(dto.telegramRoutes) : undefined;
+      const nextChat = dto.telegramChatId !== undefined ? dto.telegramChatId.trim() : undefined;
+
+      // Yeni/değişen sohbet kimlikleri (boşaltmak serbest).
+      const wanted = new Set<string>();
+      if (nextChat && nextChat !== (s.telegramChatId ?? '').trim()) wanted.add(nextChat);
+      for (const r of Object.values(nextRoutes ?? {})) {
+        if (r.chatId) wanted.add(r.chatId);
+      }
+      for (const id of wanted) {
+        if (!CHAT_ID_RE.test(id)) {
+          throw new BadRequestException(`"${id}" geçerli bir Telegram sohbet kimliği değil (örn. -1001234567890).`);
+        }
+      }
+      if (!isOwner) {
+        const known = new Set<string>([
+          (s.telegramChatId ?? '').trim(),
+          ...Object.values(s.telegramRoutes ?? {}).map((r) => (r.chatId ?? '').trim()),
+        ]);
+        for (const id of wanted) {
+          if (!known.has(id)) await this.assertGroupChat(id);
+        }
+      }
+
+      if (nextChat !== undefined) s.telegramChatId = nextChat;
+      if (nextRoutes !== undefined) {
+        // Corel özelliği kapalı işletme Corel konusunun hedefini yazamaz/değiştiremez.
+        if (!isOwner && !features?.corel) {
+          const keep = (s.telegramRoutes ?? {}).corel;
+          delete nextRoutes.corel;
+          if (keep) nextRoutes.corel = keep;
+        }
+        s.telegramRoutes = nextRoutes;
+      }
       await this.repo.save(s);
     }
     if (touchesSystem) {
       const sys = await this.getSystem();
       if (dto.telegramBotToken !== undefined) {
         sys.telegramBotToken = dto.telegramBotToken.trim();
+        this.botName = null;
       }
       if (dto.backupTelegramChatId !== undefined) {
         sys.backupTelegramChatId = dto.backupTelegramChatId.trim();
@@ -587,16 +777,56 @@ export class SettingsService {
       }
       await this.systemRepo.save(sys);
     }
-    return this.getTelegramStatus();
+    return this.getTelegramStatus(isOwner, features);
   }
 
-  /** Dükkân bağlamı olmadan (yedek görevi): ilk açık dükkânın bildirim sohbeti. */
+  /**
+   * Bir işletmenin yazdığı sohbet kimliği gerçekten sistem botunun bulunduğu bir
+   * grup/kanal mı? Telegram `getChat` ile doğrulanır; kişisel sohbet reddedilir.
+   * Sınanabilmesi için ayrı bir metottur.
+   */
+  protected async assertGroupChat(chatId: string): Promise<void> {
+    const token = await this.getBotToken();
+    if (!token) {
+      throw new BadRequestException(
+        'Telegram botu henüz hazır değil; sistem yöneticisi bot jetonunu tanımlamalıdır.',
+      );
+    }
+    type ChatInfo = { ok?: boolean; result?: { type?: string } };
+    let info: ChatInfo | null = null;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      info = (await res.json()) as ChatInfo;
+    } catch {
+      throw new BadRequestException('Telegram\'a ulaşılamadı; biraz sonra yeniden deneyin.');
+    }
+    if (!info?.ok) {
+      throw new BadRequestException(
+        'Bot bu sohbette değil ya da kimlik yanlış. Önce botu grubunuza ekleyin, sonra grupta /idx yazıp çıkan kimliği kullanın.',
+      );
+    }
+    if (info.result?.type === 'private') {
+      throw new BadRequestException('Bildirimler kişisel sohbete değil, botu eklediğiniz bir gruba/kanala gönderilir.');
+    }
+  }
+
+  /**
+   * Dükkân bağlamı olmadan (yedek görevi): ilk (sistem sahibinin kendi)
+   * dükkânın bildirim sohbeti. Yalnız İLK dükkândır — o sohbet tanımsızsa başka
+   * bir işletmenin sohbeti aranmaz: bütün veritabanının yedeği bir işletmenin
+   * grubuna gidemez.
+   */
   private async firstShopChat(): Promise<string> {
     const rows: { telegram_chat_id: string }[] = await this.repo.query(
       `SELECT s."telegram_chat_id" FROM "app_settings" s
-         JOIN "shops" sh ON sh."id" = s."shop_id"
-        WHERE s."deleted_at" IS NULL AND sh."is_active" = true AND s."telegram_chat_id" <> ''
-        ORDER BY sh."created_at" ASC LIMIT 1`,
+        WHERE s."deleted_at" IS NULL
+          AND s."shop_id" = (SELECT "id" FROM "shops" WHERE "deleted_at" IS NULL AND "is_active" = true
+                              ORDER BY "created_at" ASC LIMIT 1)
+        LIMIT 1`,
     );
     return rows[0]?.telegram_chat_id?.trim() ?? '';
   }

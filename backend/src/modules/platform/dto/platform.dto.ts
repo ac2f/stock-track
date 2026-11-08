@@ -8,6 +8,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -16,8 +17,26 @@ import {
   MaxLength,
   Min,
   MinLength,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { SHOP_FEATURES, ShopFeature } from '../../../common/shop/shop-features';
+
+/** `features` yaması: yalnız bilinen özellik adları ve boolean değerler. */
+@ValidatorConstraint({ name: 'featuresPatch', async: false })
+class FeaturesPatchConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    return Object.entries(value as Record<string, unknown>).every(
+      ([k, v]) => (SHOP_FEATURES as readonly string[]).includes(k) && typeof v === 'boolean',
+    );
+  }
+  defaultMessage(): string {
+    return `Özellikler yalnız şunlar olabilir ve değerleri true/false olmalı: ${SHOP_FEATURES.join(', ')}.`;
+  }
+}
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 const emptyToNull = ({ value }: { value: unknown }) =>
@@ -365,6 +384,16 @@ export class QueryBusinessesDto extends PaginationDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   expiring?: boolean;
+
+  /** Yalnız bu iş kolu etiketini seçmiş işletmeler (malzemeci, baskıcı, atölye ...). */
+  @IsOptional()
+  @IsUUID()
+  labelId?: string;
+
+  /** Yalnız bu özelliği açık olan işletmeler (ör. corel). */
+  @IsOptional()
+  @IsIn([...SHOP_FEATURES])
+  feature?: ShopFeature;
 }
 
 export class UpdateBusinessAdminDto {
@@ -403,6 +432,15 @@ export class UpdateBusinessAdminDto {
   @IsOptional()
   @IsBoolean()
   directoryVisible?: boolean;
+
+  /**
+   * İşletmeye açılan/kapatılan özellikler: { corel: true, network: false }.
+   * Yalnız gönderilen anahtarlar değişir; bilinmeyen anahtar reddedilir.
+   */
+  @IsOptional()
+  @IsObject()
+  @Validate(FeaturesPatchConstraint)
+  features?: Partial<Record<ShopFeature, boolean>>;
 }
 
 export class UpdatePlatformSettingsDto {

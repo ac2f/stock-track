@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 /** İşletme/proje kimliği güncelleme — tüm alanlar opsiyonel (kısmi güncelleme). */
 export class UpdateBusinessDto {
@@ -27,8 +27,12 @@ export class UpdateBusinessDto {
   @MaxLength(300)
   businessLogoPath?: string;
 
+  /** Yalnız sistem sahibi değiştirir. Boş ya da http(s):// ile başlayan adres. */
   @IsOptional()
   @IsString()
   @MaxLength(300)
+  @Matches(/^\s*(https?:\/\/[^\s<>"']+)?\s*$/i, {
+    message: 'Portal adresi http:// ya da https:// ile başlamalı.',
+  })
   portalBaseUrl?: string;
 }

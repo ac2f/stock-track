@@ -1,4 +1,4 @@
-import type { ShopModule } from '../types';
+import type { ShopFeatureKey, ShopModule } from '../types';
 
 export interface NavItem {
   to: string;
@@ -16,6 +16,8 @@ export interface NavItem {
   multiShop?: boolean;
   /** Yalnız sistem sahibi (platform yönetimi). */
   owner?: boolean;
+  /** Sistem sahibinin işletmeye açtığı özellik gerekir (kapalıysa menüde yoktur). */
+  feature?: ShopFeatureKey;
   /** Hızlı aramada eşleşecek ek sözcükler. */
   keywords?: string;
 }
@@ -50,7 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'İşletmeler ağı',
     items: [
-      { to: '/directory', label: 'Rehber', title: 'İşletme Rehberi', icon: '🧭', keywords: 'işletme firma rehber il ilçe makine lazer cnc ebat etiket iş kolu ara bul telefon' },
+      { to: '/directory', label: 'Rehber', title: 'İşletme Rehberi', icon: '🧭', feature: 'directory', keywords: 'işletme firma rehber il ilçe makine lazer cnc ebat etiket iş kolu ara bul telefon' },
     ],
   },
   {
@@ -62,7 +64,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/material-templates', label: 'Ürün Türleri', title: 'Ürün Türleri', icon: '🗂️', module: 'catalog', keywords: 'katalog şablon marka renk kalınlık ebat' },
       { to: '/material-categories', label: 'Malzeme Türleri', title: 'Malzeme Türleri', icon: '🏷️', module: 'catalog', keywords: 'katalog kategori pleksi' },
       { to: '/team', label: 'Ekip', title: 'Ekip ve yetkiler', icon: '👥', team: true, keywords: 'çalışan kullanıcı yetki dükkân' },
-      { to: '/settings', label: 'Ayarlar', title: 'Dükkân ayarları', icon: '⚙️', module: 'settings', keywords: 'ayar telegram corel yedek' },
+      { to: '/settings', label: 'Ayarlar', title: 'Dükkân ayarları', icon: '⚙️', module: 'settings', keywords: 'ayar telegram fiyat yedek' },
     ],
   },
 ];
@@ -75,9 +77,11 @@ export function visibleNav(
   managesAnyShop: boolean,
   shopCount = 1,
   isOwner = false,
+  hasFeature: (f: ShopFeatureKey) => boolean = () => true,
 ): NavGroup[] {
   const visible = (n: NavItem): boolean => {
     if (n.owner) return isOwner;
+    if (n.feature && !hasFeature(n.feature)) return false;
     if (n.team) return managesAnyShop;
     if (n.multiShop && shopCount < 2) return false;
     if (n.anyOf) return n.anyOf.some((m) => can(m));

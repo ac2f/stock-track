@@ -91,8 +91,11 @@ const toForm = (p: BusinessProfile): Form => ({
 
 function ProfileCard() {
   const qc = useQueryClient();
-  const { can, refreshMe } = useAuth();
+  const { can, refreshMe, hasFeature } = useAuth();
   const canEdit = can('settings', 'write');
+  // Rehber ve müşteri/borç ağı, sistem sahibinin işletmeye açtığı özelliklerdir.
+  const directoryOn = hasFeature('directory');
+  const networkOn = hasFeature('network');
   const { data: profile, isLoading, isError } = useQuery({ queryKey: ['business-profile'], queryFn: fetchBusinessProfile });
   const { data: options } = useQuery({ queryKey: ['registration-options'], queryFn: fetchRegistrationOptions, staleTime: 60_000 });
   const [form, setForm] = useState<Form | null>(null);
@@ -201,7 +204,9 @@ function ProfileCard() {
         )}
       </div>
 
+      {(directoryOn || networkOn) && (
       <div className="space-y-3 rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
+        {directoryOn && (
         <Toggle
           checked={form.directoryVisible}
           disabled={!canEdit}
@@ -214,6 +219,9 @@ function ProfileCard() {
           }
           warn={form.directoryVisible && missing.length > 0}
         />
+        )}
+        {networkOn && (
+        <>
         <Toggle
           checked={form.shareCustomerInfo}
           disabled={!canEdit}
@@ -228,7 +236,10 @@ function ProfileCard() {
           title="Borç uyarı ağı"
           hint="Borçlu müşteriniz başka işletmede aynı telefonla kaydedilirken o işletmeye 'şu işletmeye borcu var, X gündür' uyarısı çıkar — TUTAR gösterilmez. Karşılıklıdır: kapatırsanız siz de başkalarının uyarılarını görmezsiniz."
         />
+        </>
+        )}
       </div>
+      )}
 
       {canEdit && (
         <div className="flex flex-wrap items-center gap-2">

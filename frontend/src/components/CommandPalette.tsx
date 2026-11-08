@@ -8,7 +8,7 @@ import { fetchQuotes } from '../api/quotes.api';
 import { applyTheme, resolveInitialTheme } from '../lib/theme';
 import { applyFontScale, getFontScale } from '../lib/fontScale';
 import type { NavItem } from '../layouts/nav';
-import { SECTIONS as SETTINGS_SECTIONS } from '../features/settings/sections';
+import { visibleSections } from '../features/settings/sections';
 import type { ShopModule } from '../types';
 import { useDebounced } from '../hooks/useDebounced';
 import { useShopList, useSwitchShop } from './ShopSwitcher';
@@ -122,7 +122,7 @@ export function CommandPalette({
   onShowHelp: () => void;
 }) {
   const navigate = useNavigate();
-  const { can, logout, shop, shops, isOwner, managesAnyShop } = useAuth();
+  const { can, logout, shop, shops, isOwner, managesAnyShop, hasFeature } = useAuth();
   const multiShop = shops.filter((s) => s.isActive).length > 1;
   const switchShop = useSwitchShop();
   const shopList = useShopList();
@@ -185,8 +185,7 @@ export function CommandPalette({
       list.push({ id: 'team-add', group: 'İşlemler', icon: '👥', label: 'Ekibe kişi ekle', keywords: 'çalışan kullanıcı davet yetki', run: () => go('/team?new=1') });
     }
     if (can('settings')) {
-      for (const sec of SETTINGS_SECTIONS) {
-        if (sec.ownerOnly && !isOwner) continue;
+      for (const sec of visibleSections(isOwner, hasFeature)) {
         list.push({
           id: `settings:${sec.id}`,
           group: 'Ayarlar',
@@ -235,7 +234,7 @@ export function CommandPalette({
     list.push({ id: 'logout', group: 'Hesap', icon: '🚪', label: 'Çıkış yap', keywords: 'oturum kapat', run: logout });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav, can, isOwner, managesAnyShop, multiShop, shopList, shop?.id, switchShop]);
+  }, [nav, can, isOwner, hasFeature, managesAnyShop, multiShop, shopList, shop?.id, switchShop]);
 
   const tokens = fold(q.trim()).split(/\s+/).filter(Boolean);
 

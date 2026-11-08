@@ -1,6 +1,6 @@
 import { Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AnyShopMember, ShopScope } from '../../common/shop/shop-access.decorator';
+import { AnyShopMember, ShopFeatureRequired, ShopScope } from '../../common/shop/shop-access.decorator';
 import { CorelRunnerService } from './corel-runner.service';
 
 /**
@@ -10,6 +10,7 @@ import { CorelRunnerService } from './corel-runner.service';
 @ApiTags('corel')
 @ApiBearerAuth()
 @ShopScope('settings')
+@ShopFeatureRequired('corel')
 @Controller({ path: 'corel-runners', version: '1' })
 export class CorelRunnerController {
   constructor(private readonly runners: CorelRunnerService) {}

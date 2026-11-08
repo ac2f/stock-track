@@ -96,6 +96,8 @@ if (-not (Test-Path 'backend/.env')) {
   Set-EnvValue 'backend/.env' 'DB_SYNCHRONIZE' 'true'
   Set-EnvValue 'backend/.env' 'JWT_ACCESS_SECRET' (New-Secret)
   Set-EnvValue 'backend/.env' 'JWT_REFRESH_SECRET' (New-Secret)
+  # Sistem sahibi parolasi: herkesin bildigi ornek parola yerine rastgele (kurulum sonunda gosterilir).
+  Set-EnvValue 'backend/.env' 'SEED_OWNER_PASSWORD' ((New-Secret).Substring(0, 16))
   Ok 'backend/.env uretildi (guclu JWT secretlari atandi).'
 } else {
   Ok 'backend/.env zaten var - korunuyor.'

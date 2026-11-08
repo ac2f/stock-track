@@ -1,12 +1,14 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ShopContext } from '../../common/shop/shop-context';
 import { SettingsService } from '../settings/settings.service';
+import { ShopAccessService } from '../shops/shop-access.service';
 
 /**
  * Corel uçları JWT yerine sabit bir anahtarla korunur: eklenti bir VBA
@@ -16,7 +18,20 @@ import { SettingsService } from '../settings/settings.service';
  */
 @Injectable()
 export class CorelKeyGuard implements CanActivate {
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly access: ShopAccessService,
+  ) {}
+
+  /**
+   * Corel, sistem sahibinin işletmeye açtığı bir özelliktir. Kapatılan
+   * işletmenin anahtarı (eskiden üretilmiş olsa bile) artık çalışmaz.
+   */
+  private async assertEnabled(shopId: string): Promise<void> {
+    if (!(await this.access.featuresOf(shopId)).corel) {
+      throw new ForbiddenException('Corel entegrasyonu bu hesapta etkin değil.');
+    }
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
@@ -27,6 +42,7 @@ export class CorelKeyGuard implements CanActivate {
       const raw = req.headers['x-shop-id'];
       const shopId = Array.isArray(raw) ? raw[0] : raw;
       if (!ShopContext.isUuid(shopId)) throw new UnauthorizedException('Dükkân belirtilmedi.');
+      await this.assertEnabled(shopId);
       ShopContext.enter(shopId);
       return true;
     }
@@ -44,6 +60,7 @@ export class CorelKeyGuard implements CanActivate {
         'Corel anahtarı geçersiz. Ayarlar › Corel entegrasyonu bölümündeki anahtarı eklentiye yapıştırın.',
       );
     }
+    await this.assertEnabled(shopId!);
     // Anahtar dükkânı da belirler: uçlar o dükkânın müşteri/stok listesini görür.
     ShopContext.enter(shopId!);
     return true;

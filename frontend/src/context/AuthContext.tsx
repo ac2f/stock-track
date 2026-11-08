@@ -10,11 +10,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { fetchMe, login as loginApi, logout as logoutApi } from '../api/auth.api';
 import { isOfflineError, tokenStore } from '../api/client';
-import { getActiveShopId, setActiveShopId } from '../lib/shop';
+import { getActiveShopId, resolveFeatures, setActiveShopId } from '../lib/shop';
 import { clearUserCache } from '../offline/cache';
 import { setSessionUser } from '../offline/session';
 import { syncNow } from '../offline/sync';
-import type { AuthUser, ShopAccess, ShopModule, UserRole } from '../types';
+import type { AuthUser, ShopAccess, ShopFeatureKey, ShopModule, UserRole } from '../types';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -29,6 +29,11 @@ interface AuthContextValue {
   setShop: (id: string) => void;
   /** Seçili dükkânda bu alanı görebilir/değiştirebilir mi? */
   can: (module: ShopModule, level?: 'read' | 'write') => boolean;
+  /**
+   * Sistem sahibinin bu işletmeye açtığı bir özellik açık mı (Corel, rehber, ağ)?
+   * Sistem sahibi için her zaman açık. İşletme bunu kendisi açamaz.
+   */
+  hasFeature: (feature: ShopFeatureKey) => boolean;
   isOwner: boolean;
   /** Seçili dükkânın yöneticisi (ya da sistem sahibi). */
   isShopAdmin: boolean;
@@ -184,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       shop,
       setShop,
       can: (module, level = 'read') => isOwner || !!shop?.permissions?.[module]?.[level],
+      hasFeature: (feature) => isOwner || resolveFeatures(shop?.features)[feature],
       isOwner,
       isShopAdmin: isOwner || !!shop?.isAdmin,
       managesAnyShop: isOwner || shops.some((s) => s.isAdmin),

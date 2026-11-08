@@ -63,6 +63,12 @@ function TeamGate({ children }: { children: ReactNode }) {
   return <>{managesAnyShop ? children : <NoAccess what="Ekip ve yetkiler" />}</>;
 }
 
+/** İşletme rehberi: sistem sahibinin işletmeye açtığı özellik (sunucu da denetler). */
+function DirectoryGate({ children }: { children: ReactNode }) {
+  const { hasFeature } = useAuth();
+  return <>{hasFeature('directory') ? children : <NoAccess what="İşletme rehberi" />}</>;
+}
+
 /** Dükkânlar arası satış: satışları ya da satın almaları görebilen. */
 function TransfersGate({ children }: { children: ReactNode }) {
   const { can } = useAuth();
@@ -174,8 +180,15 @@ export default function App() {
             </TransfersGate>
           }
         />
-        {/* İşletme rehberi: etkin her işletmenin her üyesi (sunucu da denetler). */}
-        <Route path="/directory" element={<DirectoryPage />} />
+        {/* İşletme rehberi: özelliği açık işletmenin her üyesi (sunucu da denetler). */}
+        <Route
+          path="/directory"
+          element={
+            <DirectoryGate>
+              <DirectoryPage />
+            </DirectoryGate>
+          }
+        />
         <Route
           path="/business"
           element={

@@ -13,6 +13,7 @@ import {
   normalizePermissions,
   ShopPermissions,
 } from '../../common/shop/shop-permissions';
+import { allFeatures, resolveFeatures, ShopFeatures } from '../../common/shop/shop-features';
 import { CacheGroup, GLOBAL_SCOPE } from '../../common/cache/cache.groups';
 import { CacheService } from '../../common/cache/cache.service';
 import { ShopMember } from './entities/shop-member.entity';
@@ -33,6 +34,8 @@ export interface ShopAccessInfo {
   isOwner: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
+  /** Sistem sahibinin bu işletmeye açtığı özellikler (sistem sahibi için hepsi açık). */
+  features: ShopFeatures;
 }
 
 /** Kiralama bitiş günü (dahil) geçti mi? Boş = süresiz. */
@@ -58,6 +61,7 @@ export interface ShopSummary {
   expired: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
+  features: ShopFeatures;
 }
 
 /**
@@ -118,6 +122,21 @@ export class ShopAccessService {
     return this.info(shop, false, member.isAdmin, normalizePermissions(member.permissions));
   }
 
+  /**
+   * Bir dükkânın özellikleri (oturumsuz çağıranlar için: Corel anahtarı, zamanlanmış
+   * görevler). Dükkân yoksa/silinmişse hepsi kapalıdır. Dükkân kaydına yazılınca
+   * ('access' grubu) önbellek kendiliğinden silinir.
+   */
+  async featuresOf(shopId: string): Promise<ShopFeatures> {
+    if (!ShopContext.isUuid(shopId)) return resolveFeatures({ corel: false, network: false, directory: false });
+    return this.cache.wrap(GLOBAL_SCOPE, CacheGroup.ACCESS, `features:${shopId}`, 300, async () => {
+      const shop = await this.shops.findOne({ where: { id: shopId } });
+      return shop && shop.isActive && shop.status === 'active'
+        ? resolveFeatures(shop.features)
+        : resolveFeatures({ corel: false, network: false, directory: false });
+    });
+  }
+
   /** Kullanıcının girebildiği dükkânlar (sistem sahibi: hepsi). */
   async listFor(actor: ShopActor): Promise<ShopSummary[]> {
     if (ShopAccessService.isOwner(actor)) {
@@ -132,6 +151,8 @@ export class ShopAccessService {
         expired: isExpired(s.subscriptionUntil),
         isAdmin: true,
         permissions: fullPermissions(),
+        // Sistem sahibi her özelliği kullanabilir; işletmeye ne açıldığını Platform ekranında görür.
+        features: allFeatures(),
       }));
     }
     const rows = await this.members.find({
@@ -151,6 +172,7 @@ export class ShopAccessService {
         expired: isExpired(m.shop!.subscriptionUntil),
         isAdmin: m.isAdmin,
         permissions: normalizePermissions(m.permissions),
+        features: resolveFeatures(m.shop!.features),
       }));
   }
 
@@ -200,6 +222,7 @@ export class ShopAccessService {
       isOwner,
       isAdmin,
       permissions,
+      features: isOwner ? allFeatures() : resolveFeatures(shop.features),
     };
   }
 }

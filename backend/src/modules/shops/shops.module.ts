@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SettingsModule } from '../settings/settings.module';
 import { User } from '../users/entities/user.entity';
 import { ShopMember } from './entities/shop-member.entity';
 import { Shop } from './entities/shop.entity';
@@ -13,7 +14,7 @@ import { ShopsService } from './shops.service';
  */
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([Shop, ShopMember, User])],
+  imports: [TypeOrmModule.forFeature([Shop, ShopMember, User]), SettingsModule],
   controllers: [ShopsController],
   providers: [ShopAccessService, ShopsService],
   exports: [ShopAccessService, ShopsService],

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from '../users/users.module';
 import { BankAccountsModule } from '../bank-accounts/bank-accounts.module';
+import { SettingsModule } from '../settings/settings.module';
 import { CurrencyModule } from '../currency/currency.module';
 import { Customer } from './entities/customer.entity';
 import { CustomerLedgerEntry } from './entities/customer-ledger-entry.entity';
@@ -21,6 +22,7 @@ import { CustomerNetworkService } from './services/customer-network.service';
     UsersModule, // ödemede teslim alan çalışanı doğrulamak için
     BankAccountsModule, // havalede banka hesabını doğrulamak için
     CurrencyModule, // yabancı para ödemeyi baz tutara çevirmek için
+    SettingsModule, // müşteri portalı bağlantısının temel adresi
   ],
   controllers: [CustomersController, PaymentsController, PaymentsAdminController, CustomerNetworkController],
   providers: [CustomersService, PaymentsService, CustomerAccountService, CustomerNetworkService],

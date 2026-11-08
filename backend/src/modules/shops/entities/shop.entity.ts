@@ -47,6 +47,14 @@ export class Shop extends BaseEntity {
   @Column({ name: 'admin_note', type: 'text', nullable: true })
   adminNote?: string | null;
 
+  /**
+   * Sistem sahibinin bu işletmeye açtığı/kapattığı özellikler
+   * (bkz. common/shop/shop-features.ts). Yazılmamış anahtar varsayılanına düşer.
+   * İşletme bunu değiştiremez.
+   */
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  features: Partial<Record<string, boolean>>;
+
   // ── İşletme profili (rehberde görünür) ───────────────────────────────
 
   @Column({ name: 'legal_name', type: 'varchar', length: 160, nullable: true })

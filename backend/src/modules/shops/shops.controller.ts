@@ -58,7 +58,7 @@ export class ShopsController {
   @AnyShopMember()
   @Get('current/staff')
   staff(@CurrentShop() shop: ShopAccessInfo) {
-    return this.shops.staff(shop.shopId);
+    return this.shops.staff(shop.shopId, shop.isOwner);
   }
 
   /** Ekip ekranı: sistem sahibine tüm dükkânlar, yöneticiye yönettikleri. */

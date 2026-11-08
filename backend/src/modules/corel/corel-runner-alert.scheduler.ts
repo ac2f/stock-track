@@ -31,7 +31,9 @@ export class CorelRunnerAlertScheduler {
     if (!this.enabled || this.running || isReplicaRole()) return;
     this.running = true;
     try {
-      await this.shops.forEachShop('Runner bağlantısı', async () => {
+      await this.shops.forEachShop('Runner bağlantısı', async (shop) => {
+        // Corel'i kapatılmış işletmeye runner uyarısı gitmez.
+        if (!(await this.shops.featuresOf(shop.id)).corel) return;
         const n = await this.runners.alertOffline();
         if (n) this.logger.log(`${n} runner için bağlantı koptu bildirimi`);
       });

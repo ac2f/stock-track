@@ -13,8 +13,10 @@ import {
   ANY_SHOP_MEMBER_KEY,
   NO_SHOP_KEY,
   SHOP_ACCESS_KEY,
+  SHOP_FEATURE_KEY,
   SHOP_SCOPE_KEY,
 } from '../../common/shop/shop-access.decorator';
+import { SHOP_FEATURE_INFO, ShopFeature } from '../../common/shop/shop-features';
 import { ShopContext } from '../../common/shop/shop-context';
 import {
   AccessLevel,
@@ -93,6 +95,17 @@ export class ShopAccessGuard implements CanActivate {
     if (info.expired && !info.isOwner && req.method !== 'GET' && req.method !== 'HEAD') {
       throw new ForbiddenException(
         `Kiralama süreniz dolmuş (${info.shopName}): verilerinizi görüntüleyebilirsiniz, değişiklik yapılamaz. Lütfen yönetici ile iletişime geçin.`,
+      );
+    }
+
+    // Sistem sahibinin işletmeye açmadığı özellik: izne bakmadan reddedilir.
+    const feature = this.reflector.getAllAndOverride<ShopFeature | undefined>(SHOP_FEATURE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (feature && !info.features[feature]) {
+      throw new ForbiddenException(
+        `"${SHOP_FEATURE_INFO[feature].label}" bu hesapta etkin değil. Etkinleştirmek için sistem yöneticisiyle iletişime geçin.`,
       );
     }
 

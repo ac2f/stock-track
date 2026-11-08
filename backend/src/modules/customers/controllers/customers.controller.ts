@@ -10,7 +10,6 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { CreateCustomerDto } from '../dto/create-customer.dto';
 import { UpdateCustomerDto } from '../dto/update-customer.dto';
@@ -20,22 +19,17 @@ import { ApplyDiscountDto, SettleDebtDto } from '../dto/apply-discount.dto';
 import { QueryStatementDto } from '../dto/query-statement.dto';
 import { CustomersService } from '../services/customers.service';
 import { ShopAccess, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { SettingsService } from '../../settings/settings.service';
 
 @ApiTags('customers')
 @ApiBearerAuth()
 @ShopScope('customers')
 @Controller({ path: 'customers', version: '1' })
 export class CustomersController {
-  private readonly portalBaseUrl: string;
-
   constructor(
     private readonly customersService: CustomersService,
-    configService: ConfigService,
-  ) {
-    this.portalBaseUrl =
-      configService.get<string>('business.portalBaseUrl') ??
-      'http://localhost:5173/portal';
-  }
+    private readonly settings: SettingsService,
+  ) {}
 
   // Çalışan yeni müşteri açabilir (ör. tahsilat öncesi cari oluşturma).
   @Post()
@@ -133,7 +127,9 @@ export class CustomersController {
   @Post(':id/portal-token')
   async issuePortalToken(@Param('id', ParseUUIDPipe) id: string) {
     const token = await this.customersService.issuePortalToken(id);
-    return { token, url: `${this.portalBaseUrl}/${token}` };
+    // Temel adres sistem sahibinin ayarıdır (işletme değiştiremez): bağlantı hep güvenilir adrese gider.
+    const { portalBaseUrl } = await this.settings.getBusiness();
+    return { token, url: `${portalBaseUrl.replace(/\/+$/, '')}/${token}` };
   }
 
   // Portal erişimini iptal eder.

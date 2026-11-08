@@ -22,6 +22,7 @@ import { migrateToShops } from './modules/shops/shop-migration';
 import { splitAreaLots } from './modules/materials/area-lots-migration';
 import { backfillCustomerPhones } from './modules/customers/customer-phone-backfill';
 import { backfillShopProfiles } from './modules/shops/shop-profile-backfill';
+import { backfillShopFeatures } from './modules/shops/shop-feature-backfill';
 import { preUpgradeBackup } from './database/pre-upgrade-backup';
 import { installSyncCapture } from './modules/sync/sync-capture';
 import { SyncCaptureSubscriber } from './modules/sync/sync-capture.subscriber';
@@ -54,6 +55,10 @@ async function bootstrap(): Promise<void> {
     // Telefonu olan eski müşteriler işletmeler arası eşleşme için hazırlanır.
     await backfillCustomerPhones(dataSource).catch((err) =>
       console.error('Müşteri telefonları işlenemedi:', (err as Error).message),
+    );
+    // Corel'i zaten kullanan işletmeler yükseltmeden sonra da kullanabilsin (özellik yetkisi).
+    await backfillShopFeatures(dataSource).catch((err) =>
+      console.error('İşletme özellikleri işlenemedi:', (err as Error).message),
     );
     // Yükseltilen kurulumda işletme profili eski "işletme bilgileri"nden doldurulur.
     if (upgrade.pending) {
@@ -136,15 +141,18 @@ async function bootstrap(): Promise<void> {
     new PrimaryOnlyGuard(reflector, sync.role),
   );
 
-  // API dokümantasyonu (Swagger)
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('StockTrack ERP API')
-    .setDescription('Stok, Tedarik ve Müşteri Cari Takip Sistemi')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup(`${appConfig.globalPrefix}/docs`, app, document);
+  // API dokümantasyonu (Swagger). Üretimde KAPALI: oturumsuz herkese bütün uç noktaların
+  // listesini ve şemalarını açar. Gerekirse SWAGGER_ENABLED=true ile açılır.
+  if (appConfig.env !== 'production' || process.env.SWAGGER_ENABLED === 'true') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('StockTrack ERP API')
+      .setDescription('Stok, Tedarik ve Müşteri Cari Takip Sistemi')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup(`${appConfig.globalPrefix}/docs`, app, document);
+  }
 
   // Açılışta otomatik (idempotent) tohumlama: OWNER + varsayılanlar. Şema bu
   // noktada (TypeORM synchronize) hazırdır. Böylece üretimde ayrı bir seed

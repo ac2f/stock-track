@@ -2,7 +2,7 @@ import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsString, MaxLength } from 'class-validator';
 import { RateLimit } from '../../../common/cache/rate-limit';
-import { ShopAccess, ShopScope } from '../../../common/shop/shop-access.decorator';
+import { ShopAccess, ShopFeatureRequired, ShopScope } from '../../../common/shop/shop-access.decorator';
 import { CustomerNetworkService } from '../services/customer-network.service';
 
 class PhoneQueryDto {
@@ -19,6 +19,7 @@ class PhoneQueryDto {
 @ApiTags('customer-network')
 @ApiBearerAuth()
 @ShopScope('customers')
+@ShopFeatureRequired('network')
 @Controller({ path: 'customer-network', version: '1' })
 export class CustomerNetworkController {
   constructor(private readonly network: CustomerNetworkService) {}

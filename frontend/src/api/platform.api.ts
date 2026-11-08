@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { BusinessLabel } from './registration.api';
+import type { ShopFeatureKey, ShopFeatures } from '../types';
 
 export type { BusinessLabel };
 
@@ -24,6 +25,10 @@ export interface BusinessRow {
   memberCount: number;
   machineCount: number;
   labels: string[];
+  /** İş kolu etiketlerinin kimlikleri. */
+  labelIds: string[];
+  /** Sistem sahibinin bu işletmeye açtığı özellikler (Corel, rehber, ağ). */
+  features: ShopFeatures;
   adminNote: string | null;
   admins: { fullName: string; email: string; phone: string | null }[];
 }
@@ -44,6 +49,10 @@ export interface BusinessQuery {
   province?: string;
   district?: string;
   expiring?: boolean;
+  /** Yalnız bu iş kolu etiketini seçmiş işletmeler. */
+  labelId?: string;
+  /** Yalnız bu özelliği açık olan işletmeler. */
+  feature?: ShopFeatureKey;
   page?: number;
   limit?: number;
 }
@@ -61,6 +70,8 @@ export interface BusinessAdminPatch {
   adminNote?: string | null;
   isActive?: boolean;
   directoryVisible?: boolean;
+  /** Yalnız gönderilen özellikler değişir. */
+  features?: Partial<ShopFeatures>;
 }
 
 export async function fetchPlatformStats(): Promise<PlatformStats> {

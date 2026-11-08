@@ -17,7 +17,7 @@ import { ConvertQuoteDto } from './dto/convert-quote.dto';
 import { QueryQuoteDto } from './dto/query-quote.dto';
 import { UpdateQuoteStatusDto } from './dto/update-quote-status.dto';
 import { QuotesService } from './services/quotes.service';
-import { ShopScope } from '../../common/shop/shop-access.decorator';
+import { ShopFeatureRequired, ShopScope } from '../../common/shop/shop-access.decorator';
 
 @ApiTags('quotes')
 @ApiBearerAuth()
@@ -73,6 +73,7 @@ export class QuotesController {
    * İşe dönüşmüş teklifin klasörlerini dükkân bilgisayarından yeniden ister
    * (runner kapalıyken dönüştüyse ya da klasör silindiyse).
    */
+  @ShopFeatureRequired('corel')
   @Post(':id/request-folders')
   requestFolders(@Param('id', ParseUUIDPipe) id: string) {
     return this.quotesService.requestFolders(id);

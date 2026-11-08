@@ -261,13 +261,12 @@ function NewShopForm({ shops, onDone }: { shops: ManagedShop[]; onDone: (id?: st
               checked={copySettings}
               onChange={(e) => setCopySettings(e.target.checked)}
             />
-            Ayarlar (fiyatlar, kesim fiyatlandırması, işletme bilgileri — ad hariç)
+            Ayarlar (fiyatlar, işleme fiyatlandırması, işletme bilgileri — ad hariç)
           </label>
         </div>
       )}
       <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
-        ℹ️ Stok, müşteri, teklif ve ödemeler kopyalanmaz: yeni dükkân bunlarla boş başlar. Corel eklentisi için
-        dükkânın Ayarlar sayfasından ayrı bir anahtar üretilir.
+        ℹ️ Stok, müşteri, teklif ve ödemeler kopyalanmaz: yeni dükkân bunlarla boş başlar.
       </p>
       {mut.isError && <p className="text-sm text-red-600">{errText(mut.error)}</p>}
       <div className="flex flex-wrap gap-2">
@@ -883,7 +882,7 @@ function AddMemberForm({
 
   const ready =
     mode === 'new'
-      ? newUser.fullName.trim().length >= 2 && newUser.email.includes('@') && newUser.password.length >= 6
+      ? newUser.fullName.trim().length >= 2 && newUser.email.includes('@') && newUser.password.length >= 8
       : isOwner
         ? !!userId || email.includes('@')
         : email.includes('@');
@@ -943,7 +942,7 @@ function AddMemberForm({
             <span className="label">Parola {req}</span>
             <input
               className="input"
-              placeholder="Parola (en az 6)"
+              placeholder="Parola (en az 8)"
               type="password"
               autoComplete="new-password"
               value={newUser.password}
@@ -1002,7 +1001,7 @@ function AddMemberForm({
         {!ready && (
           <span className="text-xs text-slate-500">
             {mode === 'new'
-              ? 'Ad soyad, geçerli bir e-posta ve en az 6 karakterli parola gerekli.'
+              ? 'Ad soyad, geçerli bir e-posta ve en az 8 karakterli parola gerekli.'
               : 'Bir kullanıcı seçin ya da giriş e-postasını yazın.'}
           </span>
         )}

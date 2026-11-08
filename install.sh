@@ -73,9 +73,15 @@ if [ ! -f backend/.env ]; then
   set_env backend/.env DB_SYNCHRONIZE true
   set_env backend/.env JWT_ACCESS_SECRET "$(rand)"
   set_env backend/.env JWT_REFRESH_SECRET "$(rand)"
-  ok "backend/.env üretildi (güçlü JWT secret'ları atandı)."
+  # Sistem sahibi parolası: herkesin bildiği örnek parola yerine rastgele (kurulum sonunda gösterilir).
+  set_env backend/.env SEED_OWNER_PASSWORD "$(rand | cut -c1-16)"
+  ok "backend/.env üretildi (güçlü JWT secret'ları ve sistem sahibi parolası atandı)."
 else
   ok "backend/.env zaten var — korunuyor."
+  # Eski kurulumlarda örnek parola kalmış olabilir: uyar (değiştirilmesi sistem sahibine kalır).
+  if [ "$(get_env backend/.env SEED_OWNER_PASSWORD)" = "Owner123!" ]; then
+    warn "SEED_OWNER_PASSWORD hâlâ örnek değer (Owner123!). Giriş yapıp Ekip ekranından sistem sahibi parolasını değiştirin."
+  fi
 fi
 
 # 5) Kök .env (compose Postgres bilgisi = backend/.env) ─────────────────────

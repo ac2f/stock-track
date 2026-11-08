@@ -7,6 +7,7 @@ import { Customer } from '../../customers/entities/customer.entity';
 import { NotificationType } from '../enums/notification.enums';
 import { NotificationsService } from '../notifications.service';
 import { ShopAccessService } from '../../shops/shop-access.service';
+import { SettingsService } from '../../settings/settings.service';
 
 /**
  * Borç hatırlatma. Eşik üstü bakiyesi olan müşterilere periyodik hatırlatma
@@ -17,11 +18,11 @@ export class DebtReminderScheduler {
   private readonly logger = new Logger(DebtReminderScheduler.name);
   private readonly enabled: boolean;
   private readonly threshold: number;
-  private readonly portalBaseUrl: string;
 
   constructor(
     private readonly notifications: NotificationsService,
     private readonly shops: ShopAccessService,
+    private readonly settings: SettingsService,
     @InjectRepository(Customer)
     private readonly customersRepo: Repository<Customer>,
     configService: ConfigService,
@@ -29,8 +30,6 @@ export class DebtReminderScheduler {
     this.enabled = configService.get<boolean>('scheduler.enabled') ?? true;
     this.threshold =
       configService.get<number>('notifications.debtReminderThreshold') ?? 0;
-    this.portalBaseUrl =
-      configService.get<string>('business.portalBaseUrl') ?? '';
   }
 
   @Cron(process.env.DEBT_REMINDER_CRON || '0 9 * * *')
@@ -50,11 +49,13 @@ export class DebtReminderScheduler {
       .where('c.current_balance > :threshold', { threshold: this.threshold })
       .getMany();
     this.logger.log(`Borç hatırlatma: ${debtors.length} müşteri.`);
+    // Portal temel adresi sistem sahibinin ayarıdır (işletme değiştiremez).
+    const portalBaseUrl = (await this.settings.getBusiness()).portalBaseUrl.replace(/\/+$/, '');
 
     for (const customer of debtors) {
       const portalLink =
-        this.portalBaseUrl && customer.portalToken
-          ? ` Detay: ${this.portalBaseUrl}/${customer.portalToken}`
+        portalBaseUrl && customer.portalToken
+          ? ` Detay: ${portalBaseUrl}/${customer.portalToken}`
           : '';
       await this.notifications.notify({
         type: NotificationType.DEBT_REMINDER,

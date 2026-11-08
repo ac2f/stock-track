@@ -125,6 +125,7 @@ export class CustomerNetworkService {
          FROM customers c
          JOIN shops s ON s.id = c.shop_id AND s.deleted_at IS NULL AND s.is_active
                      AND s.status = 'active' AND s.share_customer_info
+                     AND COALESCE((s.features ->> 'network')::boolean, true)
         WHERE c.phone_normalized = $1 AND c.shop_id <> $2 AND c.deleted_at IS NULL
           AND btrim(c.name) <> ''
         ORDER BY c.updated_at DESC
@@ -150,6 +151,7 @@ export class CustomerNetworkService {
          FROM customers c
          JOIN shops s ON s.id = c.shop_id AND s.deleted_at IS NULL AND s.is_active
                      AND s.status = 'active' AND s.share_debt_info
+                     AND COALESCE((s.features ->> 'network')::boolean, true)
         WHERE c.phone_normalized = $1 AND c.shop_id <> $2 AND c.deleted_at IS NULL
           AND c.current_balance > 0`,
       [phone, shopId],

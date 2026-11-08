@@ -27,8 +27,12 @@ export class AppSetting extends ShopScopedEntity {
   portalBaseUrl: string;
 
   // ── Telegram (arayüzden düzenlenir; boşsa .env değerine düşülür) ──
-  /** Bot jetonu (@BotFather). Boşsa TELEGRAM_BOT_TOKEN kullanılır. */
-  @Column({ name: 'telegram_bot_token', default: '' })
+  /**
+   * ESKİ (tek işletmeli sürümden kalan) bot jetonu sütunu: artık KULLANILMAZ.
+   * Bot jetonu tek ve sisteme aittir (SystemSetting). `select: false` →
+   * hiçbir sorguda taşınmaz, yanıta/kopyaya sızmaz; açılış göçü içeriğini boşaltır.
+   */
+  @Column({ name: 'telegram_bot_token', default: '', select: false })
   telegramBotToken: string;
 
   /** Bildirim/hatırlatmaların gideceği sohbet. Boşsa TELEGRAM_OWNER_CHAT_ID. */
@@ -44,16 +48,12 @@ export class AppSetting extends ShopScopedEntity {
   @Column({ name: 'telegram_routes', type: 'jsonb', default: {} })
   telegramRoutes: Record<string, { chatId?: string; off?: boolean }>;
 
-  /** Şifreli yedeğin gideceği sohbet. Boşsa yukarıdaki bildirim sohbeti. */
-  @Column({ name: 'backup_telegram_chat_id', default: '' })
+  /** ESKİ sütun, kullanılmaz (bkz. telegramBotToken): yedek sohbeti sisteme aittir. */
+  @Column({ name: 'backup_telegram_chat_id', default: '', select: false })
   backupTelegramChatId: string;
 
-  /**
-   * Telegram üzerinden İŞLEM YAPABİLECEK kullanıcıların sayısal kimlikleri
-   * (virgülle ayrılmış). Liste boşken hiç kimse yetkili değildir — bot yalnızca
-   * kişiye kendi kimliğini söyler. Grup kimliği DEĞİL, kullanıcı kimliğidir.
-   */
-  @Column({ name: 'telegram_allowed_user_ids', type: 'text', default: '' })
+  /** ESKİ sütun, kullanılmaz (bkz. telegramBotToken): yetkili kullanıcılar sisteme aittir. */
+  @Column({ name: 'telegram_allowed_user_ids', type: 'text', default: '', select: false })
   telegramAllowedUserIds: string;
 
   // ── Fiyatlandırma ──
@@ -151,6 +151,26 @@ export class AppSetting extends ShopScopedEntity {
     default: 0,
   })
   cutAreaRate: number;
+
+  /** Metre ile faturalanan işin metre ücreti (baz para birimi). */
+  @Column({
+    name: 'cut_meter_rate',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  cutMeterRate: number;
+
+  /** Adetle faturalanan işin adet ücreti (baz para birimi). */
+  @Column({
+    name: 'cut_piece_rate',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  cutPieceRate: number;
 
   /** m² ile fiyatta asgari alan (m²). */
   @Column({

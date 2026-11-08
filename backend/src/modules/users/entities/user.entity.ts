@@ -31,4 +31,15 @@ export class User extends BaseEntity {
    */
   @Column({ name: 'telegram_user_id', type: 'varchar', length: 32, nullable: true, unique: true })
   telegramUserId?: string | null;
+
+  /**
+   * JSON'a (API yanıtına) dönüştürülürken YALNIZ kimlik ve ad yazılır. Kullanıcı
+   * kaydı satış, ödeme, alış ve iş kayıtlarına "yapan kişi" olarak gömülür; e-posta,
+   * telefon, rol ve Telegram kimliği o yanıtlarla birlikte gitmemeli (başka
+   * işletmenin kullanıcısı, sistem sahibi ...). Tam görünüm gerekiyorsa
+   * açıkça bir görünüm üretilir (bkz. UsersService.toAdminView, MemberView).
+   */
+  toJSON(): { id: string; fullName: string } {
+    return { id: this.id, fullName: this.fullName };
+  }
 }

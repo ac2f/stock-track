@@ -7,6 +7,7 @@ import {
   type DebtWarning,
   type PhoneLookup,
 } from '../../api/customerNetwork.api';
+import { useAuth } from '../../context/AuthContext';
 import { useDebounced } from '../../hooks/useDebounced';
 
 /** Telefondaki rakam sayısı: eşleştirme için en az 7. */
@@ -18,8 +19,10 @@ export const phoneDigits = (p: string | undefined | null): number => (p ?? '').r
  * ağa katılmama) formu ASLA engellemez; sonuç yoksa sessizce boş döner.
  */
 export function usePhoneLookup(phone: string | undefined, enabled = true) {
+  // Ağ, sistem sahibinin işletmeye açtığı bir özelliktir; kapalıysa sorgu hiç gitmez.
+  const networkOn = useAuth().hasFeature('network');
   const debounced = useDebounced((phone ?? '').trim(), 650);
-  const ready = enabled && phoneDigits(debounced) >= 7;
+  const ready = enabled && networkOn && phoneDigits(debounced) >= 7;
   const query = useQuery({
     queryKey: ['customer-network', 'lookup', debounced],
     queryFn: () => lookupPhone(debounced),
@@ -80,10 +83,11 @@ export function DebtWarnings({ warnings, compact = false }: { warnings: DebtWarn
 
 /** Kayıtlı müşterinin başka işletmelerdeki borç uyarıları (müşteri kartı). */
 export function CustomerNetworkWarnings({ customerId, enabled = true }: { customerId: string; enabled?: boolean }) {
+  const networkOn = useAuth().hasFeature('network');
   const { data } = useQuery({
     queryKey: ['customer-network', 'customer', customerId],
     queryFn: () => fetchCustomerWarnings(customerId),
-    enabled,
+    enabled: enabled && networkOn,
     staleTime: 60_000,
     retry: false,
   });

@@ -17,6 +17,7 @@ import {
   ShopPermissions,
 } from '../../common/shop/shop-permissions';
 import { seedShopDefaults } from '../../database/seed';
+import { SettingsService } from '../settings/settings.service';
 import { User } from '../users/entities/user.entity';
 import {
   AddMemberDto,
@@ -56,6 +57,19 @@ export interface StaffView {
 
 const SALT_ROUNDS = 10;
 
+/** Ekip ekranında listelenen dükkân (bkz. ShopsService.manageable). */
+export interface ManageableShop {
+  id: string;
+  name: string;
+  isActive: boolean;
+  status: Shop['status'];
+  plan: string;
+  subscriptionUntil: string | null;
+  createdAt: Date;
+  /** Yalnız sistem sahibine. */
+  adminNote?: string | null;
+}
+
 /**
  * Dükkânlar ve ekipleri.
  *
@@ -78,13 +92,20 @@ export class ShopsService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly access: ShopAccessService,
+    private readonly settings: SettingsService,
   ) {}
 
   // ── Dükkânlar ───────────────────────────────────────────────────────
 
-  /** Ekip ekranı: sistem sahibine hepsi, yöneticiye yönettikleri. */
-  async manageable(actor: ShopActor): Promise<(Shop & { memberCount: number })[]> {
-    const list = ShopAccessService.isOwner(actor)
+  /**
+   * Ekip ekranı: sistem sahibine hepsi, yöneticiye yönettikleri. Sistem sahibinin
+   * işletme için tuttuğu gizli not (`adminNote`) ve özellik anahtarları yalnız
+   * sistem sahibine döner; işletme yöneticisi kendi dükkânının adını, durumunu
+   * ve ekibini görür.
+   */
+  async manageable(actor: ShopActor): Promise<(ManageableShop & { memberCount: number })[]> {
+    const isOwner = ShopAccessService.isOwner(actor);
+    const list = isOwner
       ? await this.shops.find({ order: { createdAt: 'ASC' } })
       : await this.adminShops(actor);
     const counts: { shop_id: string; n: string }[] = list.length
@@ -94,7 +115,24 @@ export class ShopsService {
         )
       : [];
     const byShop = new Map(counts.map((c) => [c.shop_id, Number(c.n)]));
-    return list.map((s) => Object.assign(s, { memberCount: byShop.get(s.id) ?? 0 }));
+    return list.map((s) => ({
+      ...this.manageView(s, isOwner),
+      memberCount: byShop.get(s.id) ?? 0,
+    }));
+  }
+
+  /** Ekip ekranındaki dükkân satırı: yalnız işletmenin kendi bilmesi gerekenler. */
+  private manageView(s: Shop, isOwner: boolean): ManageableShop {
+    return {
+      id: s.id,
+      name: s.name,
+      isActive: s.isActive,
+      status: s.status,
+      plan: s.plan,
+      subscriptionUntil: s.subscriptionUntil ?? null,
+      createdAt: s.createdAt,
+      ...(isOwner ? { adminNote: s.adminNote ?? null } : {}),
+    };
   }
 
   async create(dto: CreateShopDto): Promise<Shop> {
@@ -175,6 +213,11 @@ export class ShopsService {
       user = await this.users.findOne({ where: { id: dto.userId } });
     } else if (dto.email) {
       user = await this.users.findOne({ where: { email: dto.email.trim() } });
+      // İşletme yöneticisi yalnız ZATEN kendi yönettiği bir dükkânın üyesini (çok şubeli
+      // işletme) bu dükkâna ekleyebilir. Başka işletmenin çalışanı ya da kayıtlı herhangi bir
+      // e-posta bulunamamış gibi yanıtlanır: e-posta taraması ve başkasının ekibine
+      // girmek mümkün olmasın.
+      if (user && !mine.isOwner && !(await this.sharesManagedShop(actor, user.id))) user = null;
     } else {
       throw new BadRequestException('Eklenecek kullanıcıyı seçin ya da yeni hesap bilgilerini girin.');
     }
@@ -251,10 +294,17 @@ export class ShopsService {
     if (dto.password) user.passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
     if (dto.telegramUserId !== undefined) {
       const tg = dto.telegramUserId.trim() || null;
+      // Sistem sahibinin güvendiği (botta tam yetkili) Telegram kimliği, bir işletme yöneticisi
+      // tarafından bir hesaba bağlanamaz: bot önce hesaba bağlı kimliğe baktığından, kimliği
+      // bilen biri sistem sahibinin bottaki erişimini kısıtlı bir işletme hesabına çekebilirdi.
+      if (tg && !mine.isOwner && (await this.settings.isUserAllowed(tg))) {
+        throw new ConflictException('Bu Telegram kimliği başka bir hesaba bağlı.');
+      }
       if (tg) {
         const taken = await this.users.findOne({ where: { telegramUserId: tg } });
         if (taken && taken.id !== user.id) {
-          throw new ConflictException(`Bu Telegram kimliği ${taken.fullName} hesabına yazılı.`);
+          // Hesabın kime ait olduğu söylenmez (başka işletmenin çalışanı olabilir).
+          throw new ConflictException('Bu Telegram kimliği başka bir hesaba bağlı.');
         }
       }
       user.telegramUserId = tg;
@@ -265,10 +315,16 @@ export class ShopsService {
     return this.view(member, others.get(user.id) ?? 0, true);
   }
 
-  /** Bu dükkânda çalışanlar + sistem sahipleri (formlardaki personel seçimi). */
-  async staff(shopId: string): Promise<StaffView[]> {
+  /**
+   * Bu dükkânda çalışanlar (formlardaki personel seçimi). Sistem sahipleri
+   * listeye yalnız isteği yapan da sistem sahibiyse girer: işletmenin çalışanı
+   * platform yöneticisinin kim olduğunu görmez.
+   */
+  async staff(shopId: string, includeOwners = false): Promise<StaffView[]> {
     const rows = await this.members.find({ where: { shopId }, relations: { user: true } });
-    const owners = await this.users.find({ where: { role: UserRole.OWNER, isActive: true } });
+    const owners = includeOwners
+      ? await this.users.find({ where: { role: UserRole.OWNER, isActive: true } })
+      : [];
     const seen = new Set<string>();
     const out: StaffView[] = [];
     for (const u of [...rows.map((m) => m.user), ...owners]) {
@@ -321,6 +377,14 @@ export class ShopsService {
     });
     if (!member) throw new NotFoundException('Üye bulunamadı.');
     return member;
+  }
+
+  /** `userId`, `actor`ın yönettiği dükkânlardan en az birinin üyesi mi? */
+  private async sharesManagedShop(actor: ShopActor, userId: string): Promise<boolean> {
+    const managed = (await this.adminShops(actor)).map((s) => s.id);
+    if (!managed.length) return false;
+    const rows = await this.members.find({ where: { userId } });
+    return rows.some((m) => managed.includes(m.shopId));
   }
 
   private async adminShops(actor: ShopActor): Promise<Shop[]> {

@@ -1,4 +1,4 @@
-import type { ModuleAccess, ShopModule, ShopPermissions } from '../types';
+import type { ModuleAccess, ShopFeatureKey, ShopFeatures, ShopModule, ShopPermissions } from '../types';
 
 /**
  * Seçili dükkân. Her API isteği `X-Shop-Id` başlığıyla bu dükkân adına
@@ -36,7 +36,7 @@ export const SHOP_MODULES: { key: ShopModule; label: string; hint: string }[] = 
   { key: 'expenses', label: 'Giderler', hint: 'Gider kayıtları ve projeler' },
   { key: 'banking', label: 'Banka ve mutabakat', hint: 'Banka hesapları, ekstre eşleştirme' },
   { key: 'reports', label: 'Raporlar', hint: 'Kâr-zarar, yaşlandırma, stok değeri' },
-  { key: 'settings', label: 'Dükkân ayarları', hint: 'İşletme bilgileri, fiyatlar, Corel, Telegram sohbeti' },
+  { key: 'settings', label: 'Dükkân ayarları', hint: 'İşletme bilgileri, fiyatlar, Telegram sohbeti' },
 ];
 
 const none = (): ModuleAccess => ({ read: false, write: false });
@@ -63,4 +63,35 @@ export const PERMISSION_PRESETS: { label: string; build: () => ShopPermissions }
 
 export function emptyPermissions(): ShopPermissions {
   return build(none);
+}
+
+/** Sistem sahibinin işletmeye açtığı özellikler: adlar (Platform ekranı) ve varsayılanlar (backend ile aynı). */
+export const SHOP_FEATURES: { key: ShopFeatureKey; label: string; hint: string; default: boolean }[] = [
+  {
+    key: 'corel',
+    label: 'Corel eklentisi ve klasör oluşturucu',
+    hint: 'CorelDRAW eklentisi, dükkân bilgisayarındaki runner, otomatik klasörler ve makine hızı ayarları.',
+    default: false,
+  },
+  {
+    key: 'network',
+    label: 'Müşteri ve borç ağı',
+    hint: 'Aynı telefonla başka işletmede kayıtlı müşteri önerisi ve borç uyarısı.',
+    default: true,
+  },
+  {
+    key: 'directory',
+    label: 'İşletme rehberi',
+    hint: 'Diğer işletmeleri iş koluna, ile/ilçeye ve makineye göre arama; kendi işletmesini listeletme.',
+    default: true,
+  },
+];
+
+export function defaultFeatures(): ShopFeatures {
+  return Object.fromEntries(SHOP_FEATURES.map((f) => [f.key, f.default])) as ShopFeatures;
+}
+
+/** Sunucunun yazmadığı (eski oturum) özellik varsayılanına düşer. */
+export function resolveFeatures(stored: Partial<ShopFeatures> | undefined | null): ShopFeatures {
+  return { ...defaultFeatures(), ...(stored ?? {}) };
 }

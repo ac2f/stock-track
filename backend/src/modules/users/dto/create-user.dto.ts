@@ -21,7 +21,7 @@ export class CreateUserDto {
   phone?: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8, { message: 'Parola en az 8 karakter olmalı.' })
   password: string;
 
   @IsEnum(UserRole)

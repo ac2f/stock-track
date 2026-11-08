@@ -23,6 +23,18 @@ export class UpdateCutPricingDto {
   @Min(0)
   areaRate?: number;
 
+  /** Metre ile faturalanan işin metre ücreti. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  meterRate?: number;
+
+  /** Adetle faturalanan işin adet ücreti. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  pieceRate?: number;
+
   /** İş en az bu kadar m²'den faturalanır. */
   @IsOptional()
   @IsNumber()

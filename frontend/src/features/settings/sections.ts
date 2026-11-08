@@ -4,11 +4,12 @@
  * yüklemeden bölümleri listeleyebilsin.
  */
 
+import type { ShopFeatureKey } from '../../types';
+
 export type SectionId =
   | 'isletme'
   | 'gorunum'
-  | 'satis-fiyat'
-  | 'kesim-fiyat'
+  | 'fiyatlandirma'
   | 'corel'
   | 'yerel-sunucu'
   | 'katalog'
@@ -31,6 +32,8 @@ export interface SectionMeta {
   keywords: string;
   /** Yalnız sistem sahibine görünür (sayfadaki koşulla aynı). */
   ownerOnly?: boolean;
+  /** Sistem sahibinin işletmeye açtığı özellik gerekir (kapalıysa bölüm hiç görünmez). */
+  feature?: ShopFeatureKey;
 }
 
 /** Sayfadaki sırayla bütün bölümler (hızlı arama da bu listeyi kullanır). */
@@ -41,7 +44,7 @@ export const SECTIONS: SectionMeta[] = [
     title: 'İşletme bilgileri',
     short: 'İşletme',
     description: 'Belgelerde ve uygulama başlığında görünen ad, adres ve iletişim bilgileri.',
-    keywords: 'ad isim adres telefon vergi vkn logo portal pdf belge fatura başlık',
+    keywords: 'ad isim adres telefon vergi vkn pdf belge fatura başlık',
   },
   {
     id: 'gorunum',
@@ -52,20 +55,13 @@ export const SECTIONS: SectionMeta[] = [
     keywords: 'geri al ekstre cari düğme gizle göster',
   },
   {
-    id: 'satis-fiyat',
+    id: 'fiyatlandirma',
     icon: '💰',
-    title: 'Satış fiyatlandırması',
-    short: 'Satış fiyatı',
-    description: 'Malzeme satışında kâr yüzdesi ve konsinye komisyon oranı.',
-    keywords: 'kâr kar yüzde marj markup konsinye komisyon perakende fiyat',
-  },
-  {
-    id: 'kesim-fiyat',
-    icon: '⏱️',
-    title: 'Kesim fiyatlandırması',
-    short: 'Kesim fiyatı',
-    description: 'Süreyle ve m² ile fiyatlama, asgari tutarlar ve makine hızları.',
-    keywords: 'saatlik ücret dakika m2 metrekare makine hız paso dalma corel süre cnc lazer',
+    title: 'Fiyatlandırma',
+    short: 'Fiyatlandırma',
+    description: 'Tek menüden birim fiyatlar: metre, m², süre ve adet; malzeme satış kârı ve komisyon.',
+    keywords:
+      'fiyat ücret birim metre m2 metrekare süre saatlik dakika adet kâr kar yüzde marj markup konsinye komisyon perakende kesim işçilik asgari',
   },
   {
     id: 'corel',
@@ -73,7 +69,8 @@ export const SECTIONS: SectionMeta[] = [
     title: 'Corel entegrasyonu',
     short: 'Corel',
     description: 'CorelDRAW eklentisinin bağlanacağı sunucu adresi ve anahtar.',
-    keywords: 'coreldraw eklenti ac2f anahtar api key dxf',
+    keywords: 'coreldraw eklenti ac2f anahtar api key dxf runner klasör',
+    feature: 'corel',
   },
   {
     id: 'yerel-sunucu',
@@ -105,8 +102,8 @@ export const SECTIONS: SectionMeta[] = [
     icon: '📨',
     title: 'Telegram',
     short: 'Telegram',
-    description: 'Bildirim, hatırlatma ve yedeklerin gittiği bot ve sohbetler.',
-    keywords: 'bot jeton token sohbet chat id bildirim yetkili kullanıcı test mesaj',
+    description: 'Bildirim ve hatırlatmaların gittiği Telegram grubu (botu grubunuza eklersiniz).',
+    keywords: 'bot grup sohbet chat id bildirim test mesaj',
   },
   {
     id: 'sabah-ozeti',
@@ -144,3 +141,13 @@ export const SECTIONS: SectionMeta[] = [
   },
 ];
 
+
+/**
+ * Bu kullanıcının görebildiği bölümler: sistem sahibine özel olanlar yalnız sistem
+ * sahibine, bir özelliğe bağlı olanlar (Corel ...) yalnız o özelliği açık işletmeye.
+ * Ayarlar ekranı ve hızlı arama (Ctrl+K) aynı listeyi kullanır; kapalı özelliğin
+ * adı hiçbir yerde (bölüm, arama, öneri) görünmez.
+ */
+export function visibleSections(isOwner: boolean, hasFeature: (f: ShopFeatureKey) => boolean): SectionMeta[] {
+  return SECTIONS.filter((s) => (!s.ownerOnly || isOwner) && (!s.feature || hasFeature(s.feature)));
+}

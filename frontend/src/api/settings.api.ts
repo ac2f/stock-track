@@ -6,7 +6,9 @@ export interface BusinessSettings {
   address: string;
   phone: string;
   taxNo: string;
+  /** Yalnız sistem sahibine dolu gelir (işletmeye boş). */
   logoPath: string;
+  /** Yalnız sistem sahibine dolu gelir (işletmeye boş). */
   portalBaseUrl: string;
   defaultCurrency: string;
 }
@@ -27,8 +29,8 @@ export async function fetchBusinessSettings(): Promise<BusinessSettings> {
 
 export async function updateBusinessSettings(
   input: UpdateBusinessInput,
-): Promise<unknown> {
-  const { data } = await api.put('/settings/business', input);
+): Promise<BusinessSettings> {
+  const { data } = await api.put<BusinessSettings>('/settings/business', input);
   return data;
 }
 
@@ -36,24 +38,38 @@ export async function updateBusinessSettings(
 /** Ayarın nereden geldiği: arayüz (db) · .env dosyası (env) · tanımsız. */
 export type SettingSource = 'db' | 'env' | 'none';
 
-/** Telegram durumu. Jeton hiçbir zaman açık gelmez, yalnızca maskeli. */
+/**
+ * Telegram durumu. İKİ görünüm: işletme yalnız kendi sohbetini, konu hedeflerini
+ * ve botun kullanıcı adını görür (bot jetonu, yedek sohbeti, yetkili kullanıcılar
+ * ve başka işletmeler sunucudan HİÇ gelmez); sistem sahibi (`ownerView`) hepsini
+ * görür, jeton yine yalnızca maskeli.
+ */
 export interface TelegramSettings {
+  /** Bildirimler gidebilir durumda mı (bot hazır ve sohbet tanımlı). */
   configured: boolean;
-  tokenSet: boolean;
-  tokenMasked: string;
-  tokenSource: SettingSource;
+  /** Sistem botu hazır mı (jetonun kendisi değil, yalnız var/yok). */
+  botReady: boolean;
+  /** Botun kullanıcı adı (@olmadan): işletme botu kendi grubuna bununla ekler. */
+  botUsername: string | null;
+  /** Bu dükkânın bildirim sohbeti. */
   chatId: string;
-  chatIdSource: SettingSource;
-  backupChatId: string;
-  /** Yedeğin gerçekte gideceği sohbet (backupChatId boşsa chatId). */
-  effectiveBackupChatId: string;
-  backupCron: string;
-  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
-  allowedUserIds: string[];
   /** Konu başına hedefler (satış, stok, Corel ...). */
   routes: TelegramRoute[];
+  ownerView: boolean;
+
+  // ── Yalnız sistem sahibine gelir ──
+  tokenSet?: boolean;
+  tokenMasked?: string;
+  tokenSource?: SettingSource;
+  chatIdSource?: SettingSource;
+  backupChatId?: string;
+  /** Yedeğin gerçekte gideceği sohbet (backupChatId boşsa chatId). */
+  effectiveBackupChatId?: string;
+  backupCron?: string;
+  /** Telegram'dan işlem yapabilecek kullanıcı kimlikleri. */
+  allowedUserIds?: string[];
   /** Bildirim sohbetini kullanan diğer dükkânlar. */
-  chatSharedWith: string[];
+  chatSharedWith?: string[];
 }
 
 export type TelegramTopic = 'sales' | 'payments' | 'stock' | 'debt' | 'morning' | 'corel';
@@ -217,10 +233,11 @@ export async function disableCorelIntegration(): Promise<CorelIntegration> {
   return data;
 }
 
-// ── Kesim fiyatlandırması ───────────────────────────────────────────────
+// ── İşleme / hizmet fiyatlandırması (m², metre, süre, adet) ─────────────
 /**
- * Süreyle ve m² ile fiyatın ücretleri ve asgarileri; Corel eklentisinin
- * süre hesabında kullandığı makine hızları.
+ * İşleme kaleminin birim ücretleri: m², metre, süre (saatlik ücret + asgari
+ * süre) ve adet. Makine hızları ve asgari alan yalnız Corel özelliği açık
+ * işletmeye gelir (aksi hâlde alan hiç yoktur).
  */
 export interface CutPricing {
   /** Saatlik ücret (süreyle fiyat). */
@@ -229,17 +246,22 @@ export interface CutPricing {
   minMinutes: number;
   /** m² ücreti (m² ile fiyat). */
   areaRate: number;
-  /** İş en az bu kadar m²'den faturalanır (Corel m² hesabı). */
-  minArea: number;
-  /** Kesim (ilerleme) hızı, mm/sn. */
-  feedMmS: number;
-  /** Boşta gezme hızı, mm/sn. */
-  rapidMmS: number;
-  /** Kontur başına dalma/kalkma süresi, sn. */
-  plungeSec: number;
-  /** Paso derinliği (mm); 0 = tek paso. */
-  passDepthMm: number;
+  /** Metre ücreti (metre ile fiyat). */
+  meterRate: number;
+  /** Adet ücreti (adetle fiyat). */
+  pieceRate: number;
   currency: string;
+  // ── Yalnız Corel özelliği açık işletmeye ──
+  /** İş en az bu kadar m²'den faturalanır (Corel m² hesabı). */
+  minArea?: number;
+  /** Kesim (ilerleme) hızı, mm/sn. */
+  feedMmS?: number;
+  /** Boşta gezme hızı, mm/sn. */
+  rapidMmS?: number;
+  /** Kontur başına dalma/kalkma süresi, sn. */
+  plungeSec?: number;
+  /** Paso derinliği (mm); 0 = tek paso. */
+  passDepthMm?: number;
 }
 
 export async function fetchCutPricing(): Promise<CutPricing> {

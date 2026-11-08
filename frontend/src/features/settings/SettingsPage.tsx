@@ -36,7 +36,6 @@ import {
   updateMorningSummary,
   previewMorningSummary,
   sendMorningSummary,
-  type CutPricing,
   type SettingSource,
   type UpdateBusinessInput,
 } from '../../api/settings.api';
@@ -70,7 +69,7 @@ import { LoadingBlock, Spinner } from '../../components/ui/Loading';
 import { useUrlParam } from '../../hooks/useUrlParam';
 import { apiErrorMessage, toast } from '../../lib/toast';
 import { formatDate, formatDateTime, formatMoney, formatNumber } from '../../lib/format';
-import { SECTIONS, type SectionId, type SectionMeta } from './sections';
+import { SECTIONS, visibleSections, type SectionId, type SectionMeta } from './sections';
 import {
   createReplica,
   deleteReplica,
@@ -329,7 +328,7 @@ function SectionNav({ sections, readOnly }: { sections: SectionMeta[]; readOnly:
  */
 export function SettingsPage() {
   const qc = useQueryClient();
-  const { isOwner, shop, can } = useAuth();
+  const { isOwner, shop, can, hasFeature } = useAuth();
   const canWrite = can('settings', 'write');
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'business'],
@@ -344,11 +343,11 @@ export function SettingsPage() {
         businessAddress: data.address,
         businessPhone: data.phone,
         businessTaxNo: data.taxNo,
-        businessLogoPath: data.logoPath,
-        portalBaseUrl: data.portalBaseUrl,
+        // Portal adresi ve logo yolu sunucu/platform ayarıdır: yalnız sistem sahibine gelir ve gider.
+        ...(isOwner ? { businessLogoPath: data.logoPath, portalBaseUrl: data.portalBaseUrl } : {}),
       });
     }
-  }, [data]);
+  }, [data, isOwner]);
 
   const mut = useMutation({
     mutationFn: () => updateBusinessSettings(form),
@@ -364,10 +363,11 @@ export function SettingsPage() {
   // Bölüm araması; ?q=… ile gelindiyse kutu dolu açılır.
   const [query, setQuery] = useState('');
   useUrlParam('q', setQuery);
-  // Yedek ve bakım yalnız sistem sahibine (aşağıdaki koşulla aynı).
+  // Sistem sahibine özel bölümler (yedek, bakım ...) ve sistem sahibinin işletmeye açmadığı
+  // özelliklerin bölümleri (Corel ...) hiç listelenmez, aramada da çıkmaz.
   const shown = useMemo(
-    () => SECTIONS.filter((s) => (!s.ownerOnly || isOwner) && sectionMatches(s, query)),
-    [isOwner, query],
+    () => visibleSections(isOwner, hasFeature).filter((s) => sectionMatches(s, query)),
+    [isOwner, hasFeature, query],
   );
   const shownIds = useMemo(() => new Set(shown.map((s) => s.id)), [shown]);
 
@@ -392,7 +392,7 @@ export function SettingsPage() {
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Ayar ara… (telegram, yedek, PIN)"
+            placeholder="Ayar ara… (telegram, fiyat, PIN)"
             aria-label="Ayar ara"
             className="w-full sm:w-72"
           />
@@ -419,7 +419,7 @@ export function SettingsPage() {
         <EmptyState
           icon="🔎"
           title="Eşleşen ayar yok"
-          hint={`“${query}” için bir bölüm bulunamadı. Başka bir sözcük deneyin: telegram, yedek, PIN, fiyat, Corel…`}
+          hint={`“${query}” için bir bölüm bulunamadı. Başka bir sözcük deneyin: telegram, fiyat, PIN, kâr…`}
           action={
             <button className="btn-secondary btn-sm" onClick={() => setQuery('')}>
               Aramayı temizle
@@ -456,19 +456,24 @@ export function SettingsPage() {
               onChange={(v) => set({ businessTaxNo: v })}
             />
           </div>
-          <Field
-            label="Logo dosya yolu (opsiyonel)"
-            value={form.businessLogoPath ?? ''}
-            onChange={(v) => set({ businessLogoPath: v })}
-            hint="Sunucuda erişilebilir bir dosya yolu (ileride belge başlığına basmak için)."
-          />
-          <Field
-            label="Müşteri portalı temel adresi"
-            value={form.portalBaseUrl ?? ''}
-            inputMode="url"
-            onChange={(v) => set({ portalBaseUrl: v })}
-            hint="Örn. http://192.168.1.50:5173/portal"
-          />
+          {/* Sunucu/platform ayarları: yalnız sistem sahibi görür ve değiştirir. */}
+          {isOwner && (
+            <>
+              <Field
+                label="Logo dosya yolu (opsiyonel)"
+                value={form.businessLogoPath ?? ''}
+                onChange={(v) => set({ businessLogoPath: v })}
+                hint="Sunucuda erişilebilir bir dosya yolu (ileride belge başlığına basmak için)."
+              />
+              <Field
+                label="Müşteri portalı temel adresi"
+                value={form.portalBaseUrl ?? ''}
+                inputMode="url"
+                onChange={(v) => set({ portalBaseUrl: v })}
+                hint="Örn. http://192.168.1.50:5173/portal — müşterilere giden portal bağlantılarının başı (yalnız sistem sahibi)."
+              />
+            </>
+          )}
 
           {mut.isError && (
             <p className="text-sm text-red-600">
@@ -489,9 +494,9 @@ export function SettingsPage() {
         </SettingsSection>
 
         <DisplaySettingsCard />
-        <PricingSettingsCard />
-        <CutPricingCard />
-        <CorelIntegrationCard />
+        <PricingCard />
+        {/* Sistem sahibinin işletmeye açtığı hizmet: kapalıysa bölüm de, adı da görünmez. */}
+        {hasFeature('corel') && <CorelIntegrationCard />}
         {isOwner && <ReplicaSection />}
         <CatalogHealthCard />
         <ScreenLockSettings />
@@ -576,108 +581,15 @@ function DisplaySettingsCard() {
           </span>
         </label>
 
-        <p
-          className={`rounded-lg px-2 py-1 text-xs font-medium ${
-            on
-              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
-              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
-          }`}
-        >
-          {on
-            ? '⚠️ Şu an AÇIK — ekstrede geri alma düğmeleri görünüyor.'
-            : '✅ Şu an kapalı — müşteriye gösterilebilir.'}
-        </p>
+        {on && (
+          <p className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+            ⚠️ Şu an AÇIK — ekstrede geri alma düğmeleri görünüyor.
+          </p>
+        )}
         {mut.isError && (
           <p className="text-xs text-red-600">Ayar kaydedilemedi.</p>
         )}
       </SubBox>
-    </SettingsSection>
-  );
-}
-
-/**
- * 💰 Satış fiyatlandırması: malzeme satışında perakende fiyatın üzerine
- * eklenen kâr yüzdesi ve konsinye (başkasının malzemesi) komisyon oranı.
- */
-function PricingSettingsCard() {
-  const qc = useQueryClient();
-  const active = useSectionActive('satis-fiyat');
-  const { data } = useQuery({
-    queryKey: ['settings', 'pricing'],
-    queryFn: fetchPricingSettings,
-    enabled: active,
-  });
-  const [markup, setMarkup] = useState('');
-  const [commission, setCommission] = useState('');
-  useEffect(() => {
-    if (data) {
-      setMarkup(String(data.saleMarkupPercent));
-      setCommission(String(data.consignmentCommissionPercent));
-    }
-  }, [data]);
-
-  const mut = useMutation({
-    mutationFn: () =>
-      updatePricingSettings({
-        saleMarkupPercent: Number(markup) || 0,
-        consignmentCommissionPercent: Number(commission) || 0,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings', 'pricing'] });
-      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
-    },
-  });
-
-  const example = 100 * (1 + (Number(markup) || 0) / 100);
-
-  return (
-    <SettingsSection id="satis-fiyat">
-      <p className="text-sm text-slate-500">
-        Malzeme satışında birim fiyat, malzemenin <b>perakende fiyatı</b>{' '}
-        üzerine buradaki kâr yüzdesi eklenerek otomatik önerilir. Bir malzemeye
-        özel oran girilmişse o önceliklidir (Stok › malzeme düzenleme).
-      </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block min-w-0">
-          <span className="label">Genel kâr yüzdesi (%)</span>
-          <input
-            className="input"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            value={markup}
-            onChange={(e) => setMarkup(e.target.value)}
-          />
-          <span className="mt-1 block text-xs text-slate-400">
-            Örnek: perakende {formatMoney(100)} → satış <b className="text-slate-600">{formatMoney(example)}</b>
-          </span>
-        </label>
-        <label className="block min-w-0">
-          <span className="label">Konsinye komisyon oranı (%)</span>
-          <input
-            className="input"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            max={100}
-            value={commission}
-            onChange={(e) => setCommission(e.target.value)}
-          />
-          <span className="mt-1 block text-xs text-slate-400">
-            Başkasının malzemesi satılırken işletmede kalan pay. Teklif
-            kalemlerinde başlangıç değeri olarak gelir.
-          </span>
-        </label>
-      </div>
-      {mut.isError && <p className="text-sm text-red-600">Kaydedilemedi.</p>}
-      <button
-        className="btn-primary"
-        disabled={mut.isPending}
-        onClick={() => mut.mutate()}
-      >
-        {mut.isPending && <Spinner />}
-        Kaydet
-      </button>
     </SettingsSection>
   );
 }
@@ -689,75 +601,127 @@ function NumField({
   onChange,
   hint,
   step,
+  suffix,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   hint?: string;
   step?: string;
+  suffix?: string;
 }) {
   return (
     <label className="block min-w-0">
       <span className="label">{label}</span>
-      <input
-        className="input"
-        type="number"
-        inputMode="decimal"
-        min={0}
-        step={step ?? 'any'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <div className="flex items-center gap-2">
+        <input
+          className="input min-w-0 flex-1"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={step ?? 'any'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {suffix && <span className="shrink-0 text-xs text-slate-500">{suffix}</span>}
+      </div>
       {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
     </label>
   );
 }
 
-type CutForm = Record<Exclude<keyof CutPricing, 'currency'>, string>;
+type PriceForm = {
+  meterRate: string;
+  areaRate: string;
+  hourlyRate: string;
+  minMinutes: string;
+  pieceRate: string;
+  markup: string;
+  commission: string;
+  // Yalnız Corel özelliği açık işletmede
+  minArea: string;
+  feedMmS: string;
+  rapidMmS: string;
+  plungeSec: string;
+  passDepthMm: string;
+};
 
 /**
- * ⏱️ Kesim fiyatlandırması: teklifte süreyle ve m² ile fiyatın ücretleri ve
- * asgarileri. Corel eklentisinin süre ve m² fiyat modülleri de buradan okur;
- * makine hızları yalnız Corel'in süre hesabında kullanılır.
+ * 💰 Fiyatlandırma — TEK menü. İşleme kalemleri dört birimden biriyle
+ * fiyatlanır: metre, m², süre (saatlik ücret) ve adet; teklifte birim seçilince
+ * buradaki ücret hazır gelir. Malzeme satışındaki kâr yüzdesi ve konsinye
+ * komisyonu da aynı yerdedir. Makine hızları gibi Corel'e özgü alanlar yalnız
+ * Corel özelliği açık işletmede görünür.
  */
-function CutPricingCard() {
+function PricingCard() {
   const qc = useQueryClient();
-  const active = useSectionActive('kesim-fiyat');
-  const { data } = useQuery({
-    queryKey: ['settings', 'cut-pricing'],
-    queryFn: fetchCutPricing,
-    enabled: active,
-  });
-  const [f, setF] = useState<CutForm | null>(null);
+  const { hasFeature } = useAuth();
+  const corel = hasFeature('corel');
+  const active = useSectionActive('fiyatlandirma');
+  const cut = useQuery({ queryKey: ['settings', 'cut-pricing'], queryFn: fetchCutPricing, enabled: active });
+  const sale = useQuery({ queryKey: ['settings', 'pricing'], queryFn: fetchPricingSettings, enabled: active });
+  const [f, setF] = useState<PriceForm | null>(null);
   useEffect(() => {
-    if (data) {
+    if (cut.data && sale.data) {
+      const c = cut.data;
       setF({
-        hourlyRate: String(data.hourlyRate),
-        minMinutes: String(data.minMinutes),
-        areaRate: String(data.areaRate),
-        minArea: String(data.minArea),
-        feedMmS: String(data.feedMmS),
-        rapidMmS: String(data.rapidMmS),
-        plungeSec: String(data.plungeSec),
-        passDepthMm: String(data.passDepthMm),
+        meterRate: String(c.meterRate ?? 0),
+        areaRate: String(c.areaRate ?? 0),
+        hourlyRate: String(c.hourlyRate ?? 0),
+        minMinutes: String(c.minMinutes ?? 0),
+        pieceRate: String(c.pieceRate ?? 0),
+        markup: String(sale.data.saleMarkupPercent),
+        commission: String(sale.data.consignmentCommissionPercent),
+        minArea: String(c.minArea ?? 0),
+        feedMmS: String(c.feedMmS ?? 20),
+        rapidMmS: String(c.rapidMmS ?? 100),
+        plungeSec: String(c.plungeSec ?? 1),
+        passDepthMm: String(c.passDepthMm ?? 0),
       });
     }
-  }, [data]);
+  }, [cut.data, sale.data]);
 
   const mut = useMutation({
-    mutationFn: () =>
-      updateCutPricing(
-        Object.fromEntries(
-          Object.entries(f ?? {}).map(([k, v]) => [k, Number(v) || 0]),
-        ) as Partial<CutPricing>,
-      ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'cut-pricing'] }),
+    mutationFn: async () => {
+      const n = (v: string) => Number(v) || 0;
+      const x = f!;
+      await Promise.all([
+        updateCutPricing({
+          meterRate: n(x.meterRate),
+          areaRate: n(x.areaRate),
+          hourlyRate: n(x.hourlyRate),
+          minMinutes: n(x.minMinutes),
+          pieceRate: n(x.pieceRate),
+          // Corel'e özgü alanlar yalnız Corel özelliği açık işletmeden gider.
+          ...(corel
+            ? {
+                minArea: n(x.minArea),
+                feedMmS: n(x.feedMmS),
+                rapidMmS: n(x.rapidMmS),
+                plungeSec: n(x.plungeSec),
+                passDepthMm: n(x.passDepthMm),
+              }
+            : {}),
+        }),
+        updatePricingSettings({
+          saleMarkupPercent: n(x.markup),
+          consignmentCommissionPercent: n(x.commission),
+        }),
+      ]);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings', 'cut-pricing'] });
+      qc.invalidateQueries({ queryKey: ['settings', 'pricing'] });
+      qc.invalidateQueries({ queryKey: ['plate-pricing'] });
+      toast.success('Fiyatlar kaydedildi');
+    },
+    onError: (e) => toast.error('Kaydedilemedi', apiErrorMessage(e)),
   });
 
   // Veri gelene kadar bölüm yerini korur (hızlı geçiş şeridi onu bulabilsin).
   if (!f) {
     return (
-      <SettingsSection id="kesim-fiyat">
+      <SettingsSection id="fiyatlandirma">
         <div className="space-y-2" role="status" aria-label="Yükleniyor">
           <div className="skeleton h-4 w-2/3" />
           <div className="skeleton h-20" />
@@ -765,72 +729,87 @@ function CutPricingCard() {
       </SettingsSection>
     );
   }
-  const set = (k: keyof CutForm) => (v: string) => setF({ ...f, [k]: v });
-  const cur = data?.currency ?? 'TRY';
-  const rate = Number(f.hourlyRate) || 0;
+  const set = (k: keyof PriceForm) => (v: string) => setF({ ...f, [k]: v });
+  const cur = cut.data?.currency ?? 'TRY';
+  const hourly = Number(f.hourlyRate) || 0;
   const minMin = Number(f.minMinutes) || 0;
-  const example = (Math.max(12, minMin) / 60) * rate;
+  const timeExample = (Math.max(12, minMin) / 60) * hourly;
+  const saleExample = 100 * (1 + (Number(f.markup) || 0) / 100);
 
   return (
-    <SettingsSection id="kesim-fiyat">
+    <SettingsSection id="fiyatlandirma">
       <p className="text-sm text-slate-500">
-        Teklifte işleme kalemi <b>süreyle</b> ya da <b>m² ile</b> fiyatlanabilir.
-        Süre seçilince birim fiyat olarak saatlik ücret, m² seçilince m² ücreti
-        gelir. Corel eklentisinin süre ve m² fiyat modülleri de bu değerleri
-        kullanır.
+        Teklifte işleme kalemi <b>metre</b>, <b>m²</b>, <b>süre</b> ya da <b>adet</b> ile fiyatlanır. Kalemde birimi
+        seçtiğinizde buradaki ücret hazır gelir; isterseniz teklifte o kalem için değiştirirsiniz.
       </p>
 
-      <SubBox title="Süreyle">
+      <SubBox title="Birim fiyatlar">
         <div className="grid gap-3 sm:grid-cols-2">
-          <NumField label={`Saatlik ücret (${cur})`} value={f.hourlyRate} onChange={set('hourlyRate')} />
-          <NumField
-            label="İş en az kaç dakikadan başlar"
-            value={f.minMinutes}
-            onChange={set('minMinutes')}
-            hint="Daha kısa iş bu süreden faturalanır (teklifte de uygulanır)."
-          />
+          <NumField label={`Metre ücreti (${cur})`} suffix="/ m" value={f.meterRate} onChange={set('meterRate')} />
+          <NumField label={`m² ücreti (${cur})`} suffix="/ m²" value={f.areaRate} onChange={set('areaRate')} />
+          <NumField label={`Saatlik ücret (${cur})`} suffix="/ saat" value={f.hourlyRate} onChange={set('hourlyRate')} />
+          <NumField label={`Adet ücreti (${cur})`} suffix="/ adet" value={f.pieceRate} onChange={set('pieceRate')} />
         </div>
+        <NumField
+          label="Süreyle fiyatta: iş en az kaç dakikadan başlar"
+          value={f.minMinutes}
+          onChange={set('minMinutes')}
+          suffix="dk"
+          hint="Daha kısa iş bu süreden faturalanır (teklifte de uygulanır)."
+        />
         <p className="text-xs text-slate-400">
-          Örnek: 12 dk'lık iş → {formatNumber(Math.max(12, minMin))} dk × {formatMoney(rate, cur)}/saat ={' '}
-          <b className="text-slate-600">{formatMoney(example, cur)}</b>
+          Örnek: 12 dk'lık iş → {formatNumber(Math.max(12, minMin))} dk × {formatMoney(hourly, cur)}/saat ={' '}
+          <b className="text-slate-600">{formatMoney(timeExample, cur)}</b>
         </p>
       </SubBox>
 
-      <SubBox title="m² ile">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <NumField label={`m² ücreti (${cur})`} value={f.areaRate} onChange={set('areaRate')} />
-          <NumField
-            label="İş en az kaç m²'den başlar"
-            value={f.minArea}
-            onChange={set('minArea')}
-            hint="Corel'in m² fiyat modülü bu alandan aşağı hesaplamaz."
-          />
-        </div>
-      </SubBox>
-
-      <SubBox title="Makine (Corel süre hesabı)">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <NumField label="Kesim hızı (mm/sn)" value={f.feedMmS} onChange={set('feedMmS')} />
-          <NumField label="Boşta gezme hızı (mm/sn)" value={f.rapidMmS} onChange={set('rapidMmS')} />
-          <NumField
-            label="Dalma/kalkma (sn, kontur başına)"
-            value={f.plungeSec}
-            onChange={set('plungeSec')}
-          />
-          <NumField
-            label="Paso derinliği (mm)"
-            value={f.passDepthMm}
-            onChange={set('passDepthMm')}
-            hint="0 = tek paso. Değilse kalınlık / derinlik kadar paso sayılır."
-          />
-        </div>
-        <p className="text-xs text-slate-400">
-          Süre = kesim boyu × paso ÷ kesim hızı + konturlar arası gezme ÷ boşta
-          hızı + kontur × paso × dalma süresi. Corel'de iş başına değiştirilebilir.
+      <SubBox title="Malzeme satışı">
+        <p className="text-xs text-slate-500">
+          Malzeme satışında birim fiyat, malzemenin <b>perakende fiyatı</b> üzerine buradaki kâr yüzdesi eklenerek
+          önerilir. Bir malzemeye özel oran girilmişse o önceliklidir (Stok › malzeme düzenleme).
         </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumField
+            label="Genel kâr yüzdesi (%)"
+            value={f.markup}
+            onChange={set('markup')}
+            hint={`Örnek: perakende ${formatMoney(100)} → satış ${formatMoney(saleExample)}`}
+          />
+          <NumField
+            label="Konsinye komisyon oranı (%)"
+            value={f.commission}
+            onChange={set('commission')}
+            hint="Başkasının malzemesi satılırken işletmede kalan pay. Teklif kalemlerinde başlangıç değeri olarak gelir."
+          />
+        </div>
       </SubBox>
 
-      {mut.isError && <p className="text-sm text-red-600">Kaydedilemedi.</p>}
+      {corel && (
+        <SubBox title="Makine (Corel süre hesabı)">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <NumField label="Kesim hızı (mm/sn)" value={f.feedMmS} onChange={set('feedMmS')} />
+            <NumField label="Boşta gezme hızı (mm/sn)" value={f.rapidMmS} onChange={set('rapidMmS')} />
+            <NumField label="Dalma/kalkma (sn, kontur başına)" value={f.plungeSec} onChange={set('plungeSec')} />
+            <NumField
+              label="Paso derinliği (mm)"
+              value={f.passDepthMm}
+              onChange={set('passDepthMm')}
+              hint="0 = tek paso. Değilse kalınlık / derinlik kadar paso sayılır."
+            />
+            <NumField
+              label="İş en az kaç m²'den başlar"
+              value={f.minArea}
+              onChange={set('minArea')}
+              hint="Corel'in m² fiyat modülü bu alandan aşağı hesaplamaz."
+            />
+          </div>
+          <p className="text-xs text-slate-400">
+            Süre = kesim boyu × paso ÷ kesim hızı + konturlar arası gezme ÷ boşta hızı + kontur × paso × dalma süresi.
+            Corel'de iş başına değiştirilebilir. Corel'in süre ve m² fiyat modülleri yukarıdaki ücretleri de kullanır.
+          </p>
+        </SubBox>
+      )}
+
       <button className="btn-primary" disabled={mut.isPending} onClick={() => mut.mutate()}>
         {mut.isPending && <Spinner />}
         Kaydet
@@ -845,6 +824,7 @@ function CutPricingCard() {
  */
 function MorningSummaryCard() {
   const qc = useQueryClient();
+  const { isOwner } = useAuth();
   const active = useSectionActive('sabah-ozeti');
   const { data } = useQuery({
     queryKey: ['settings', 'morning-summary'],
@@ -909,10 +889,13 @@ function MorningSummaryCard() {
           {preview}
         </pre>
       )}
-      <p className="text-xs text-slate-400">
-        Saat sunucuda <code>MORNING_SUMMARY_CRON</code> ile değişir (varsayılan
-        her gün 08:00, Türkiye saati).
-      </p>
+      {/* Sunucu yapılandırması (ortam değişkeni adı) yalnız sistem sahibine anlatılır. */}
+      {isOwner && (
+        <p className="text-xs text-slate-400">
+          Saat sunucuda <code>MORNING_SUMMARY_CRON</code> ile değişir (varsayılan
+          her gün 08:00, Türkiye saati).
+        </p>
+      )}
     </SettingsSection>
   );
 }
@@ -1688,22 +1671,23 @@ function SourceBadge({ source }: { source: SettingSource }) {
 }
 
 /**
- * Telegram ayarları. Jeton ve sohbet kimlikleri buradan düzenlenir; değişiklik
- * ANINDA geçerli olur (gönderim anında okunur), container'ı yeniden başlatmaya
- * gerek yoktur. "Yeniden başlat" jetonu Telegram'a doğrulatır.
+ * Telegram ayarları. TEK bir sistem botu vardır; işletme jeton girmez:
+ * botu kendi grubuna ekler, grubun kimliğini (bot grupta /idx ile söyler)
+ * buraya yazar. İşletme yalnız kendi bildirim grubunu ve konu hedeflerini görür
+ * ve değiştirir. Bot jetonu, yedek sohbeti, yetkili kullanıcılar ve "yeniden
+ * başlat" yalnız sistem sahibinindir (sunucu bu alanları işletmeye hiç göndermez).
+ * Değişiklik ANINDA geçerli olur.
  */
 function TelegramSettings() {
   const qc = useQueryClient();
-  // Bot jetonu, yedek sohbeti ve yetkili kullanıcılar bütün sistemindir
-  // (tek bot tüm dükkânlara hizmet eder): yalnız sistem sahibi değiştirir.
-  // Bildirim sohbeti dükkânındır.
-  const { isOwner } = useAuth();
   const active = useSectionActive('telegram');
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'telegram'],
     queryFn: fetchTelegramSettings,
     enabled: active,
   });
+  // Sunucu hangi görünümü verdiyse o çizilir (sistem sahibi: tam; işletme: kendi grubu).
+  const owner = data?.ownerView === true;
 
   // Jeton hiç açık gelmez → boş bırakılırsa mevcut jeton korunur.
   const [token, setToken] = useState('');
@@ -1714,12 +1698,12 @@ function TelegramSettings() {
   const [routes, setRoutes] = useState<Partial<Record<TelegramTopic, { mode: TelegramRoute['mode']; chatId: string }>>>({});
   useEffect(() => {
     if (data) {
-      setChatId(data.chatIdSource === 'db' ? data.chatId : '');
-      setBackupChatId(data.backupChatId);
-      setAllowedIds(data.allowedUserIds.join(', '));
+      setChatId(owner ? (data.chatIdSource === 'db' ? data.chatId : '') : data.chatId);
+      setBackupChatId(data.backupChatId ?? '');
+      setAllowedIds((data.allowedUserIds ?? []).join(', '));
       setRoutes(Object.fromEntries((data.routes ?? []).map((r) => [r.topic, { mode: r.mode, chatId: r.chatId }])));
     }
-  }, [data]);
+  }, [data, owner]);
   const routePayload = () =>
     Object.fromEntries(
       Object.entries(routes)
@@ -1734,7 +1718,7 @@ function TelegramSettings() {
   const saveMut = useMutation({
     mutationFn: () =>
       updateTelegramSettings(
-        isOwner
+        owner
           ? {
               // Boş jeton "değiştirme" demek; temizlemek için ayrı düğme var.
               ...(token.trim() ? { telegramBotToken: token.trim() } : {}),
@@ -1748,7 +1732,9 @@ function TelegramSettings() {
     onSuccess: () => {
       setToken('');
       invalidate();
+      toast.success('Telegram ayarları kaydedildi');
     },
+    onError: (e) => toast.error('Kaydedilemedi', apiErrorMessage(e)),
   });
   const clearTokenMut = useMutation({
     mutationFn: () => updateTelegramSettings({ telegramBotToken: '' }),
@@ -1767,6 +1753,8 @@ function TelegramSettings() {
     );
   }
 
+  const botName = data.botUsername ? `@${data.botUsername}` : null;
+
   return (
     <SettingsSection
       id="telegram"
@@ -1779,9 +1767,8 @@ function TelegramSettings() {
       }
     >
       <p className="text-sm text-slate-500">
-        Bildirimler, borç hatırlatmaları ve şifreli yedekler bu bot üzerinden
-        gönderilir. Buradaki değişiklikler <b>anında</b> geçerli olur — sunucuyu
-        veya container'ı yeniden başlatmanız gerekmez.
+        Bildirimler ve borç hatırlatmaları StockTrack botu üzerinden <b>sizin Telegram grubunuza</b> gider. Bot jetonu girmezsiniz:
+        botu grubunuza ekler, grubun kimliğini aşağıya yazarsınız. Değişiklikler <b>anında</b> geçerli olur.
       </p>
 
       {/* Durum + mesajın gideceği sohbet */}
@@ -1792,103 +1779,120 @@ function TelegramSettings() {
             : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
         }`}
       >
-        <p className="font-medium">
-          {data.configured ? '✅ Yapılandırıldı' : '⚠️ Eksik yapılandırma'}
-        </p>
+        <p className="font-medium">{data.configured ? '✅ Yapılandırıldı' : '⚠️ Eksik yapılandırma'}</p>
         <p className="break-words text-xs text-slate-600">
-          Bot jetonu:{' '}
-          {data.tokenSet ? (
-            <>
-              <code className="rounded bg-white px-1">{data.tokenMasked}</code>
-              <SourceBadge source={data.tokenSource} />
-            </>
+          Bot:{' '}
+          {data.botReady ? (
+            botName ? (
+              <code className="rounded bg-white px-1">{botName}</code>
+            ) : (
+              <span className="text-slate-500">hazır</span>
+            )
           ) : (
-            <span className="text-amber-700">tanımlı değil</span>
+            <span className="text-amber-700">henüz hazır değil{owner ? ' (jeton tanımlı değil)' : ' — sistem yöneticisi tanımlayacak'}</span>
+          )}
+          {owner && data.tokenSet && (
+            <>
+              {' '}
+              <code className="rounded bg-white px-1">{data.tokenMasked}</code>
+              {data.tokenSource && <SourceBadge source={data.tokenSource} />}
+            </>
           )}
         </p>
         <p className="break-words text-xs text-slate-600">
-          Bildirimler şu sohbete gider:{' '}
+          Bildirimler şu gruba gider:{' '}
           {data.chatId ? (
             <>
               <code className="rounded bg-white px-1">{data.chatId}</code>
-              <SourceBadge source={data.chatIdSource} />
+              {owner && data.chatIdSource && <SourceBadge source={data.chatIdSource} />}
             </>
           ) : (
             <span className="text-amber-700">tanımlı değil</span>
           )}
         </p>
-        <p className="break-words text-xs text-slate-600">
-          Şifreli yedek şu sohbete gider:{' '}
-          {data.effectiveBackupChatId ? (
-            <code className="rounded bg-white px-1">
-              {data.effectiveBackupChatId}
-            </code>
-          ) : (
-            <span className="text-amber-700">tanımlı değil</span>
-          )}
-          {!data.backupChatId && data.effectiveBackupChatId && (
-            <span className="ml-1 text-slate-400">
-              (ayrı yedek sohbeti girilmedi → bildirim sohbeti kullanılıyor)
-            </span>
-          )}
-        </p>
-        <p className="break-words text-xs text-slate-400">
-          Otomatik yedek gönderim sıklığı (cron): <code>{data.backupCron}</code>{' '}
-          — bu değer .env'den okunur ve değişikliği yeniden başlatma ister.
-        </p>
+        {owner && (
+          <>
+            <p className="break-words text-xs text-slate-600">
+              Şifreli yedek şu sohbete gider:{' '}
+              {data.effectiveBackupChatId ? (
+                <code className="rounded bg-white px-1">{data.effectiveBackupChatId}</code>
+              ) : (
+                <span className="text-amber-700">tanımlı değil</span>
+              )}
+              {!data.backupChatId && data.effectiveBackupChatId && (
+                <span className="ml-1 text-slate-400">(ayrı yedek sohbeti girilmedi → bildirim sohbeti kullanılıyor)</span>
+              )}
+            </p>
+            <p className="break-words text-xs text-slate-400">
+              Otomatik yedek gönderim sıklığı (cron): <code>{data.backupCron}</code> — bu değer .env'den okunur ve
+              değişikliği yeniden başlatma ister.
+            </p>
+          </>
+        )}
       </div>
 
-      <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
-        💡 <b>Kimlikleri bulmak için:</b> botu gruba ekleyin ve gruba{' '}
-        <code className="rounded bg-white px-1">/idx</code> yazın. Bot, o grubun
-        kimliğini <b>ve sizin kullanıcı kimliğinizi</b> dokunup kopyalayabileceğiniz
-        şekilde cevaplar — mobilde aramanıza gerek kalmaz. Bot menüsü için{' '}
-        <code className="rounded bg-white px-1">/menu</code> yazın.
-      </p>
-
-      {!isOwner && (
-        <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
-          Bu dükkân için yalnız bildirim sohbetini değiştirebilirsiniz; bot jetonu, yedek sohbeti ve yetkili
-          kullanıcılar bütün sistemin ayarıdır (sistem sahibi).
+      {owner ? (
+        <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+          💡 <b>Kimlikleri bulmak için:</b> botu gruba ekleyin ve gruba <code className="rounded bg-white px-1">/idx</code> yazın. Bot, o
+          grubun kimliğini <b>ve sizin kullanıcı kimliğinizi</b> dokunup kopyalayabileceğiniz şekilde cevaplar. Bot menüsü için{' '}
+          <code className="rounded bg-white px-1">/menu</code> yazın.
         </p>
+      ) : (
+        <ol className="list-decimal space-y-1 rounded-lg bg-slate-50 p-3 pl-7 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          <li>
+            {botName ? (
+              <>
+                <b>{botName}</b> botunu
+              </>
+            ) : (
+              'Sistem botunu'
+            )}{' '}
+            Telegram grubunuza ekleyin.
+          </li>
+          <li>
+            Grupta <code className="rounded bg-white px-1">/idx</code> yazın; bot grubun kimliğini söyler (örn.{' '}
+            <code className="rounded bg-white px-1">-1001234567890</code>).
+          </li>
+          <li>Bu kimliği aşağıdaki alana yapıştırıp kaydedin. Kaydederken bot grubunuzda mı diye kontrol edilir.</li>
+        </ol>
       )}
-      <Field
-        label="Bot jetonu"
-        value={token}
-        disabled={!isOwner}
-        onChange={setToken}
-        placeholder={
-          data.tokenSet ? 'Değiştirmek için yeni jetonu yapıştırın' : '123456789:AA…'
-        }
-        hint="@BotFather'dan alınır. Boş bırakırsanız mevcut jeton korunur; ekranda hiçbir zaman açık gösterilmez."
-      />
+
+      {owner && (
+        <Field
+          label="Bot jetonu"
+          value={token}
+          onChange={setToken}
+          placeholder={data.tokenSet ? 'Değiştirmek için yeni jetonu yapıştırın' : '123456789:AA…'}
+          hint="@BotFather'dan alınır. Boş bırakırsanız mevcut jeton korunur; ekranda hiçbir zaman açık gösterilmez. Tek bot tüm işletmelere hizmet verir."
+        />
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
-          label="Bu dükkânın bildirim sohbeti (chat id)"
+          label="Bu dükkânın bildirim grubu (chat id)"
           value={chatId}
           onChange={setChatId}
-          placeholder={data.chatIdSource === 'env' ? data.chatId : '-1001234567890'}
+          placeholder={owner && data.chatIdSource === 'env' ? data.chatId : '-1001234567890'}
           hint={
-            data.chatSharedWith?.length
+            owner && data.chatSharedWith?.length
               ? `Bu sohbeti ${data.chatSharedWith.join(', ')} de kullanıyor; mesajların başında dükkân adı yazar.`
-              : 'Aşağıda başka sohbet seçilmeyen bildirimler buraya gider. Boşsa .env’deki değer kullanılır.'
+              : 'Aşağıda başka grup seçilmeyen bildirimler buraya gider.'
           }
         />
-        <Field
-          label="Yedek sohbet kimliği (opsiyonel)"
-          value={backupChatId}
-          disabled={!isOwner}
-          onChange={setBackupChatId}
-          placeholder="Boşsa bildirim sohbeti kullanılır"
-          hint="Yedekleri ayrı bir gruba göndermek isterseniz."
-        />
+        {owner && (
+          <Field
+            label="Yedek sohbet kimliği (opsiyonel)"
+            value={backupChatId}
+            onChange={setBackupChatId}
+            placeholder="Boşsa bildirim sohbeti kullanılır"
+            hint="Yedekleri ayrı bir gruba göndermek isterseniz."
+          />
+        )}
       </div>
 
-      {/* Konu başına hedef: her dükkân her konuyu ayrı kanala, ortak kanala ya da hiçbir yere. */}
+      {/* Konu başına hedef: her dükkân her konuyu ayrı gruba, ortak gruba ya da hiçbir yere. */}
       <SubBox title="📬 Hangi bildirim nereye gitsin?">
         <p className="text-xs text-slate-500">
-          Her konu bu dükkânın bildirim sohbetine, başka bir sohbete (kanal/grup) gidebilir ya da kapatılabilir.
-          Dükkânlar aynı sohbeti paylaşabilir; birden çok dükkân varken mesajın ilk satırında dükkân adı yazar.
+          Her konu bu dükkânın bildirim grubuna, başka bir gruba/kanala gidebilir ya da kapatılabilir.
           Müşterinin kendi Telegram sohbetine giden mesajlar bundan etkilenmez.
         </p>
         <div className="divide-y divide-slate-100 dark:divide-slate-700">
@@ -1908,8 +1912,8 @@ function TelegramSettings() {
                   value={cur.mode}
                   onChange={(e) => setCur({ mode: e.target.value as TelegramRoute['mode'] })}
                 >
-                  <option value="default">Bildirim sohbeti</option>
-                  <option value="chat">Başka sohbet</option>
+                  <option value="default">Bildirim grubu</option>
+                  <option value="chat">Başka grup</option>
                   <option value="off">Kapalı</option>
                 </select>
                 {cur.mode === 'chat' && (
@@ -1922,7 +1926,7 @@ function TelegramSettings() {
                   />
                 )}
                 <div className="flex items-center gap-2 sm:ml-auto">
-                  {r.sharedWith.length > 0 && cur.mode === r.mode && (
+                  {owner && r.sharedWith.length > 0 && cur.mode === r.mode && (
                     <span className="badge bg-slate-100 text-slate-600" title="Aynı sohbete gönderen dükkânlar">
                       ortak: {r.sharedWith.join(', ')}
                     </span>
@@ -1930,13 +1934,15 @@ function TelegramSettings() {
                   <button
                     type="button"
                     className="btn-secondary btn-sm"
-                    disabled={testMut.isPending || !data.tokenSet || r.mode === 'off' || cur.mode !== r.mode}
+                    disabled={testMut.isPending || !data.botReady || !r.effectiveChatId || r.mode === 'off' || cur.mode !== r.mode}
                     title={
                       cur.mode !== r.mode
                         ? 'Önce kaydedin'
                         : r.mode === 'off'
                           ? 'Bu konu kapalı'
-                          : `${r.effectiveChatId || '—'} sohbetine deneme mesajı`
+                          : !r.effectiveChatId
+                            ? 'Önce bir grup kimliği kaydedin'
+                            : `${r.effectiveChatId} sohbetine deneme mesajı`
                     }
                     onClick={() => testMut.mutate(r.topic)}
                   >
@@ -1949,55 +1955,42 @@ function TelegramSettings() {
         </div>
       </SubBox>
 
-      {/* Bot üzerinden İŞLEM yapabilecek kullanıcılar — güvenlik kapısı. */}
-      <SubBox
-        title={<span className="text-amber-800 dark:text-amber-300">🔐 Yetkili kullanıcılar (bot üzerinden işlem yapabilecekler)</span>}
-        className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
-      >
-        <p className="text-xs text-slate-600">
-          Telegram'dan tahsilat girme, borç kapatma gibi işlemleri <b>yalnızca</b>{' '}
-          buradaki kullanıcı kimlikleri yapabilir. Liste boşken hiç kimse yetkili
-          değildir. Kimliğinizi öğrenmek için bota{' '}
-          <code className="rounded bg-white px-1">/idx</code> yazın — sohbet
-          kimliğinin yanında kendi kullanıcı kimliğinizi de söyler.
-        </p>
-        <input
-          className="input font-mono text-sm"
-          value={allowedIds}
-          disabled={!isOwner}
-          aria-label="Yetkili kullanıcı kimlikleri"
-          placeholder="Örn. 123456789, 987654321"
-          onChange={(e) => setAllowedIds(e.target.value)}
-        />
-        <p className="text-xs text-slate-600">
-          Bu kişiler botta bütün dükkânlara erişir; ana menüdeki dükkân düğmesiyle dükkân değiştirir.
-          Yalnız kendi dükkânını görmesi gereken çalışanın kimliğini buraya değil,{' '}
-          <b>Ekip</b> ekranında hesabına yazın: bot ona yalnız üye olduğu dükkânları, kendi izinleriyle gösterir.
-        </p>
-        {data.allowedUserIds.length === 0 && (
-          <p className="text-xs font-medium text-amber-800">
-            ⚠️ Şu an hiç yetkili kullanıcı yok — bot işlem yapmıyor.
+      {/* Bot üzerinden İŞLEM yapabilecek kullanıcılar — güvenlik kapısı; yalnız sistem sahibi. */}
+      {owner && (
+        <SubBox
+          title={<span className="text-amber-800 dark:text-amber-300">🔐 Yetkili kullanıcılar (bot üzerinden işlem yapabilecekler)</span>}
+          className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+        >
+          <p className="text-xs text-slate-600">
+            Telegram'dan tahsilat girme, borç kapatma gibi işlemleri <b>yalnızca</b> buradaki kullanıcı kimlikleri yapabilir.
+            Liste boşken hiç kimse yetkili değildir. Kimliğinizi öğrenmek için bota{' '}
+            <code className="rounded bg-white px-1">/idx</code> yazın — sohbet kimliğinin yanında kendi kullanıcı kimliğinizi de
+            söyler.
           </p>
-        )}
-      </SubBox>
-
-      {saveMut.isError && (
-        <p className="text-sm text-red-600">
-          {(saveMut.error as { response?: { data?: { message?: string } } })
-            ?.response?.data?.message ?? 'Kaydedilemedi.'}
-        </p>
+          <input
+            className="input font-mono text-sm"
+            value={allowedIds}
+            aria-label="Yetkili kullanıcı kimlikleri"
+            placeholder="Örn. 123456789, 987654321"
+            onChange={(e) => setAllowedIds(e.target.value)}
+          />
+          <p className="text-xs text-slate-600">
+            Bu kişiler botta bütün dükkânlara erişir; ana menüdeki dükkân düğmesiyle dükkân değiştirir. Yalnız kendi dükkânını
+            görmesi gereken çalışanın kimliğini buraya değil, <b>Ekip</b> ekranında hesabına yazın: bot ona yalnız üye olduğu
+            dükkânları, kendi izinleriyle gösterir.
+          </p>
+          {(data.allowedUserIds ?? []).length === 0 && (
+            <p className="text-xs font-medium text-amber-800">⚠️ Şu an hiç yetkili kullanıcı yok — bot işlem yapmıyor.</p>
+          )}
+        </SubBox>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          className="btn-primary"
-          disabled={saveMut.isPending}
-          onClick={() => saveMut.mutate()}
-        >
+        <button className="btn-primary" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
           {saveMut.isPending && <Spinner />}
           Kaydet
         </button>
-        {isOwner && (
+        {owner && (
           <button
             className="btn-secondary"
             disabled={reloadMut.isPending}
@@ -2010,16 +2003,12 @@ function TelegramSettings() {
         <button
           className="btn-secondary"
           disabled={testMut.isPending || !data.configured}
-          title={
-            data.configured
-              ? 'Ayarlardaki sohbete deneme mesajı gönderir'
-              : 'Önce jeton ve sohbet kimliğini tanımlayın'
-          }
+          title={data.configured ? 'Bildirim grubuna deneme mesajı gönderir' : 'Önce botu grubunuza ekleyip grup kimliğini kaydedin'}
           onClick={() => testMut.mutate(undefined)}
         >
           {testMut.isPending ? 'Gönderiliyor…' : '✉️ Test mesajı gönder'}
         </button>
-        {isOwner && data.tokenSource === 'db' && (
+        {owner && data.tokenSource === 'db' && (
           <button
             className="btn-danger-soft btn-sm sm:ml-auto"
             disabled={clearTokenMut.isPending}
@@ -2041,44 +2030,31 @@ function TelegramSettings() {
         )}
       </div>
 
-      {/* Yeniden başlatma sonucu */}
+      {/* Yeniden başlatma sonucu (yalnız sistem sahibi) */}
       {reloadMut.isSuccess && (
-        <p
-          className={`break-words text-sm ${
-            reloadMut.data.ok ? 'text-emerald-700' : 'text-red-600'
-          }`}
-        >
+        <p className={`break-words text-sm ${reloadMut.data.ok ? 'text-emerald-700' : 'text-red-600'}`}>
           {reloadMut.data.ok ? (
             <>
-              Bağlantı tamam — bot{' '}
-              <b>@{reloadMut.data.botUsername ?? reloadMut.data.botName}</b>.
-              Mesajlar <code>{reloadMut.data.chatId || '—'}</code>, yedekler{' '}
-              <code>{reloadMut.data.backupChatId || '—'}</code> sohbetine gidecek.
+              Bağlantı tamam — bot <b>@{reloadMut.data.botUsername ?? reloadMut.data.botName}</b>. Mesajlar{' '}
+              <code>{reloadMut.data.chatId || '—'}</code>, yedekler <code>{reloadMut.data.backupChatId || '—'}</code> sohbetine
+              gidecek.
             </>
           ) : (
             <>Bağlanılamadı: {reloadMut.data.error}</>
           )}
         </p>
       )}
-      {reloadMut.isError && (
-        <p className="text-sm text-red-600">Yeniden başlatılamadı.</p>
-      )}
+      {reloadMut.isError && <p className="text-sm text-red-600">Yeniden başlatılamadı.</p>}
 
       {/* Test sonucu */}
       {testMut.isSuccess && (
-        <p
-          className={`break-words text-sm ${
-            testMut.data.success ? 'text-emerald-700' : 'text-red-600'
-          }`}
-        >
+        <p className={`break-words text-sm ${testMut.data.success ? 'text-emerald-700' : 'text-red-600'}`}>
           {testMut.data.success
             ? `Test mesajı ${testMut.data.chatId} sohbetine gönderildi.`
             : `Gönderilemedi: ${testMut.data.error}`}
         </p>
       )}
-      {testMut.isError && (
-        <p className="text-sm text-red-600">Test mesajı gönderilemedi.</p>
-      )}
+      {testMut.isError && <p className="text-sm text-red-600">Test mesajı gönderilemedi.</p>}
     </SettingsSection>
   );
 }

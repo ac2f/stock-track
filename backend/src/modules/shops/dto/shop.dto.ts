@@ -66,7 +66,7 @@ export class NewMemberUserDto {
   phone?: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8, { message: 'Parola en az 8 karakter olmalı.' })
   password: string;
 }
 
@@ -119,7 +119,7 @@ export class UpdateMemberAccountDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @MinLength(8, { message: 'Parola en az 8 karakter olmalı.' })
   password?: string;
 
   @IsOptional()

@@ -55,8 +55,8 @@ function useQueueCount(enabled: boolean): number {
  * Her yerde Ctrl+K hızlı arama ve klavye kısayolları çalışır.
  */
 export function ResponsiveLayout() {
-  const { user, can, managesAnyShop, shop, shops, isOwner } = useAuth();
-  const groups = visibleNav(can, managesAnyShop, shops.filter((s) => s.isActive).length, isOwner);
+  const { user, can, managesAnyShop, shop, shops, isOwner, hasFeature } = useAuth();
+  const groups = visibleNav(can, managesAnyShop, shops.filter((s) => s.isActive).length, isOwner, hasFeature);
   const flat = groups.flatMap((g) => g.items);
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(readCollapsed);

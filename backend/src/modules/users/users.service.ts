@@ -7,11 +7,37 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { ShopMember } from '../shops/entities/shop-member.entity';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 const SALT_ROUNDS = 10;
+
+/** Sistem sahibinin kullanıcı yönetiminde gördüğü tam görünüm (parola hash'i yok). */
+export interface AdminUserView {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  role: UserRole;
+  isActive: boolean;
+  telegramUserId: string | null;
+  createdAt: Date;
+}
+
+export function toAdminView(u: User): AdminUserView {
+  return {
+    id: u.id,
+    fullName: u.fullName,
+    email: u.email,
+    phone: u.phone ?? null,
+    role: u.role,
+    isActive: u.isActive,
+    telegramUserId: u.telegramUserId ?? null,
+    createdAt: u.createdAt,
+  };
+}
 
 @Injectable()
 export class UsersService {

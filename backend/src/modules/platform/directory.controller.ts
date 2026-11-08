@@ -2,7 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Cached } from '../../common/cache/cached.decorator';
 import { CacheGroup } from '../../common/cache/cache.groups';
-import { AnyShopMember } from '../../common/shop/shop-access.decorator';
+import { AnyShopMember, ShopFeatureRequired } from '../../common/shop/shop-access.decorator';
 import { DirectoryFacetsDto, QueryDirectoryDto } from './dto/platform.dto';
 import { DirectoryService } from './directory.service';
 import { MachineTypesService } from './machine-types.service';
@@ -15,6 +15,7 @@ import { MachineTypesService } from './machine-types.service';
 @ApiTags('directory')
 @ApiBearerAuth()
 @AnyShopMember()
+@ShopFeatureRequired('directory')
 @Controller({ path: 'directory', version: '1' })
 export class DirectoryController {
   constructor(

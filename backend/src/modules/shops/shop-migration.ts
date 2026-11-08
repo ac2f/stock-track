@@ -96,6 +96,17 @@ export async function migrateToShops(dataSource: DataSource): Promise<Shop> {
         }),
       );
     }
+
+    // 5) Eski (tek işletmeli sürümden kalan) Telegram sütunları artık kullanılmaz: jeton ve yetkili
+    //    kullanıcı listesi sistem ayarlarındadır. Gizli bilginin ikinci bir kopyası dükkân
+    //    satırında kalmasın (ayar kopyalama, yedek, eşitleme ile başka yere taşınmasın).
+    const cleared: unknown = await dataSource.query(
+      `UPDATE "app_settings"
+          SET "telegram_bot_token" = '', "backup_telegram_chat_id" = '', "telegram_allowed_user_ids" = ''
+        WHERE "telegram_bot_token" <> '' OR "backup_telegram_chat_id" <> '' OR "telegram_allowed_user_ids" <> ''`,
+    );
+    const n = affectedRows(cleared);
+    if (n > 0) logger.log(`${n} dükkân satırındaki eski Telegram sütunları temizlendi.`);
     return first;
   });
 }

@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   approveBusiness,
   fetchBusinesses,
+  fetchLabelsAdmin,
   fetchPlatformStats,
   updateBusiness,
   type BusinessAdminPatch,
@@ -16,6 +17,8 @@ import { LoadingBlock, Spinner } from '../../components/ui/Loading';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { useDebounced } from '../../hooks/useDebounced';
 import { apiErrorMessage, toast } from '../../lib/toast';
+import { SHOP_FEATURES } from '../../lib/shop';
+import type { ShopFeatureKey } from '../../types';
 import { PagePlaceholderError } from '../directory/parts';
 
 const STATUS: Record<BusinessStatus, { label: string; cls: string }> = {
@@ -30,18 +33,23 @@ export function BusinessesTab() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>('');
   const [search, setSearch] = useState('');
+  const [labelId, setLabelId] = useState('');
+  const [feature, setFeature] = useState<ShopFeatureKey | ''>('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const q = useDebounced(search.trim(), 350);
+  const labels = useQuery({ queryKey: ['platform', 'labels'], queryFn: fetchLabelsAdmin, staleTime: 60_000 });
 
   const stats = useQuery({ queryKey: ['platform', 'stats'], queryFn: fetchPlatformStats, refetchInterval: 60_000 });
   const list = useQuery({
-    queryKey: ['platform', 'businesses', filter, q, page, pageSize],
+    queryKey: ['platform', 'businesses', filter, q, labelId, feature, page, pageSize],
     queryFn: () =>
       fetchBusinesses({
         status: filter && filter !== 'expiring' ? filter : undefined,
         expiring: filter === 'expiring' ? true : undefined,
         search: q || undefined,
+        labelId: labelId || undefined,
+        feature: feature || undefined,
         page,
         limit: pageSize,
       }),
@@ -76,8 +84,45 @@ export function BusinessesTab() {
           </button>
         ))}
       </div>
-      <div className="card">
+      <div className="card space-y-3">
         <SearchInput value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="İşletme, e-posta, telefon, il/ilçe ara…" />
+        {/* İş kolu etiketine (malzemeci, baskıcı, atölye, montaj ...) ve açılan özelliğe göre süz. */}
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="İş koluna göre süz">
+          <span className="text-xs font-medium text-slate-500">İş kolu:</span>
+          <button
+            type="button"
+            className={`badge min-h-[32px] px-3 ${labelId === '' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}
+            onClick={() => { setLabelId(''); setPage(1); }}
+          >
+            Tümü
+          </button>
+          {(labels.data ?? []).filter((l) => l.isActive !== false).map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              aria-pressed={labelId === l.id}
+              className={`badge min-h-[32px] px-3 ${labelId === l.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}
+              onClick={() => { setLabelId(labelId === l.id ? '' : l.id); setPage(1); }}
+            >
+              {l.name}
+              {typeof l.shopCount === 'number' && <span className="ml-1 opacity-70">{l.shopCount}</span>}
+            </button>
+          ))}
+        </div>
+        <label className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          Özellik:
+          <select
+            className="input w-auto min-w-[14rem]"
+            value={feature}
+            onChange={(e) => { setFeature(e.target.value as ShopFeatureKey | ''); setPage(1); }}
+            aria-label="Açık özelliğe göre süz"
+          >
+            <option value="">Hepsi</option>
+            {SHOP_FEATURES.map((f) => (
+              <option key={f.key} value={f.key}>{f.label} açık olanlar</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {list.isError && <PagePlaceholderError />}
@@ -140,6 +185,7 @@ function BusinessCard({ b, onChanged }: { b: BusinessRow; onChanged: () => void 
             <span className={`badge ${st.cls}`}>{st.label}</span>
             {!b.isActive && <span className="badge bg-slate-200 text-slate-700">Kapalı</span>}
             {b.directoryVisible && <span className="badge bg-indigo-50 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-200">Rehberde</span>}
+            {b.features.corel && <span className="badge bg-violet-50 text-violet-800 dark:bg-violet-900/30 dark:text-violet-200">Corel</span>}
           </h3>
           <p className="text-sm text-slate-600 dark:text-slate-300">
             📍 {[b.district, b.province].filter(Boolean).join(', ') || '—'} · kayıt {new Date(b.createdAt).toLocaleDateString('tr-TR')}
@@ -246,6 +292,26 @@ function BusinessCard({ b, onChanged }: { b: BusinessRow; onChanged: () => void 
             />
             Rehberde göster
           </label>
+
+          {/* Bu işletmenin kullanabileceği hizmetler: yalnız siz açıp kapatırsınız; işletme kendisi açamaz. */}
+          <fieldset className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+            <legend className="px-1 text-sm font-semibold">Açılan özellikler</legend>
+            {SHOP_FEATURES.map((f) => (
+              <label key={f.key} className="flex cursor-pointer items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-5 w-5 shrink-0"
+                  checked={b.features[f.key]}
+                  disabled={busy}
+                  onChange={(e) => patch.mutate({ features: { [f.key]: e.target.checked } })}
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium">{f.label}</span>
+                  <span className="block text-xs text-slate-500">{f.hint}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
         </div>
       )}
     </article>

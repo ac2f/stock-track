@@ -34,6 +34,7 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @RateLimit({ name: 'refresh-ip', by: 'ip', limit: 300, windowSeconds: 900 })
   @Public()
   @SyncSkip()
   @Post('refresh')

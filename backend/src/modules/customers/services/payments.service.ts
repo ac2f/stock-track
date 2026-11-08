@@ -29,6 +29,7 @@ import { LedgerEntryType } from '../../../common/enums/ledger-entry-type.enum';
 import { roundMoney } from '../../../common/utils/area.util';
 import { BankAccountsService } from '../../bank-accounts/bank-accounts.service';
 import { UsersService } from '../../users/users.service';
+import { ShopAccessService } from '../../shops/shop-access.service';
 import { CurrencyService } from '../../currency/currency.service';
 import { Payment } from '../entities/payment.entity';
 import { CustomerLedgerEntry } from '../entities/customer-ledger-entry.entity';
@@ -81,6 +82,8 @@ export class PaymentsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     configService: ConfigService,
+    // Parayı teslim alan çalışanın bu dükkânın personeli olduğunu doğrular (bkz. assertShopStaff).
+    private readonly access?: ShopAccessService,
   ) {
     this.defaultCurrency =
       configService.get<string>('business.defaultCurrency') ?? 'TRY';
@@ -255,7 +258,7 @@ export class PaymentsService {
   async settleEmployeeCash(
     receivedById: string,
   ): Promise<{ settledCount: number; settledTotal: number }> {
-    await this.usersService.findOne(receivedById);
+    await this.assertShopStaff(receivedById);
     const pending = await this.paymentsRepo.find({
       where: {
         receivedById,
@@ -306,6 +309,21 @@ export class PaymentsService {
    *  - BANK_TRANSFER → bankAccountId zorunlu, receivedById yasak.
    * İlgili kayıtların gerçekten var olduğu da doğrulanır.
    */
+  /**
+   * Parayı teslim alan çalışan kayıtlı ve BU dükkânın personeli (ya da sistem
+   * sahibi) olmalı: başka işletmenin kullanıcısı, kimliği bilinse bile bir
+   * ödemeye bağlanamaz (ödeme listesi o kullanıcının adını taşır).
+   */
+  private async assertShopStaff(userId: string): Promise<void> {
+    const user = await this.usersService.findOne(userId);
+    if (!this.access) return;
+    try {
+      await this.access.resolve({ id: user.id, role: user.role }, ShopContext.requireShopId());
+    } catch {
+      throw new BadRequestException('Seçilen çalışan bu dükkânın personeli değil.');
+    }
+  }
+
   private async validateMethod(dto: {
     method: PaymentMethod;
     receivedById?: string | null;
@@ -323,7 +341,7 @@ export class PaymentsService {
           'Nakit ödemede banka hesabı belirtilemez.',
         );
       }
-      await this.usersService.findOne(dto.receivedById);
+      await this.assertShopStaff(dto.receivedById);
     } else if (dto.method === PaymentMethod.BANK_TRANSFER) {
       if (!dto.bankAccountId) {
         throw new BadRequestException(

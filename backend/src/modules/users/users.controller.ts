@@ -13,7 +13,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { UsersService } from './users.service';
+import { toAdminView, UsersService } from './users.service';
 import { NoShop } from '../../common/shop/shop-access.decorator';
 
 /** Personel yönetimi — yalnızca İşletme Sahibi (OWNER). */
@@ -26,26 +26,26 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.usersService.create(dto);
+  async create(@Body() dto: CreateUserDto) {
+    return toAdminView(await this.usersService.create(dto));
   }
 
   @Get()
-  findAll() {
-    return this.usersService.findAll();
+  async findAll() {
+    return (await this.usersService.findAll()).map(toAdminView);
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.findOne(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return toAdminView(await this.usersService.findOne(id));
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
   ) {
-    return this.usersService.update(id, dto);
+    return toAdminView(await this.usersService.update(id, dto));
   }
 
   @Delete(':id')

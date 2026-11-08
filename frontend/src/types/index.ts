@@ -134,6 +134,13 @@ export type ShopPermissions = Record<ShopModule, ModuleAccess>;
 /** Hesap durumu (kiralama): yalnız 'active' hesaba girilir (sistem sahibi hariç). */
 export type ShopStatus = 'pending' | 'active' | 'suspended';
 
+/**
+ * Sistem sahibinin işletmeye açtığı/kapattığı özellikler. İşletme bunları
+ * değiştiremez; kapalı özellik arayüzden kalkar ve API'den de kullanılamaz.
+ */
+export type ShopFeatureKey = 'corel' | 'network' | 'directory';
+export type ShopFeatures = Record<ShopFeatureKey, boolean>;
+
 export interface ShopAccess {
   id: string;
   name: string;
@@ -146,6 +153,8 @@ export interface ShopAccess {
   expired: boolean;
   isAdmin: boolean;
   permissions: ShopPermissions;
+  /** Eski oturum bilgisinde olmayabilir; yoksa varsayılanlar geçer (lib/shop.ts). */
+  features?: ShopFeatures;
 }
 
 export interface AuthUser {

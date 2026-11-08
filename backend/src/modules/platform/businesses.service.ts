@@ -3,6 +3,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { buildPaginatedResult, PaginatedResult } from '../../common/dto/paginated-result';
 import { foldedWords, foldTr, sqlFold } from '../../common/utils/search.util';
+import { defaultFeatures, mergeFeatures, resolveFeatures, ShopFeature, ShopFeatures } from '../../common/shop/shop-features';
 import { Shop } from '../shops/entities/shop.entity';
 import { PlatformSettingsService } from './platform-settings.service';
 import { QueryBusinessesDto, UpdateBusinessAdminDto } from './dto/platform.dto';
@@ -25,6 +26,10 @@ export interface BusinessRow {
   memberCount: number;
   machineCount: number;
   labels: string[];
+  /** İş kolu etiketlerinin kimlikleri (süzgeç çipleri için). */
+  labelIds: string[];
+  /** Sistem sahibinin bu işletmeye açtığı özellikler. */
+  features: ShopFeatures;
   adminNote: string | null;
   /** Yöneticiler (hesap sahibi): ad, e-posta, telefon. */
   admins: { fullName: string; email: string; phone: string | null }[];
@@ -41,6 +46,8 @@ export interface PlatformStats {
 }
 
 const DAY = 86_400_000;
+/** Özelliğin varsayılanı açık mı? (süzgeçte yazılmamış değer buna göre sayılır) */
+const defaultsOn = (feature: ShopFeature): boolean => defaultFeatures()[feature];
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Platform yöneticisi: kiralanan işletmeler — onay, askıya alma, kiralama süresi, notlar. */
@@ -101,6 +108,20 @@ export class BusinessesService {
     if (q.province) where.push(`${sqlFold('s.province')} = ${add(foldTr(q.province))}`);
     if (q.district) where.push(`${sqlFold('s.district')} = ${add(foldTr(q.district))}`);
     if (q.expiring) where.push(`s.subscription_until IS NOT NULL AND s.subscription_until <= CURRENT_DATE + 7`);
+    if (q.labelId) {
+      where.push(
+        `EXISTS (SELECT 1 FROM shop_labels sl WHERE sl.shop_id = s.id AND sl.label_id = ${add(q.labelId)}::uuid)`,
+      );
+    }
+    if (q.feature) {
+      // Yazılmamış özellik varsayılanına düşer: açık olanlar = yazılı true ya da varsayılanı açık ve false yazılmamış.
+      const def = defaultsOn(q.feature);
+      where.push(
+        def
+          ? `COALESCE((s.features ->> ${add(q.feature)})::boolean, true) = true`
+          : `COALESCE((s.features ->> ${add(q.feature)})::boolean, false) = true`,
+      );
+    }
     for (const w of foldedWords(q.search)) {
       const p = add(`%${w}%`);
       where.push(
@@ -145,6 +166,7 @@ export class BusinessesService {
     if (dto.adminNote !== undefined) shop.adminNote = dto.adminNote?.trim() || null;
     if (dto.isActive !== undefined) shop.isActive = dto.isActive;
     if (dto.directoryVisible !== undefined) shop.directoryVisible = dto.directoryVisible;
+    if (dto.features !== undefined) shop.features = mergeFeatures(shop.features, dto.features);
     await this.shops.save(shop);
     return this.get(id);
   }
@@ -162,11 +184,11 @@ export class BusinessesService {
         [ids],
       ) as Promise<{ shop_id: string; n: string }[]>,
       this.dataSource.query(
-        `SELECT sl.shop_id, bl.name FROM shop_labels sl
+        `SELECT sl.shop_id, bl.id, bl.name FROM shop_labels sl
            JOIN business_labels bl ON bl.id = sl.label_id AND bl.deleted_at IS NULL
           WHERE sl.shop_id = ANY($1) ORDER BY bl.sort_order, bl.name`,
         [ids],
-      ) as Promise<{ shop_id: string; name: string }[]>,
+      ) as Promise<{ shop_id: string; id: string; name: string }[]>,
       this.dataSource.query(
         `SELECT m.shop_id, u.full_name, u.email, u.phone FROM shop_members m
            JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
@@ -207,6 +229,8 @@ export class BusinessesService {
           memberCount: mem.get(String(s.id)) ?? 0,
           machineCount: mac.get(String(s.id)) ?? 0,
           labels: (lab.get(String(s.id)) ?? []).map((l) => l.name),
+          labelIds: (lab.get(String(s.id)) ?? []).map((l) => l.id),
+          features: resolveFeatures(s.features),
           adminNote: (s.admin_note as string) ?? null,
           admins: (adm.get(String(s.id)) ?? []).map((a) => ({ fullName: a.full_name, email: a.email, phone: a.phone })),
         };
