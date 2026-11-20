@@ -41,7 +41,14 @@ import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
 import { useListDensity, DensityToggle } from '../../context/DensityContext';
 import { requestQuoteFolders, updateQuote } from '../../api/quotes.api';
-import { QuoteFolders, RunnerBadge, folderPending, runnerSummary, useRunners } from '../../components/RunnerStatus';
+import {
+  QuoteCutReport,
+  QuoteFolders,
+  RunnerBadge,
+  folderPending,
+  runnerSummary,
+  useRunners,
+} from '../../components/RunnerStatus';
 import { useCutPricing, useMaterialCategories, useMaterialTemplates } from '../../hooks/useReferenceData';
 import { useDebounced } from '../../hooks/useDebounced';
 import { keepWhileSearching } from '../../lib/placeholder';
@@ -1116,6 +1123,7 @@ export function QuotesPage() {
                     onRequest={() => folderMut.mutate(q.id)}
                   />
                 )}
+                {corel && !mini && <QuoteCutReport quote={q} />}
 
                 {/* Eylemler: sıradaki adım dolgulu, diğerleri ikincil, Sil en sonda. */}
                 <div

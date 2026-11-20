@@ -13,20 +13,37 @@ import { CorelService } from './corel.service';
 import { CorelRunnerService } from './corel-runner.service';
 import { CorelRunnerController } from './corel-runner.controller';
 import { CorelRunner } from './entities/corel-runner.entity';
+import { CorelCutReport } from './entities/corel-cut-report.entity';
+import { CorelCutReportService } from './corel-cut-report.service';
+import { ProcessingJob } from '../processing/entities/processing-job.entity';
 
 /**
  * CorelDRAW eklentisi entegrasyonu: müşteri bağlama, stoktan malzeme
  * seçimi ve teklifte kullanılan tabaka ölçüleri için salt-okunur listeler
  * (anahtarla korunur); dükkân bilgisayarındaki runner'ın nabzı ve açtığı
- * klasörlerin kaydı.
+ * klasörlerin kaydı; iyiCAM'in (iyi ext pack) kesim raporu (yalnız bilgi).
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Customer, MaterialPlate, StockLevel, Quote, CorelRunner]),
+    TypeOrmModule.forFeature([
+      Customer,
+      MaterialPlate,
+      StockLevel,
+      Quote,
+      CorelRunner,
+      CorelCutReport,
+      ProcessingJob,
+    ]),
     SettingsModule, // anahtar, işletme adı, klasör ayarları
     NotificationsModule, // runner klasör/sorun/bağlantı bildirimleri
   ],
   controllers: [CorelController, CorelRunnerController],
-  providers: [CorelService, CorelRunnerService, CorelKeyGuard, CorelRunnerAlertScheduler],
+  providers: [
+    CorelService,
+    CorelRunnerService,
+    CorelCutReportService,
+    CorelKeyGuard,
+    CorelRunnerAlertScheduler,
+  ],
 })
 export class CorelModule {}

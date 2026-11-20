@@ -965,7 +965,9 @@ gerekmez).
 | GET | `/corel/jobs/requested` | 🔑 | Klasörleri arayüzden yeniden istenmiş ve o istekten sonra açılmamış teklifler (aynı JSON) |
 | POST | `/corel/jobs/:id/folders` | 🔑 | Runner: `{ host, folder, report?[], problems?[] }` — teklifin klasörleri açıldı; teklife `folders_*` yazılır |
 | POST | `/corel/runner/heartbeat` | 🔑 | Runner nabzı, her turda: `{ host, version?, startedAt?, pollSeconds?, dayRoot?, dayRootSource?, error? }` |
+| POST | `/corel/jobs/:id/cut-report` | 🔑 | **iyiCAM kesim raporu** ([iyi-ext-pack](https://github.com/ac2f/iyi-ext-pack) İş paneli; düğmeyle ya da G-code kaydedilince): `{ host, project?, folder?, minutes?, toolpaths?, areaM2?, files?[], note?, sheets: [{ plateId?, quoteItemId?, label?, thicknessMm?, sheetWidthMm, sheetHeightMm, usedWidthMm?, usedHeightMm?, offcutWidthMm?, offcutHeightMm? }] }`. `corel_cut_reports`'a kaydedilir; teklife `cut_report_*` özeti yazılır; aynı teklifin **bekleyen / işlenen** işleme kayıtlarına, aynı plakanın kalanı `suggested_offcut_*` olarak önerilir (`quoteItemId` verilirse plaka teklif kaleminden bulunur). **Yalnız bilgidir:** teklifin fiyatı ve kullanılan alanı, işin ücreti ve stok değişmez; önerilen fire kuyruktaki kartın "Tamamla" alanlarını önceden doldurur, stoğa ancak tamamlanınca girer. Yanıt `{ ok, reportId, summary, suggested }` |
 | GET | `/corel-runners` | 👥 (oturum) | Runner'ların durumu: `host, online, secondsAgo, lastSeenAt, version, dayRoot, dayRootSource, lastError, lastJobQuoteNo, lastJobAt, lastFolder`. `online`: son nabız 3 tur + 15 sn içinde |
+| GET | `/corel-runners/cut-reports/:quoteId` | 👥 (oturum) | Teklifin iyiCAM kesim raporları (yeniden eskiye, en çok 20) |
 | DELETE | `/corel-runners/:id` | ayarlar (yazma) | Kullanılmayan bilgisayarı listeden kaldırır |
 | POST | `/quotes/:id/request-folders` | teklif (yazma) | İşe dönmüş teklifin klasörlerini runner'dan yeniden ister (runner kapalıyken dönen ya da klasörü silinen) |
 

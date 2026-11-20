@@ -19,6 +19,8 @@ import { QueryCorelDto, QueryCorelJobsDto } from './dto/query-corel.dto';
 import { CorelJob } from './corel-naming.util';
 import { CorelRunnerService } from './corel-runner.service';
 import { JobFoldersDto, RunnerHeartbeatDto } from './dto/runner.dto';
+import { CutReportDto } from './dto/cut-report.dto';
+import { CorelCutReportService } from './corel-cut-report.service';
 import { SyncJournal, SyncSkip } from '../sync/sync.decorators';
 
 const TEXT = 'text/plain; charset=utf-8';
@@ -40,6 +42,7 @@ export class CorelController {
   constructor(
     private readonly corel: CorelService,
     private readonly runners: CorelRunnerService,
+    private readonly cutReports: CorelCutReportService,
   ) {}
 
   /** `ok <TAB> işletme adı <TAB> klasör kodu` — eklentinin bağlantı denemesi. */
@@ -134,6 +137,19 @@ export class CorelController {
   @HttpCode(200)
   reportFolders(@Param('id', ParseUUIDPipe) id: string, @Body() dto: JobFoldersDto) {
     return this.runners.reportFolders(id, dto);
+  }
+
+  /**
+   * iyiCAM'in (iyi ext pack) kesim raporu: kullanılan ve kalan ölçüler, süre,
+   * kaydedilen dosyalar. Yalnız bilgidir: teklifte özeti görünür, bekleyen
+   * işleme kaydının "Tamamla"daki fire alanlarını önceden doldurur; fiyat,
+   * kullanılan alan ve stok değişmez.
+   */
+  @SyncJournal()
+  @Post('jobs/:id/cut-report')
+  @HttpCode(200)
+  cutReport(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CutReportDto) {
+    return this.cutReports.report(id, dto);
   }
 
   /** Runner'ın her turdaki nabzı: bağlı mı, gün klasörü, son hata. */

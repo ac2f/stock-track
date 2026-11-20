@@ -286,3 +286,28 @@ export function QuoteFolders({
     </div>
   );
 }
+
+/**
+ * iyiCAM'den (iyi ext pack) gelen son kesim raporu: tabaka, süre, kalan parça.
+ * Yalnız bilgidir; teklifin fiyatı ve kullanılan alanı değişmez. Önerilen fire
+ * işleme kuyruğunda "Tamamla" alanlarını önceden doldurur.
+ */
+export function QuoteCutReport({
+  quote,
+}: {
+  quote: { cutReportAt?: string | null; cutReportHost?: string | null; cutReportSummary?: string | null };
+}) {
+  if (!quote.cutReportAt) return null;
+  return (
+    <p
+      className="text-[11px] text-sky-700 dark:text-sky-400"
+      title="iyiCAM kesim raporu — yalnız bilgi: teklifin fiyatı ve kullanılan alanı değişmez"
+    >
+      ✂ Kesim raporu (iyiCAM): {quote.cutReportSummary}
+      <span className="text-slate-400">
+        {' '}
+        · {quote.cutReportHost} · {formatDateTime(quote.cutReportAt)}
+      </span>
+    </p>
+  );
+}

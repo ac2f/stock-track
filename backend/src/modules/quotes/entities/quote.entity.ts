@@ -128,6 +128,20 @@ export class Quote extends ShopScopedEntity {
   @Column({ name: 'folders_requested_at', type: 'timestamptz', nullable: true })
   foldersRequestedAt?: Date | null;
 
+  /**
+   * iyiCAM'den (iyi ext pack) gelen son kesim raporu: ne zaman, hangi
+   * bilgisayardan ve kısa özeti (tabaka, süre, kalan parça). Yalnız bilgidir;
+   * fiyatı, kullanılan alanı ve stoğu değiştirmez. Ayrıntı corel_cut_reports'ta.
+   */
+  @Column({ name: 'cut_report_at', type: 'timestamptz', nullable: true })
+  cutReportAt?: Date | null;
+
+  @Column({ name: 'cut_report_host', type: 'varchar', length: 120, nullable: true })
+  cutReportHost?: string | null;
+
+  @Column({ name: 'cut_report_summary', type: 'text', nullable: true })
+  cutReportSummary?: string | null;
+
   @OneToMany(() => QuoteItem, (item) => item.quote, {
     cascade: true,
     eager: true,

@@ -167,6 +167,20 @@ export class ProcessingJob extends ShopScopedEntity {
   @Column({ name: 'consumed_width_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
   consumedWidthMm?: number | null;
 
+  /**
+   * iyiCAM'in kesim raporundan ÖNERİLEN fire/kalan parça ebadı (mm). Hiçbir
+   * şeyi kendiliğinden değiştirmez: "Tamamla"daki fire alanlarını önceden
+   * doldurur; stoğa ancak kullanıcı tamamlarken eklenir.
+   */
+  @Column({ name: 'suggested_offcut_width_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  suggestedOffcutWidthMm?: number | null;
+
+  @Column({ name: 'suggested_offcut_height_mm', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  suggestedOffcutHeightMm?: number | null;
+
+  @Column({ name: 'suggested_offcut_at', type: 'timestamptz', nullable: true })
+  suggestedOffcutAt?: Date | null;
+
   /** Bu iş bir teklif dönüşümünden geldiyse kaynak teklif (kuyruktan teklife gitmek için). */
   @Column({ name: 'quote_id', type: 'uuid', nullable: true })
   quoteId?: string | null;

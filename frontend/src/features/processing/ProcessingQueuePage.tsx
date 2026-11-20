@@ -1404,8 +1404,12 @@ function QueueJobCard({
   const [finalPrice, setFinalPrice] = useState('');
   // Fire/kalan parça (ops.): kesimden artan parçanın ebadı — tamamlanınca
   // aynı türden kesik plaka olarak stoğa eklenir (sahiplik korunur).
-  const [offW, setOffW] = useState('');
-  const [offH, setOffH] = useState('');
+  // iyiCAM kesim raporu önerdiyse alanlar onunla dolu başlar (değiştirilebilir,
+  // silinebilir); stoğa yine ancak "Tamamla" ile eklenir.
+  const suggested = (v: number | string | null | undefined) => (v != null && v !== '' ? String(Math.round(Number(v))) : '');
+  const [offW, setOffW] = useState(() => suggested(job.suggestedOffcutWidthMm));
+  const [offH, setOffH] = useState(() => suggested(job.suggestedOffcutHeightMm));
+  const fromCutReport = !!job.suggestedOffcutWidthMm && !!job.suggestedOffcutHeightMm;
   // #2 "Tamamla" öncesi işlenme/tamamlanma tarihleri (ops.; boş = korunur/şimdi).
   const [processedAt, setProcessedAt] = useState('');
   const [completedAt, setCompletedAt] = useState('');
@@ -1416,11 +1420,13 @@ function QueueJobCard({
   const filledOpts = [finalPrice, offW || offH, processedAt, completedAt].filter(Boolean).length;
 
   // Tamamlama: girilen nihai fiyat, fire ebadı ve (ops.) tarihlerle birlikte.
+  // Mini görünümde fire alanları görünmez: iyiCAM'in önerdiği fire kullanıcı
+  // görmeden stoğa girmesin diye orada gönderilmez.
   const complete = () =>
     onAction('completed', {
       finalAmount: finalPrice !== '' ? Number(finalPrice) : undefined,
-      offcutWidthMm: offW !== '' ? Number(offW) : undefined,
-      offcutHeightMm: offH !== '' ? Number(offH) : undefined,
+      offcutWidthMm: !mini && offW !== '' ? Number(offW) : undefined,
+      offcutHeightMm: !mini && offH !== '' ? Number(offH) : undefined,
       processedAt: processedAt || undefined,
       completedAt: completedAt || undefined,
     });
@@ -1554,7 +1560,11 @@ function QueueJobCard({
         {isAreaPlate && (
           <MiniField
             label="✂ Kalan parçayı stoğa ekle (ops.)"
-            hint="Tamamlanınca kesik plaka olarak stoğa girer (sahiplik korunur)"
+            hint={
+              fromCutReport
+                ? 'iyiCAM kesim raporundan önerildi; tamamlanınca kesik plaka olarak stoğa girer (silebilirsiniz)'
+                : 'Tamamlanınca kesik plaka olarak stoğa girer (sahiplik korunur)'
+            }
           >
             <span className="flex items-center gap-1.5">
               <input

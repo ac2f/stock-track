@@ -440,6 +440,10 @@ export interface Quote {
   foldersHost?: string | null;
   foldersNote?: string | null;
   foldersRequestedAt?: string | null;
+  /** iyiCAM'den (iyi ext pack) gelen son kesim raporu; yalnız bilgi. */
+  cutReportAt?: string | null;
+  cutReportHost?: string | null;
+  cutReportSummary?: string | null;
   items: QuoteItem[];
 }
 
@@ -482,6 +486,9 @@ export interface ProcessingJob {
   note?: string | null;
   machineId?: string | null;
   quoteId?: string | null;
+  /** iyiCAM kesim raporundan önerilen fire ebadı: "Tamamla"daki alanları önceden doldurur. */
+  suggestedOffcutWidthMm?: number | string | null;
+  suggestedOffcutHeightMm?: number | string | null;
 }
 
 export interface ProcessingQueueGroup {
