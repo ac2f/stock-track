@@ -172,7 +172,7 @@ export function TemplateFinder({
         </p>
       )}
 
-      <div className="max-h-64 space-y-1 overflow-y-auto">
+      <div className="max-h-64 space-y-1 overflow-y-auto overscroll-contain">
         {results.slice(0, MAX_RESULTS).map((t) => {
           const specs = [
             t.defaultThickness ? `${formatNumber(t.defaultThickness.valueMm)} mm` : null,

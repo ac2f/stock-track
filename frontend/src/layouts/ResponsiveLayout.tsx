@@ -120,6 +120,13 @@ export function ResponsiveLayout() {
     <LockProvider>
       {/* Uygulama kabuğu: satır viewport yüksekliğinde SABİT; yalnızca içerik
           (main) kendi içinde kayar. Böylece menü sayfa kaydırılsa da yerinde kalır. */}
+      {/* Klavyeyle gezinen için: menüyü atlayıp doğrudan içeriğe (Tab'a ilk basışta görünür). */}
+      <a
+        href="#icerik"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[200] focus:rounded-lg focus:bg-blue-600 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg"
+      >
+        İçeriğe geç
+      </a>
       <div className="flex h-full flex-col md:flex-row">
         {/* Masaüstü yan menü */}
         <aside
@@ -162,7 +169,7 @@ export function ResponsiveLayout() {
             </button>
           </div>
 
-          <nav className="mt-1 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Ana menü">
+          <nav className="mt-1 flex-1 overflow-y-auto overscroll-contain px-2.5 pb-2" aria-label="Ana menü">
             {groups.map((g) => (
               <div key={g.label} className="mt-2">
                 {collapsed ? (
@@ -214,7 +221,7 @@ export function ResponsiveLayout() {
           </header>
 
           {/* Kaydırma yalnızca burada olur → menü/başlık sabit kalır. */}
-          <main className="flex-1 overflow-y-auto p-3 pb-28 md:p-4 md:pb-4">
+          <main id="icerik" tabIndex={-1} className="flex-1 overflow-y-auto p-3 pb-28 focus:outline-none md:p-4 md:pb-4">
             <div className="mx-auto max-w-7xl">
               {/* Ekran parçası yüklenirken menü/başlık yerinde kalır. */}
               <ErrorBoundary resetKey={location.pathname}>
@@ -588,7 +595,7 @@ function MobileMenu({
         role="dialog"
         aria-modal="true"
         aria-label="Menü"
-        className="animate-slide-up absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl dark:bg-slate-800"
+        className="animate-slide-up absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-4 pb-8 shadow-2xl dark:bg-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300" aria-hidden />

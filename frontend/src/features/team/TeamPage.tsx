@@ -766,7 +766,7 @@ function MemberCard({
             <div className="grid gap-2 sm:grid-cols-3">
               <label className="block min-w-0">
                 <span className="label">Ad Soyad</span>
-                <input
+                <input autoComplete="name"
                   className="input"
                   value={account.fullName}
                   onChange={(e) => setAccount({ ...account, fullName: e.target.value })}
@@ -775,7 +775,7 @@ function MemberCard({
               </label>
               <label className="block min-w-0">
                 <span className="label">Telefon</span>
-                <input
+                <input autoComplete="tel" spellCheck={false}
                   className="input"
                   inputMode="tel"
                   value={account.phone}
@@ -797,7 +797,7 @@ function MemberCard({
             </div>
             <label className="block min-w-0">
               <span className="label">Telegram kullanıcı kimliği</span>
-              <input
+              <input autoComplete="off" spellCheck={false}
                 className="input font-mono sm:max-w-xs"
                 inputMode="numeric"
                 value={account.telegramUserId}
@@ -919,7 +919,7 @@ function AddMemberForm({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block min-w-0">
             <span className="label">Ad Soyad {req}</span>
-            <input
+            <input autoComplete="off"
               className="input"
               autoFocus
               placeholder="Ad Soyad"
@@ -951,7 +951,7 @@ function AddMemberForm({
           </label>
           <label className="block min-w-0">
             <span className="label">Telefon</span>
-            <input
+            <input autoComplete="off" spellCheck={false}
               className="input"
               inputMode="tel"
               placeholder="Telefon (isteğe bağlı)"
@@ -977,7 +977,7 @@ function AddMemberForm({
       ) : (
         <label className="block">
           <span className="label">Giriş e-postası {req}</span>
-          <input
+          <input autoComplete="off" spellCheck={false}
             className="input"
             type="email"
             autoFocus

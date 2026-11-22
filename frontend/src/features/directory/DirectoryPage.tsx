@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useUrlField } from '../../hooks/useUrlState';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   fetchDirectoryFacets,
@@ -40,7 +41,7 @@ const webHref = (w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`);
  */
 export function DirectoryPage() {
   const { shop } = useAuth();
-  const [tab, setTab] = useState<Tab>('shops');
+  const [tab, setTab] = useUrlField<Tab>('tab', 'shops', ['shops', 'machines']);
   const [search, setSearch] = useState('');
   const [province, setProvince] = useState('');
   const [district, setDistrict] = useState('');

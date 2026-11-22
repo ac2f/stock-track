@@ -1,4 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useUrlField } from '../../hooks/useUrlState';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchPendingTransferCount, fetchShopTransfers, type TransferStatusFilter } from '../../api/shop-transfers.api';
@@ -54,7 +55,7 @@ function DocumentsSection({
   const { can, shop } = useAuth();
   const canOut = can('sales');
   const canIn = can('purchases');
-  const [tab, setTab] = useState<DocTab>('all');
+  const [tab, setTab] = useUrlField<DocTab>('tab', 'all', ['open', 'all', 'out', 'in']);
   const [term, setTerm] = useState(initialTerm);
   const search = useDebounced(term.trim());
   const [pageSize, setPageSize] = usePageSize('shop-transfers', 20);

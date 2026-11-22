@@ -1,6 +1,8 @@
 import { Can } from '../../components/Can';
+import { useLeaveGuard } from '../../hooks/useLeaveGuard';
+import { useUrlState } from '../../hooks/useUrlState';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   addCustomerLedgerEntry,
@@ -121,8 +123,10 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
     createMut.mutate(form);
   };
 
+  const guardRef = useRef<HTMLFormElement>(null);
+  useLeaveGuard(guardRef); // (kaydedilmemiş değişiklik: çıkarken sorulur)
   return (
-    <form className="card space-y-4" onSubmit={submit} noValidate>
+    <form ref={guardRef} className="card space-y-4" onSubmit={submit} noValidate>
       <div>
         <h2 className="text-base font-semibold">Yeni müşteri</h2>
         <p className="text-xs text-slate-500">
@@ -140,7 +144,7 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
           <span className="label">
             Ad Soyad / Ünvan <span className="text-red-600">*</span>
           </span>
-          <input
+          <input autoComplete="off"
             className="input"
             placeholder="Ad Soyad"
             autoFocus
@@ -150,7 +154,7 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
         </label>
         <label className="block">
           <span className="label">Firma</span>
-          <input
+          <input autoComplete="off"
             className="input"
             placeholder="Firma Adı"
             value={form.companyName ?? ''}
@@ -159,7 +163,7 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
         </label>
         <label className="block">
           <span className="label">Telefon</span>
-          <input
+          <input autoComplete="off" spellCheck={false}
             className="input"
             type="tel"
             inputMode="tel"
@@ -181,7 +185,7 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
         </div>
         <label className="block">
           <span className="label">E-posta</span>
-          <input
+          <input autoComplete="off" spellCheck={false}
             className="input"
             type="email"
             inputMode="email"
@@ -192,7 +196,7 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
         </label>
         <label className="block sm:col-span-2">
           <span className="label">Adres</span>
-          <input
+          <input autoComplete="off"
             className="input"
             placeholder="Adres"
             value={form.address ?? ''}
@@ -201,7 +205,7 @@ function NewCustomerForm({ onClose }: { onClose: () => void }) {
         </label>
         <label className="block">
           <span className="label">Vergi No</span>
-          <input
+          <input autoComplete="off" spellCheck={false}
             className="input"
             inputMode="numeric"
             placeholder="Vergi No"
@@ -250,12 +254,25 @@ export function CustomersListPage() {
   // Ekranda düzenlenen (taslak) filtreler ile SORGULANAN filtreler ayrıdır:
   // liste yalnızca "Sorgula" ile çalışır, sayfa açılır açılmaz tüm cariler
   // dökülmez.
-  const [draft, setDraft] = useState<CustomerFilters>({
-    page: 1,
-    limit: pageSize,
-    sort: 'balance',
+  // Sorgulanan filtreler adres çubuğunda (run=1 ile): yenileyince / geri gelince / paylaşınca aynı liste
+  // yeniden sorgulanır; adreste yoksa liste "Sorgula" denene kadar boştur.
+  const [inUrl, setInUrl] = useUrlState<CustomerFilters & { run?: boolean }>(
+    { page: 1, limit: pageSize, sort: 'balance' },
+    { keys: ['search', 'hasDebt', 'minDebt', 'from', 'to', 'sort', 'page', 'run'], numbers: ['minDebt'] },
+  );
+  const applied = useMemo<CustomerFilters | null>(() => {
+    if (!inUrl.run) return null;
+    const { run: _run, ...f } = inUrl;
+    return f;
+  }, [inUrl]);
+  const setApplied = (v: CustomerFilters | null | ((f: CustomerFilters | null) => CustomerFilters | null)) => {
+    const next = typeof v === 'function' ? v(applied) : v;
+    setInUrl(next ? { ...next, run: true } : { page: 1, limit: pageSize, sort: 'balance' });
+  };
+  const [draft, setDraft] = useState<CustomerFilters>(() => {
+    const { run: _run, ...f } = inUrl;
+    return f;
   });
-  const [applied, setApplied] = useState<CustomerFilters | null>(null);
 
   const runQuery = (patch: Partial<CustomerFilters> = {}) => {
     const next = { ...draft, ...patch, page: 1 };
@@ -621,8 +638,10 @@ function EditCustomerForm({
       />
     </label>
   );
+  const guardRef = useRef<HTMLDivElement>(null);
+  useLeaveGuard(guardRef); // (kaydedilmemiş değişiklik: çıkarken sorulur)
   return (
-    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
+    <div ref={guardRef} className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
       <h4 className="text-sm font-semibold">Bilgileri düzenle</h4>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {field('Ad / Ünvan', 'name', { required: true })}

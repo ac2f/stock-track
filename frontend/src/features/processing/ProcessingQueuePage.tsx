@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useUrlField } from '../../hooks/useUrlState';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   bulkUpdateProcessingJobs,
@@ -302,21 +303,27 @@ function StatusBadge({ status }: { status: string }) {
 function ProcessingHistory() {
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-  const [from, setFrom] = useState(monthAgo);
-  const [to, setTo] = useState(today);
-  const [status, setStatus] = useState<'' | ProcessingStatus>('completed');
+  // Süzgeçler ve sayfa adres çubuğunda (h. önekiyle; müşteri seçici adla açılabildiğinden müşteri yazılmaz).
+  const [from, setFrom] = useUrlField<string>('h.from', monthAgo);
+  const [to, setTo] = useUrlField<string>('h.to', today);
+  const [status, setStatus] = useUrlField<'' | ProcessingStatus>('h.status', 'completed');
   // Geçmişte ürün bulmayı kolaylaştıran süzgeçler: tür (kategori), sahip
   // (müşteri) ve serbest arama. filterKey → CustomerPicker'ı sıfırlamak için.
-  const [categoryId, setCategoryId] = useState('');
+  const [categoryId, setCategoryId] = useUrlField<string>('h.cat', '');
   const [customerId, setCustomerId] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useUrlField<string>('h.search', '');
   const [filterKey, setFilterKey] = useState(0);
-  // Sayfalama: sayfa başına kayıt kalıcı; filtre değişince sayfa 1'e döner.
-  const [page, setPage] = useState(1);
+  // Sayfalama: sayfa başına kayıt kalıcı; filtre değişince sayfa 1'e döner (açılışta değil: adresteki sayfa kalır).
+  const [page, setPage] = useUrlField<number>('h.page', 1);
   const [pageSize, setPageSize] = usePageSize('queue-history', 20);
+  const opened = useRef(false);
   useEffect(() => {
+    if (!opened.current) {
+      opened.current = true;
+      return;
+    }
     setPage(1);
-  }, [from, to, status, categoryId, customerId, search, pageSize]);
+  }, [from, to, status, categoryId, customerId, search, pageSize, setPage]);
   const changePageSize = (n: number) => {
     setPageSize(n);
     setPage(1);
@@ -887,9 +894,9 @@ export function ProcessingQueuePage() {
   // Toplu seçim: yalnız ekranda görünen işler seçili sayılır.
   const sel = useSelection<ProcessingJob>();
   // #4 Kuyruk filtreleri: malzeme türü (kategori), sahip (müşteri), arama.
-  const [categoryId, setCategoryId] = useState('');
+  const [categoryId, setCategoryId] = useUrlField<string>('cat', '');
   const [filterCustomerId, setFilterCustomerId] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useUrlField<string>('search', '');
   const [filterKey, setFilterKey] = useState(0); // CustomerPicker'ı sıfırlamak için
   const { data: categories } = useMaterialCategories();
   // Arama yazma bitince (~300 ms) uygulanır; önceki liste yeni sonuca kadar kalır.

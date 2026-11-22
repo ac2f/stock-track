@@ -877,7 +877,7 @@ function MorningSummaryCard() {
         <p className="text-xs text-red-600">Özet alınamadı.</p>
       )}
       {preview && (
-        <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+        <pre className="max-h-96 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
           {preview}
         </pre>
       )}

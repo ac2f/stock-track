@@ -1,4 +1,6 @@
 import { Can } from '../../components/Can';
+import { useLeaveGuard } from '../../hooks/useLeaveGuard';
+import { useUrlState } from '../../hooks/useUrlState';
 import { useAuth } from '../../context/AuthContext';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -393,7 +395,7 @@ function SalePlatePicker({
 
       {(categoryId || term.trim()) && <FacetChips facets={PLATE_FACETS} state={facets} />}
 
-      <div className="max-h-72 space-y-2 overflow-y-auto">
+      <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain">
         {isFetching && !all.length && (
           <p className="flex items-center justify-center gap-2 py-2 text-xs text-slate-500">
             <Spinner /> Malzemeler yükleniyor…
@@ -594,12 +596,16 @@ const STATUS: Record<QuoteStatus, { label: string; cls: string; bar: string }> =
   },
 };
 
+// (müşteri süzgeci adrese yazılmaz: seçici yalnız adla açılabilir, kimlikten seçili müşteriyi gösteremez)
+const QUOTE_URL_KEYS = ['status', 'categoryId', 'from', 'to', 'search', 'page'] as const;
+
 export function QuotesPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [pageSize, setPageSize] = usePageSize('quotes', 20);
-  const [filters, setFilters] = useState<QuoteFilters>({ page: 1, limit: pageSize });
+  // (arama, süzgeçler ve sayfa adres çubuğunda: yenileyince / geri gelince / paylaşınca aynı liste)
+  const [filters, setFilters] = useUrlState<QuoteFilters>({ page: 1, limit: pageSize }, { keys: QUOTE_URL_KEYS });
   const changePageSize = (n: number) => {
     setPageSize(n);
     setFilters((f) => ({ ...f, limit: n, page: 1 }));
@@ -608,14 +614,14 @@ export function QuotesPage() {
 
   // Serbest arama (teklif no / müşteri adı): her harfte istek gitmesin diye
   // yazma bitince (~300 ms) filtreye yazılır.
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(filters.search ?? '');
   useEffect(() => {
     const t = window.setTimeout(() => {
       const next = searchText.trim() || undefined;
       setFilters((f) => (f.search === next ? f : { ...f, search: next, page: 1 }));
     }, 300);
     return () => window.clearTimeout(t);
-  }, [searchText]);
+  }, [searchText, setFilters]);
 
   // Hızlı arama (Ctrl+K) bağlantıları: ?new=1 yeni teklif formunu açar (yazma
   // izni varsa), ?q=… aramayı doldurur (beklemeden uygulanır).
@@ -2119,6 +2125,7 @@ function NewQuoteForm({
   // Sayı alanı yardımcısı: boş → undefined, değilse sayı.
   const num = (v: string) => (v ? Number(v) : undefined);
 
+  useLeaveGuard(rootRef);
   return (
     <div ref={rootRef} className="card space-y-4">
       {/* Form başlığı: ne yapıldığı + canlı özet (kalem sayısı, tahmini toplam) */}
@@ -2324,7 +2331,7 @@ function NewQuoteForm({
           )}
 
           {/* Ürün türü → aynı malzeme → parçalar (iki seviyeli, katlanabilir) */}
-          <div className="max-h-80 space-y-2 overflow-y-auto">
+          <div className="max-h-80 space-y-2 overflow-y-auto overscroll-contain">
             {stockGroups.map((g) => (
               <div key={g.category}>
                 <p

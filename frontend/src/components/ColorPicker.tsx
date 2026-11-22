@@ -111,7 +111,7 @@ export function ColorPicker({
         </p>
       )}
 
-      <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+      <div className="max-h-56 space-y-1 overflow-y-auto overscroll-contain pr-1">
         {rows.map((r) => (
           <div key={r.name} className="flex items-start gap-2 border-b border-slate-100 py-1 last:border-0 dark:border-slate-800">
             <span className="w-24 shrink-0 truncate pt-1 text-sm font-medium" title={r.name}>

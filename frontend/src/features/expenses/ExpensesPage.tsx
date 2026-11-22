@@ -1,4 +1,5 @@
 import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useUrlState } from '../../hooks/useUrlState';
 import { useEffect, useRef, useState } from 'react';
 import {
   createExpense,
@@ -50,7 +51,9 @@ const Req = () => (
 /** Gider yönetimi: giderler + özet + gider türleri ve iş/proje katalogları. */
 export function ExpensesPage() {
   const qc = useQueryClient();
-  const [filters, setFilters] = useState<ExpenseFilters>({ page: 1, limit: 50 });
+  const [filters, setFilters] = useUrlState<ExpenseFilters>({ page: 1, limit: 50 }, {
+    keys: ['categoryId', 'projectId', 'from', 'to', 'page'],
+  });
   const [form, setForm] = useState<ExpenseInput>({
     categoryId: '',
     amount: 0,

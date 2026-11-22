@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useUrlField } from '../../hooks/useUrlState';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { BusinessesTab } from './BusinessesTab';
 import { LabelsTab } from './LabelsTab';
@@ -20,7 +20,7 @@ const TABS: { id: Tab; label: string }[] = [
  * türlerini (alt kategoriler, standart ebatlar) tanımlayın.
  */
 export function PlatformPage() {
-  const [tab, setTab] = useState<Tab>('businesses');
+  const [tab, setTab] = useUrlField<Tab>('tab', 'businesses', ['businesses', 'labels', 'machines', 'settings']);
   return (
     <div>
       <PageHeader

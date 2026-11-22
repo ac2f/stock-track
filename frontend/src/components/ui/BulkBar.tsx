@@ -61,7 +61,7 @@ export function BulkBar({
     <div
       role="region"
       aria-label={label}
-      className="sticky bottom-20 z-20 max-h-[65vh] space-y-2 overflow-y-auto rounded-2xl border border-blue-300 bg-white/95 p-3 shadow-lg backdrop-blur md:bottom-2 dark:border-blue-800 dark:bg-slate-900/95"
+      className="sticky bottom-20 z-20 max-h-[65vh] space-y-2 overflow-y-auto overscroll-contain rounded-2xl border border-blue-300 bg-white/95 p-3 shadow-lg backdrop-blur md:bottom-2 dark:border-blue-800 dark:bg-slate-900/95"
     >
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">{title}</p>

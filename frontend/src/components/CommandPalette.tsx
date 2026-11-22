@@ -358,7 +358,8 @@ export function CommandPalette({
         className="animate-pop flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-slate-200 px-4">
+        {/* (arama kutusu odaktayken alt çizgi mavi: kutunun kendi çerçevesi yok) */}
+        <div className="flex items-center gap-2 border-b-2 border-slate-200 px-4 focus-within:border-blue-500 dark:border-slate-700 dark:focus-within:border-blue-400">
           <span className="text-lg text-slate-400" aria-hidden>
             🔍
           </span>
@@ -381,7 +382,7 @@ export function CommandPalette({
           </button>
         </div>
 
-        <div ref={listRef} id="st-palette-list" role="listbox" className="flex-1 overflow-y-auto p-2">
+        <div ref={listRef} id="st-palette-list" role="listbox" className="flex-1 overflow-y-auto overscroll-contain p-2">
           {results.length === 0 && (
             <div className="px-3 py-10 text-center text-sm text-slate-500">
               {searching && loading ? 'Aranıyor…' : `"${q}" için sonuç yok.`}
@@ -549,7 +550,7 @@ export function ShortcutsHelp({ nav, onClose }: { nav: NavItem[]; onClose: () =>
         role="dialog"
         aria-modal="true"
         aria-label="Klavye kısayolları"
-        className="animate-pop max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-800"
+        className="animate-pop max-h-[85vh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-800"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">

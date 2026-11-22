@@ -21,6 +21,22 @@
     /* Rakamlar eşit genişlikte: tutarlar alt alta hizalı okunur. */
     font-variant-numeric: tabular-nums;
   }
+  /* Dokunmatik: düğme ve bağlantılarda çift dokunma yakınlaştırması beklenmez (dokunuş anında işler), dokunulan
+     yerde gri kutu yanıp sönmez (düğmeler kendi basılma görünümünü verir). */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  summary,
+  [role='button'],
+  [role='tab'] {
+    touch-action: manipulation;
+  }
   /* Klavyeyle gezinene nerede olduğunu göster (fareyle tıklayana değil). */
   :focus-visible {
     outline: 2px solid #3b82f6;

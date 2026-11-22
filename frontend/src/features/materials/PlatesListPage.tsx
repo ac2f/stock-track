@@ -1,4 +1,6 @@
 import { Can } from '../../components/Can';
+import { useLeaveGuard } from '../../hooks/useLeaveGuard';
+import { useUrlState } from '../../hooks/useUrlState';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -457,6 +459,7 @@ function NewPlateForm({ onClose }: { onClose: () => void }) {
     !(owner === 'customer' && !form.ownerCustomerId) &&
     !createMut.isPending;
 
+  useLeaveGuard(rootRef);
   return (
     <div ref={rootRef} className="card space-y-3">
       <h2 className="font-semibold">Yeni stok kalemi</h2>
@@ -1295,8 +1298,10 @@ function EditPlateForm({ plate, onClose }: { plate: Plate; onClose: () => void }
     (id && (plate.ownerCustomers?.find((c) => c.id === id)?.name ?? knownNames[id])) || 'Müşteri';
   const activeLevels = (levels ?? []).filter((l) => Number(l.quantity) > 0);
 
+  const guardRef = useRef<HTMLDivElement>(null);
+  useLeaveGuard(guardRef); // (kaydedilmemiş değişiklik: çıkarken sorulur)
   return (
-    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
+    <div ref={guardRef} className="mt-3 space-y-3 rounded-xl border border-slate-200 p-3">
       {updateMut.error && (
         <p className="text-sm text-red-600">
           {errMessage(updateMut.error, 'Güncellenemedi.')}
@@ -2255,7 +2260,7 @@ function PlateBulkBar({
             Bu işlem geri alınamaz; seçilen malzemelerin TÜM stoğu (konsinye dahil) sıfırlanır. Her
             ürün sahibiyle aşağıda listelenmiştir.
           </p>
-          <ul className="max-h-56 divide-y divide-red-200 overflow-y-auto rounded-lg border border-red-200 bg-white text-sm dark:divide-red-800 dark:border-red-800 dark:bg-slate-900">
+          <ul className="max-h-56 divide-y divide-red-200 overflow-y-auto overscroll-contain rounded-lg border border-red-200 bg-white text-sm dark:divide-red-800 dark:border-red-800 dark:bg-slate-900">
             {plates.map((p) => (
               <li key={p.id} className="flex items-center justify-between gap-2 px-2 py-1">
                 <span className="min-w-0 truncate">{displayPlateName(p)}</span>
@@ -2365,6 +2370,11 @@ function MaterialGroupRow({
  * Mobil: tek sütun kartlar; masaüstü: çok sütunlu ızgara.
  * Hızlı arama bağlantıları: /plates?new=1 (yeni kalem formu), /plates?q=metin (arama).
  */
+const PLATE_URL_KEYS = [
+  'search', 'categoryId', 'brand', 'color', 'thicknessMm', 'sizeId', 'colorId', 'inStock', 'ownerCustomerId',
+  'owner', 'from', 'to', 'page',
+] as const;
+
 export function PlatesListPage() {
   const { can } = useAuth();
   const canWrite = can('stock', 'write');
@@ -2373,7 +2383,11 @@ export function PlatesListPage() {
   const [loadingAll, setLoadingAll] = useState(false);
   // Sayfa başına kayıt (kalıcı) + sayfalama: tüm ürünler sayfalar hâlinde görünür.
   const [pageSize, setPageSize] = usePageSize('plates', 20);
-  const [filters, setFilters] = useState<PlateFilters>({ page: 1, limit: pageSize });
+  // (arama, süzgeçler ve sayfa adres çubuğunda: yenileyince / geri gelince / paylaşınca aynı liste)
+  const [filters, setFilters] = useUrlState<PlateFilters>({ page: 1, limit: pageSize }, {
+    keys: PLATE_URL_KEYS,
+    numbers: ['thicknessMm'],
+  });
   const changePageSize = (n: number) => {
     setPageSize(n);
     setFilters((f) => ({ ...f, limit: n, page: 1 }));
@@ -2402,12 +2416,12 @@ export function PlatesListPage() {
 
   // Arama kutusu: her harfte istek gitmesin diye yazma bitince (~300 ms)
   // filtreye yazılır.
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(filters.search ?? '');
   const debouncedSearch = useDebounced(searchText.trim());
   useEffect(() => {
     const next = debouncedSearch || undefined;
     setFilters((f) => (f.search === next ? f : { ...f, search: next, page: 1 }));
-  }, [debouncedSearch]);
+  }, [debouncedSearch, setFilters]);
 
   // Hızlı aramadan gelen bağlantılar: ?new=1 formu açar (yazma izni varsa),
   // ?q=metin arama kutusunu doldurur ve listeyi süzer (beklemeden).

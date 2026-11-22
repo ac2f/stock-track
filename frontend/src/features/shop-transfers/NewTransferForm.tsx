@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useLeaveGuard } from '../../hooks/useLeaveGuard';
+import { useEffect, useRef, useState } from 'react';
 import {
   createShopTransfer,
   type CreateShopTransferInput,
@@ -229,8 +230,10 @@ export function NewTransferForm({
     onSettled: invalidate,
   });
 
+  const guardRef = useRef<HTMLDivElement>(null);
+  useLeaveGuard(guardRef); // (kaydedilmemiş değişiklik: çıkarken sorulur)
   return (
-    <div className="card space-y-4">
+    <div ref={guardRef} className="card space-y-4">
       <div>
         <h2 className="font-semibold">Başka işletmeye malzeme sat</h2>
         <p className="text-xs text-slate-500">

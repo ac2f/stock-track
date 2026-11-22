@@ -1,4 +1,5 @@
 import { Can } from '../../components/Can';
+import { useLeaveGuard } from '../../hooks/useLeaveGuard';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -278,8 +279,10 @@ function NewPurchaseForm({
 
   const noSuppliers = suppliers !== undefined && suppliers.length === 0;
 
+  const guardRef = useRef<HTMLDivElement>(null);
+  useLeaveGuard(guardRef); // (kaydedilmemiş değişiklik: çıkarken sorulur)
   return (
-    <div className="card space-y-4">
+    <div ref={guardRef} className="card space-y-4">
       <div>
         <h2 className="font-semibold">Yeni alım</h2>
         <p className="text-xs text-slate-500">
@@ -512,7 +515,7 @@ function SuppliersSection({ newRequest }: { newRequest: number }) {
           <h3 className="font-semibold">{editingId ? 'Tedarikçiyi düzenle' : 'Yeni tedarikçi'}</h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Field label="Ad / Ünvan" required>
-              <input
+              <input autoComplete="off"
                 className="input"
                 autoFocus
                 value={form.name}
@@ -520,7 +523,7 @@ function SuppliersSection({ newRequest }: { newRequest: number }) {
               />
             </Field>
             <Field label="Yetkili (ops.)">
-              <input
+              <input autoComplete="off"
                 className="input"
                 value={form.contactName ?? ''}
                 onChange={(e) =>
@@ -529,7 +532,7 @@ function SuppliersSection({ newRequest }: { newRequest: number }) {
               />
             </Field>
             <Field label="Telefon (ops.)">
-              <input
+              <input autoComplete="off" spellCheck={false}
                 className="input"
                 type="tel"
                 inputMode="tel"

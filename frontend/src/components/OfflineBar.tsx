@@ -160,7 +160,7 @@ function PendingOpsDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* İçerik */}
-        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5">
+        <div className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
           <p className="text-sm text-slate-500">
             {net.online
               ? 'Sunucuya bağlı. Sıradaki işlemler gönderiliyor; reddedilenleri düzeltip yeniden deneyebilir ya da silebilirsiniz.'
