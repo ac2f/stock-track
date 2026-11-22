@@ -75,7 +75,16 @@ function Dot({ id, size = 10 }: { id: string; size?: number }) {
  * Yan menü ve telefon menüsündeki dükkân seçimi. Tek dükkânda yalnız ad;
  * en çok 6 dükkâna kadar düğmeler, daha fazlasında seçim kutusu.
  */
-export function ShopSwitcher({ className = '', layout = 'list' }: { className?: string; layout?: 'list' | 'grid' }) {
+export function ShopSwitcher({
+  className = '',
+  layout = 'list',
+  hideName,
+}: {
+  className?: string;
+  layout?: 'list' | 'grid';
+  /** Tek dükkânın adı bu ise (yan menüde işletme adıyla aynıysa) ikinci kez yazılmaz. */
+  hideName?: string;
+}) {
   const { shop } = useAuth();
   const list = useShopList();
   const switchShop = useSwitchShop();
@@ -83,6 +92,7 @@ export function ShopSwitcher({ className = '', layout = 'list' }: { className?: 
 
   if (list.length === 1) {
     const only = list[0];
+    if (hideName && only.name.trim().toLocaleLowerCase('tr') === hideName.trim().toLocaleLowerCase('tr')) return null;
     return (
       <div
         className={`flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-700/40 dark:text-slate-200 ${className}`}

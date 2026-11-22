@@ -17,7 +17,7 @@
     font-size: 19px;
   }
   body {
-    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
+    @apply bg-slate-50 text-slate-900 antialiased dark:text-slate-100;
     /* Rakamlar eşit genişlikte: tutarlar alt alta hizalı okunur. */
     font-variant-numeric: tabular-nums;
   }
@@ -93,6 +93,11 @@
   }
   .card {
     @apply rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800;
+  }
+  /* Koyu temada kart zeminden bir kademe ayrışsın: biraz daha açık çerçeve ve üst kenarda ince bir ışık. */
+  .dark .card {
+    border-color: #3b4a5f;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
   }
   /* Telefonda 16px: iOS odaklanınca sayfayı yakınlaştırmasın. */
   .input {
@@ -235,8 +240,10 @@ html:not(.dark) .text-slate-400 {
 .dark .bg-white {
   background-color: #1e293b;
 }
+/* Sayfa zemini kartlardan (#1e293b) bir kademe koyu: kartlar zeminden ayrışır. */
+.dark body,
 .dark .bg-slate-50 {
-  background-color: #0f172a;
+  background-color: #0b1222;
 }
 .dark .bg-slate-100 {
   background-color: #334155;

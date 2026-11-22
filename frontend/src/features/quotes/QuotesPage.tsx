@@ -1,4 +1,5 @@
 import { Can } from '../../components/Can';
+import { MoreMenu } from '../../components/ui/MoreMenu';
 import { useLeaveGuard } from '../../hooks/useLeaveGuard';
 import { useUrlState } from '../../hooks/useUrlState';
 import { useAuth } from '../../context/AuthContext';
@@ -1147,7 +1148,7 @@ export function QuotesPage() {
                         Kabul
                       </button>
                       <button
-                        className="btn-secondary btn-sm"
+                        className="btn-secondary btn-sm hidden sm:inline-flex"
                         disabled={statusMut.isPending}
                         onClick={() => statusMut.mutate({ id: q.id, status: 'rejected' })}
                       >
@@ -1202,15 +1203,28 @@ export function QuotesPage() {
                       {editing ? 'Düzenlemeyi kapat' : 'Düzenle'}
                     </button>
                   )}
+                  {/* Dar ekranda ikincil işlemler "⋯" menüsünde: kart iki satır düğmeyle uzamasın. */}
+                  <MoreMenu
+                    className="ml-auto sm:hidden"
+                    label={`${q.quoteNo} — diğer işlemler`}
+                    items={[
+                      ...(undecided
+                        ? [{ label: 'Reddet', disabled: statusMut.isPending, onSelect: () => statusMut.mutate({ id: q.id, status: 'rejected' as const }) }]
+                        : []),
+                      { label: 'Yazdır / PDF', onSelect: () => openPdf(`/quotes/${q.id}/print`) },
+                      { label: 'CSV indir', onSelect: () => downloadFile(`/quotes/${q.id}/csv`, `teklif-${q.quoteNo}.csv`) },
+                      { label: 'Sil', danger: true, disabled: deleteMut.isPending, onSelect: () => handleDeleteQuote(q.id, q.quoteNo) },
+                    ]}
+                  />
                   <button
-                    className="btn-secondary btn-sm"
+                    className="btn-secondary btn-sm hidden sm:inline-flex"
                     title="Yazdırılabilir teklif (Ctrl+P ile PDF)"
                     onClick={() => openPdf(`/quotes/${q.id}/print`)}
                   >
                     Yazdır / PDF
                   </button>
                   <button
-                    className="btn-secondary btn-sm"
+                    className="btn-secondary btn-sm hidden sm:inline-flex"
                     title="Teklif kalemlerini CSV (tablo) olarak indir"
                     onClick={() =>
                       downloadFile(`/quotes/${q.id}/csv`, `teklif-${q.quoteNo}.csv`)
@@ -1219,7 +1233,7 @@ export function QuotesPage() {
                     CSV
                   </button>
                   <button
-                    className="btn-danger-soft btn-sm ml-auto"
+                    className="btn-danger-soft btn-sm ml-auto hidden sm:inline-flex"
                     disabled={deleteMut.isPending}
                     onClick={() => handleDeleteQuote(q.id, q.quoteNo)}
                   >

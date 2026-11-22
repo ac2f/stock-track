@@ -26,7 +26,7 @@ export function resolveInitialTheme(): Theme {
 }
 
 /** Adres çubuğu / sistem çubuğu rengi: sayfanın zemini (public/theme-init.js ile aynı). */
-export const THEME_COLORS: Record<Theme, string> = { light: '#f8fafc', dark: '#0f172a' };
+export const THEME_COLORS: Record<Theme, string> = { light: '#f8fafc', dark: '#0b1222' };
 
 export function applyTheme(theme: Theme): void {
   const root = document.documentElement;

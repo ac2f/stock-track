@@ -30,8 +30,12 @@ export function PageHeader({
           {subtitle && (
             <button
               type="button"
-              className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              aria-label="Açıklama"
+              className={`ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-colors ${
+                open
+                  ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                  : 'border-slate-300 text-slate-500 hover:border-slate-400 hover:bg-slate-100 hover:text-slate-800 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100'
+              }`}
+              aria-label="Bu ekran ne işe yarar?"
               aria-expanded={open}
               title="Bu ekran ne işe yarar?"
               onClick={() => setOpen((o) => !o)}

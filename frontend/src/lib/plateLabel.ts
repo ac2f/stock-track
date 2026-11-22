@@ -103,6 +103,39 @@ export function plateSizeSummary(
   return [t ? `${t} mm` : '', size].filter(Boolean).join(' · ');
 }
 
+/** Sayı metni sade: "2.00" → "2", "2.80" → "2.8" (kayıtlı adlardaki ölçüler). */
+function plainNumber(v: string): string {
+  const n = Number(v.replace(',', '.'));
+  return Number.isFinite(n) ? String(n) : v;
+}
+
+const AUTO_NAME_RE = /^(.+?)\s*\[([^\]]*)\]\s+([\d.,]+)\s*[x×]\s*([\d.,]+)\s*[x×]\s*([\d.,]+)$/;
+
+/**
+ * Sunucunun ürettiği ad ("Alüminyum Kompozit Alucobond[Antrasit] 4.00×1500.00×4050.00") okunur hâle getirilir:
+ * "Alüminyum Kompozit · Alucobond · Antrasit · 4 mm". Tür adı biliniyorsa marka ondan ayrılır, tür adıyla aynı marka
+ * bir kez yazılır ("Dekota Dekota[Beyaz]" → "Dekota · Beyaz"); ebat başlığa yazılmaz (kartın ölçü satırında). Elle
+ * verilmiş ya da bu kalıba uymayan ad için ``null``.
+ */
+export function prettyAutoName(name: string, category?: string | null): string | null {
+  const m = AUTO_NAME_RE.exec(name.trim());
+  if (!m) return null;
+  const [, base, color, t] = m;
+  const same = (a: string, b: string) => a.toLocaleLowerCase('tr') === b.toLocaleLowerCase('tr');
+  const parts: string[] = [];
+  const cat = (category ?? '').trim();
+  let brand = base.trim();
+  if (cat && brand.toLocaleLowerCase('tr').startsWith(cat.toLocaleLowerCase('tr'))) {
+    parts.push(cat);
+    brand = brand.slice(cat.length).trim();
+  }
+  if (brand && !(parts.length && same(brand, parts[0]))) parts.push(brand);
+  if (color.trim()) parts.push(color.trim());
+  const th = Number(t.replace(',', '.'));
+  if (th > 0) parts.push(`${plainNumber(t)} mm`);
+  return parts.join(' · ') || null;
+}
+
 /**
  * Kartlarda gösterilecek temiz başlık (veri DEĞİŞMEZ). Addaki "—" yer
  * tutucuları atılır; geriye anlamlı bir şey kalmazsa (boş ya da yalnız tür adı)
@@ -115,6 +148,8 @@ export function displayPlateName(
 ): string {
   const cleaned = stripNamePlaceholders(plate.name);
   const category = plate.template?.category?.name?.trim() ?? '';
+  const pretty = cleaned ? prettyAutoName(cleaned, category) : null;
+  if (pretty) return pretty;
   const same = (a: string, b: string) => a.toLocaleLowerCase('tr') === b.toLocaleLowerCase('tr');
   if (cleaned && !(category && same(cleaned, category))) return cleaned;
   const base = stripNamePlaceholders(plate.template?.name) || category || cleaned || 'Malzeme';

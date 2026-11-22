@@ -131,14 +131,14 @@ export function ResponsiveLayout() {
         {/* Masaüstü yan menü */}
         <aside
           className={`hidden shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] md:flex ${
-            collapsed ? 'w-[60px]' : 'w-52'
+            collapsed ? 'w-[60px]' : 'w-56'
           }`}
         >
           <div className={`flex items-center gap-2 px-2.5 pt-3 ${collapsed ? 'justify-center' : ''}`}>
             <BrandMark name={brandName} />
             {!collapsed && (
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-bold leading-tight text-slate-900" title={brandName}>
+                <div className="line-clamp-2 break-words text-[15px] font-bold leading-tight text-slate-900" title={brandName}>
                   {brandName}
                 </div>
               </div>
@@ -148,7 +148,7 @@ export function ResponsiveLayout() {
           {collapsed ? (
             shops.length > 1 && <ShopChip className="mx-auto mt-3" compact />
           ) : (
-            <ShopSwitcher className="mx-2.5 mt-2" />
+            <ShopSwitcher className="mx-2.5 mt-2" hideName={brandName} />
           )}
 
           <div className="px-2.5 pt-2">
@@ -519,8 +519,8 @@ function UserMenu({
           </span>
           {!collapsed && (
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{user?.fullName}</span>
-              <span className="block truncate text-xs text-slate-500">{roleLabel(isOwner, isShopAdmin)}</span>
+              <span className="line-clamp-2 break-words text-sm font-medium leading-tight">{user?.fullName}</span>
+              <span className="block text-xs leading-tight text-slate-500">{roleLabel(isOwner, isShopAdmin)}</span>
             </span>
           )}
           {!collapsed && <span className="text-slate-400">⚙</span>}

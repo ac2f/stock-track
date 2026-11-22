@@ -12,7 +12,10 @@ export function Pagination({
   pageSize,
   onPage,
   onPageSize,
+  rows,
 }: {
+  /** Bu sayfadaki kayıtlar ekranda kaç satırda (aynı parçalar ×N istiflenince azdır): sayaç ikisini de söyler. */
+  rows?: number;
   page: number;
   pageCount: number;
   total: number;
@@ -32,6 +35,12 @@ export function Pagination({
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm">
       <span className="text-slate-500">
         {total === 0 ? 'Kayıt yok' : pages > 1 ? `${first}–${last} / ${total} kayıt` : `${total} kayıt`}
+        {rows != null && total > 0 && rows < last - first + 1 && (
+          <span title="Birebir aynı parçalar tek satırda ×N olarak istiflenir">
+            {' '}
+            · bu sayfada {rows} satır
+          </span>
+        )}
       </span>
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-1.5 text-xs text-slate-500">

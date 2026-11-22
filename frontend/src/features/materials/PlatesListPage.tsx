@@ -53,7 +53,7 @@ import { UnitConverter } from '../../components/UnitConverter';
 import { GroupSection } from '../../components/GroupSection';
 import { Pagination } from '../../components/Pagination';
 import { usePageSize } from '../../hooks/usePageSize';
-import { displayPlateName, isPartialSheet, stripNamePlaceholders } from '../../lib/plateLabel';
+import { displayPlateName, isPartialSheet, prettyAutoName, stripNamePlaceholders } from '../../lib/plateLabel';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingBlock } from '../../components/ui/Loading';
@@ -187,7 +187,8 @@ function plateDimsText(plate: Plate): string {
       : w && h
         ? `${w}×${h} mm`
         : '',
-    t ? `${t} mm kalınlık` : '',
+    // (kalınlık otomatik adlı kalemde başlıkta yazıyor: "Pleksi · Akpolimer · Beyaz · 3 mm")
+    t && !prettyAutoName(stripNamePlaceholders(plate.name), plate.template?.category?.name) ? `${t} mm kalınlık` : '',
     m2 != null ? `${m2.toFixed(2)} m²` : '',
   ]
     .filter(Boolean)
@@ -2746,6 +2747,7 @@ export function PlatesListPage() {
           pageSize={pageSize}
           onPage={(p) => setFilters((f) => ({ ...f, page: p }))}
           onPageSize={changePageSize}
+          rows={groupByType ? undefined : stackPlates(data.items).length}
         />
       )}
 
