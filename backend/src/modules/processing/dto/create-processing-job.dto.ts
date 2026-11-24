@@ -9,6 +9,8 @@ import {
   IsUUID,
   Length,
   Min,
+  ValidateIf,
+  MaxLength,
 } from 'class-validator';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
@@ -27,8 +29,20 @@ import { ProcessingStatus } from '../../../common/enums/processing-status.enum';
  *  - PIECE  → adet
  */
 export class CreateProcessingJobDto {
+  /** İşlenecek malzeme. Hizmet işinde (title / serviceTypeId ile) verilmez. */
+  @ValidateIf((o: CreateProcessingJobDto) => !o.title && !o.serviceTypeId)
   @IsUUID()
-  plateId: string;
+  plateId?: string;
+
+  /** Malzemesiz hizmet işinin adı (kuyrukta ve ekstrede görünür). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  title?: string;
+
+  @IsOptional()
+  @IsUUID()
+  serviceTypeId?: string;
 
   @IsOptional()
   @IsUUID()
@@ -78,6 +92,12 @@ export class CreateProcessingJobDto {
   @IsNumber()
   @Min(0)
   extraCost?: number = 0;
+
+  /** Teklifteki kombinasyon indiriminin bu işe düşen payı: tutardan düşülür (ayrı tutulur, görünür). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
 
   // İşleme ücretinin para birimi (yabancı para ise baz tutara çevrilir).
   @IsOptional()

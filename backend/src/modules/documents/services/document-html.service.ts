@@ -129,7 +129,7 @@ export class DocumentHtmlService {
           headers: ['Malzeme', 'Ölçü', 'Birim Fiyat', 'İşçilik'],
           rows: [
             [
-              job.plate?.name ?? job.plateId.slice(0, 8),
+              job.plate?.name ?? job.title ?? job.plateId?.slice(0, 8) ?? 'Hizmet',
               `${this.num(job.quantityValue)} ${unit}`,
               `${this.money.format(Number(job.ratePerUnit))}/${unit}`,
               `${this.money.format(Number(job.laborCost))}`,

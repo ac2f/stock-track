@@ -7,6 +7,7 @@ import { MaterialColor } from './material-color.entity';
 import { MaterialSize } from './material-size.entity';
 import { MaterialThickness } from './material-thickness.entity';
 import { PriceRuleEntry } from './price-rule-entry.entity';
+import type { RuleExclusions } from '../price-rule-match.util';
 
 /**
  * Fiyat çatısı: bir grup malzemenin ortak fiyat referansı.
@@ -87,6 +88,13 @@ export class PriceRule extends ShopScopedEntity {
 
   @Column({ type: 'text', nullable: true })
   note?: string | null;
+
+  /**
+   * Hariç tutulan markalar / renkler / kalınlıklar / ebatlar: "Tüm pleksiler — Kırmızı hariç". Her kayıt
+   * kimliği, eşleşme anahtarı ve adıyla saklanır (kopya katalog kayıtları da hariç sayılır).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  exclusions?: RuleExclusions | null;
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

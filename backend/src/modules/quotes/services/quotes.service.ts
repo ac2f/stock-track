@@ -37,6 +37,9 @@ import { CreateProcessingJobDto } from '../../processing/dto/create-processing-j
 import { Quote } from '../entities/quote.entity';
 import { QuoteItem } from '../entities/quote-item.entity';
 import { CreateQuoteDto, QuoteItemDto } from '../dto/create-quote.dto';
+import { BatchPlateItemDto } from '../../materials/dto/batch-create-plates.dto';
+import { ServiceCatalogService } from '../../service-catalog/service-catalog.service';
+import { bestBundle, bundleLabel } from '../../service-catalog/service-catalog.util';
 import { QueryQuoteDto } from '../dto/query-quote.dto';
 import { foldedWords, sqlFold } from '../../../common/utils/search.util';
 import { ShopContext } from '../../../common/shop/shop-context';
@@ -87,6 +90,7 @@ export class QuotesService {
     private readonly salesService: SalesService,
     private readonly processingService: ProcessingService,
     private readonly settings: SettingsService,
+    private readonly services: ServiceCatalogService,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     configService: ConfigService,
@@ -101,8 +105,8 @@ export class QuotesService {
    * dönüştürülür ve istenirse tamamlanmış yapılır.
    */
   async create(dto: CreateQuoteDto, userId?: string): Promise<QuoteWithConversion> {
-    const prepared = await this.materializeNewMaterials(dto);
-    const built = await this.buildQuoteData(prepared);
+    // (yeni malzeme stoğa burada DEĞİL, teklif kabul edilince girer: materializePending)
+    const built = await this.buildQuoteData(dto);
     const quote = this.quotesRepo.create({
       ...built.fields,
       quoteNo: await this.nextQuoteNo(),
@@ -128,8 +132,7 @@ export class QuotesService {
         'Kabul edilmiş veya dönüştürülmüş teklif düzenlenemez.',
       );
     }
-    const prepared = await this.materializeNewMaterials(dto);
-    const built = await this.buildQuoteData(prepared);
+    const built = await this.buildQuoteData(dto);
     const saved = await this.dataSource.transaction(async (manager) => {
       await manager.delete(QuoteItem, { quoteId: quote.id });
       Object.assign(quote, built.fields, { items: built.items });
@@ -167,19 +170,15 @@ export class QuotesService {
   }
 
   /**
-   * Kalemlerdeki `newMaterial` (işe özel / yeni gelen malzeme) stoğa eklenir
-   * ve kalemin plakası olur. Ürün türü yoksa adlardan açılır. Teklif tarihi
-   * verildiyse malzeme o tarihte gelmiş sayılır (addedAt boşsa).
+   * Teklif kabul edilince kalemlerde tarifi duran (henüz stokta olmayan) malzeme stoğa eklenir ve
+   * kalemin plakası olur. Ürün türü yoksa adlardan açılır; malzeme teklif (yoksa kabul) tarihinde
+   * gelmiş sayılır (addedAt boşsa). Taslak / gönderilmiş / reddedilmiş teklif stoğa hiç dokunmaz.
+   * İdempotent: plakası olan kalem atlanır.
    */
-  private async materializeNewMaterials(dto: CreateQuoteDto): Promise<CreateQuoteDto> {
-    if (!dto.items.some((i) => i.newMaterial)) return dto;
-    const items: QuoteItemDto[] = [];
-    for (const it of dto.items) {
-      if (!it.newMaterial) {
-        items.push(it);
-        continue;
-      }
-      const m = it.newMaterial;
+  private async materializePending(quote: Quote): Promise<void> {
+    for (const it of quote.items ?? []) {
+      if (!it.newMaterial || it.plateId) continue;
+      const m = it.newMaterial as unknown as BatchPlateItemDto;
       const { plateIds } = await this.plateIntake.createBatch({
         items: [
           {
@@ -187,14 +186,17 @@ export class QuotesService {
             // Bir kalem tek parçadır: tabakada her kayıt tek tabaka olduğundan
             // kopya/adet burada tek parçaya indirilir.
             copies: 1,
-            addedAt: m.addedAt ?? dto.quoteDate ?? undefined,
+            addedAt:
+              m.addedAt ??
+              (quote.quoteDate ? new Date(quote.quoteDate).toISOString().slice(0, 10) : undefined),
           },
         ],
       });
-      const { newMaterial: _drop, ...rest } = it;
-      items.push({ ...rest, plateId: plateIds[0], itemName: undefined });
+      await this.itemsRepo.update(it.id, { plateId: plateIds[0], newMaterial: null, itemName: null });
+      it.plateId = plateIds[0];
+      it.newMaterial = null;
+      it.itemName = null;
     }
-    return { ...dto, items };
   }
 
   /**
@@ -335,6 +337,10 @@ export class QuotesService {
         'CONVERTED durumu yalnızca dönüştürme (convert) ile ayarlanır.',
       );
     }
+    // Kabul: tarifi duran malzeme şimdi stoğa girer (teklif kaydedilirken girmez).
+    if (status === QuoteStatus.ACCEPTED) {
+      await this.materializePending(quote);
+    }
     quote.status = status;
     return this.quotesRepo.save(quote);
   }
@@ -360,6 +366,8 @@ export class QuotesService {
         'Yalnızca ACCEPTED (kabul edilmiş) teklif dönüştürülebilir.',
       );
     }
+    // (kaydet-ve-dönüştür yolunda durum doğrudan yazılır: bekleyen malzeme burada stoğa girer)
+    await this.materializePending(quote);
 
     const saleLines = quote.items.filter(
       (i) => i.lineKind === QuoteLineKind.SALE,
@@ -367,6 +375,31 @@ export class QuotesService {
     const procLines = quote.items.filter(
       (i) => i.lineKind === QuoteLineKind.PROCESSING,
     );
+    // Hizmet kalemleri: malzemesiz iş olarak kuyruğa (tamamlanınca faturalanır). Kombinasyon indirimi
+    // paketteki hizmetlerin işlerine tutarlarıyla orantılı paylaştırılır (her işte görünür, toplamı aynı).
+    const serviceLines = quote.items.filter(
+      (i) => i.lineKind === QuoteLineKind.SERVICE,
+    );
+    const discountShare = new Map<string, number>();
+    const discount = Number(quote.discountAmount) || 0;
+    if (discount > 0 && serviceLines.length) {
+      const ids = quote.discountBundleId
+        ? await this.services.bundleTypeIds(quote.discountBundleId)
+        : null;
+      const inBundle = serviceLines.filter(
+        (l) => !ids || (l.serviceTypeId && ids.includes(l.serviceTypeId)),
+      );
+      const base = inBundle.reduce((s, l) => s + Number(l.lineTotal), 0);
+      let left = discount;
+      inBundle.forEach((l, k) => {
+        const share =
+          k === inBundle.length - 1
+            ? roundMoney(left)
+            : roundMoney((discount * Number(l.lineTotal)) / (base || 1));
+        discountShare.set(l.id, share);
+        left = roundMoney(left - share);
+      });
+    }
 
     const events: { name: string; payload: unknown }[] = [];
 
@@ -489,6 +522,39 @@ export class QuotesService {
         processingDates.push(lineDateIso(l.itemDate, quote.quoteDate));
       }
 
+      for (const l of serviceLines) {
+        const share = discountShare.get(l.id) ?? 0;
+        const job = await this.processingService.persist(
+          manager,
+          {
+            title: l.itemName ?? 'Hizmet',
+            serviceTypeId: l.serviceTypeId ?? undefined,
+            customerId: quote.buyerCustomerId,
+            billingUnit: l.billingUnit ?? undefined,
+            quantity: Number(l.quantity),
+            overrideRatePerUnit: Number(l.unitPrice),
+            discountAmount: share || undefined,
+            currency: quote.currency,
+            billOnCompletion: true,
+            quoteId: quote.id,
+            processedAt: lineDateIso(l.itemDate, quote.quoteDate),
+            note: [
+              quote.note?.trim()
+                ? `Teklif ${quote.quoteNo}: ${quote.note.trim()}`
+                : `Teklif ${quote.quoteNo}`,
+              l.measureValue != null ? `ölçü ${Number(l.measureValue)}` : null,
+              share ? `${quote.discountLabel ?? 'Kombinasyon indirimi'} payı −${share.toFixed(2)}` : null,
+              l.description?.trim() || null,
+            ]
+              .filter(Boolean)
+              .join(' — '),
+          },
+          soldById,
+        );
+        processingJobIds.push(job.id);
+        processingDates.push(lineDateIso(l.itemDate, quote.quoteDate));
+      }
+
       await manager.update(Quote, quote.id, {
         status: QuoteStatus.CONVERTED,
         convertedSaleId: saleId ?? null,
@@ -592,15 +658,49 @@ export class QuotesService {
               billedMinutes(rawDto.durationMinutes, minMinutes) ?? undefined,
           }
         : rawDto;
-      // Serbest (stoksuz) kalemde plaka yoktur.
+      // Hizmet kalemi: katalogdaki hizmet ve (ölçüye uyan ya da seçilen) kademe; ad ve birim katalogdan.
+      if (itemDto.lineKind === QuoteLineKind.SERVICE) {
+        if (!itemDto.serviceTypeId) {
+          throw new BadRequestException('Hizmet kaleminde hizmet seçilmelidir.');
+        }
+        const { type, tier } = await this.services.resolveLine(
+          itemDto.serviceTypeId,
+          itemDto.serviceTierId,
+          itemDto.measureValue,
+        );
+        items.push(
+          this.itemsRepo.create({
+            lineKind: QuoteLineKind.SERVICE,
+            plateId: null,
+            itemName: itemDto.itemName?.trim() || (tier ? `${type.name} — ${tier.name}` : type.name),
+            description: itemDto.description,
+            quantity: itemDto.quantity,
+            unitPrice: itemDto.unitPrice,
+            lineTotal: lineTotalOf(itemDto.quantity, itemDto.unitPrice),
+            itemDate: itemDto.itemDate ? new Date(itemDto.itemDate) : null,
+            billingUnit: tier?.unit ?? type.unit,
+            serviceTypeId: type.id,
+            serviceTierId: tier?.id ?? null,
+            measureValue: itemDto.measureValue ?? null,
+          }),
+        );
+        continue;
+      }
+      // Serbest (stoksuz) kalemde ve henüz stoğa girmemiş (tarifi duran) malzemede plaka yoktur.
+      const pending = !itemDto.plateId && itemDto.newMaterial ? itemDto.newMaterial : null;
       const plate = itemDto.plateId
         ? await this.platesService.findOne(itemDto.plateId)
-        : null;
+        : pending
+          ? { measurementType: pending.measurementType, widthMm: pending.widthMm ?? null, heightMm: pending.heightMm ?? null }
+          : null;
       const lineTotal = this.computeLineTotal(itemDto, plate);
       items.push(
         this.itemsRepo.create({
           lineKind: itemDto.lineKind,
           plateId: itemDto.plateId ?? null,
+          // (stoğa onayda girecek malzemenin tarifi; bkz. materializePending)
+          newMaterial: pending ? ({ ...pending } as unknown as Record<string, unknown>) : null,
+          templateId: itemDto.plateId ? null : itemDto.templateId ?? pending?.templateId ?? null,
           itemName: itemDto.plateId
             ? null
             : itemDto.itemName?.trim() || 'Malzeme',
@@ -627,7 +727,14 @@ export class QuotesService {
     }
 
     const subtotal = roundMoney(items.reduce((s, i) => s + Number(i.lineTotal), 0));
-    const total = subtotal;
+    // Hizmet kombinasyonu indirimi: paketteki hizmetlerin hepsi teklifteyse kendiliğinden (kullanıcı
+    // bu teklifte kaldırmadıysa); ayrı satır olarak görünür.
+    const discount =
+      !dto.discountOff && items.some((i) => i.serviceTypeId)
+        ? bestBundle(await this.services.activeBundles(), items.map((i) => ({ serviceTypeId: i.serviceTypeId, lineTotal: Number(i.lineTotal) })))
+        : null;
+    const discountAmount = discount?.amount ?? 0;
+    const total = roundMoney(subtotal - discountAmount);
     const conv = await this.currencyService.convert(
       total,
       currency,
@@ -652,6 +759,10 @@ export class QuotesService {
         total,
         baseTotal: conv.amount,
         note: dto.note,
+        discountAmount,
+        discountLabel: discount ? bundleLabel(discount.bundle) : null,
+        discountBundleId: discount?.bundle.id ?? null,
+        discountOff: !!dto.discountOff,
       },
       items,
     };

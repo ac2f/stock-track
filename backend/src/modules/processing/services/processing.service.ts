@@ -90,33 +90,44 @@ export class ProcessingService {
     // malzeme HEM satılıp (tabaka tamamen tükenince plaka soft-delete olur) HEM
     // işlendiğinde, satış plakayı kaldırmış olsa bile işleme kalemi kuyruğa
     // eklenebilsin (işleme dönüşümde ertelenir; yalnızca plaka bilgisi gerekir).
-    const plate = await manager.findOne(MaterialPlate, {
-      where: { id: dto.plateId },
-      withDeleted: true,
-    });
-    if (!plate) {
+    // Hizmet işi (harf büküm, montaj …): malzemesi yok; miktar doğrudan hizmetin biriminde (metre, adet,
+    // m², saat) verilir, stoktan bir şey düşülmez.
+    const service = !dto.plateId;
+    if (service && !dto.title?.trim()) {
+      throw new BadRequestException("Malzemesiz (hizmet) işin adı verilmelidir.");
+    }
+    const plate = service
+      ? null
+      : await manager.findOne(MaterialPlate, {
+          where: { id: dto.plateId! },
+          withDeleted: true,
+        });
+    if (!service && !plate) {
       throw new NotFoundException("Stok kalemi bulunamadı.");
     }
     const quantity = dto.quantity ?? 1;
     const billingUnit =
-      dto.billingUnit ?? plate.measurementType ?? MeasurementType.AREA;
+      dto.billingUnit ??
+      plate?.measurementType ??
+      (service ? MeasurementType.PIECE : MeasurementType.AREA);
 
     const ratePerUnit = await this.resolveRate(dto);
     const isTime = billingUnit === MeasurementType.TIME;
-    if (isTime && dto.durationMinutes == null) {
+    if (isTime && !service && dto.durationMinutes == null) {
       throw new BadRequestException(
         "Süreyle faturalanan işte süre (dakika) girilmelidir.",
       );
     }
-    const minMinutes = isTime
-      ? (await this.settings.getCutPricing()).minMinutes
-      : 0;
-    const { quantityValue, widthMm, heightMm, lengthM, durationMinutes } =
-      this.computeQuantity(billingUnit, dto, plate, quantity, minMinutes);
+    const minMinutes =
+      isTime && !service ? (await this.settings.getCutPricing()).minMinutes : 0;
+    const { quantityValue, widthMm, heightMm, lengthM, durationMinutes } = service
+      ? { quantityValue: quantity, widthMm: null, heightMm: null, lengthM: null, durationMinutes: null }
+      : this.computeQuantity(billingUnit, dto, plate!, quantity, minMinutes);
 
     const laborCost = roundMoney(quantityValue * ratePerUnit);
     const extraCost = roundMoney(dto.extraCost ?? 0);
-    const totalCost = roundMoney(laborCost + extraCost);
+    const discountAmount = roundMoney(Math.min(dto.discountAmount ?? 0, laborCost + extraCost));
+    const totalCost = roundMoney(laborCost + extraCost - discountAmount);
 
     const currency = (
       dto.currency ?? this.business.defaultCurrency
@@ -133,7 +144,7 @@ export class ProcessingService {
       );
 
     const billIntent = dto.bill ?? true;
-    const consumeIntent = dto.consumeStock ?? true;
+    const consumeIntent = !service && (dto.consumeStock ?? true);
     const willBillIntent = billIntent && !!dto.customerId;
     if (billIntent && !dto.customerId && totalCost > 0) {
       throw new BadRequestException(
@@ -161,7 +172,9 @@ export class ProcessingService {
     const billNow = !deferred && willBillIntent && baseTotalCost > 0;
 
     const job = manager.create(ProcessingJob, {
-      plateId: plate.id,
+      plateId: plate?.id ?? null,
+      title: service ? dto.title!.trim() : null,
+      serviceTypeId: dto.serviceTypeId ?? null,
       customerId: dto.customerId,
       processedById,
       warehouseId: warehouse?.id,
@@ -180,6 +193,7 @@ export class ProcessingService {
       ratePerUnit,
       laborCost,
       extraCost,
+      discountAmount,
       totalCost,
       currency,
       exchangeRate,
@@ -199,7 +213,7 @@ export class ProcessingService {
       // faturalanan işte de kullanılan parça girildiyse o kadarı düşülür.
       const byDims = billingUnit === MeasurementType.AREA || isTime;
       const cut = await this.platesService.consume({
-        plateId: plate.id,
+        plateId: plate!.id,
         warehouseId: warehouse!.id,
         quantity,
         consumedWidthMm: byDims ? widthMm : null,
@@ -225,6 +239,7 @@ export class ProcessingService {
           quantityValue,
           billingUnit,
           dto.note,
+          saved.title,
         ),
         occurredAt: saved.processedAt,
       });
@@ -285,10 +300,13 @@ export class ProcessingService {
           : (job.completedAt ?? ShopContext.now());
 
         // Plaka (malzeme türü + ad) ekstre açıklaması için yüklenir.
-        const plate = await manager.findOne(MaterialPlate, {
-          where: { id: job.plateId },
-          withDeleted: true,
-        });
+        // (hizmet işinde malzeme yok: plateId boş — boş koşulla sorgulanmaz)
+        const plate = job.plateId
+          ? await manager.findOne(MaterialPlate, {
+              where: { id: job.plateId },
+              withDeleted: true,
+            })
+          : null;
 
         // Fire/kalan parça istendi mi? Kaynak plakanın SAHİBİNİ stok tüketilip
         // seviye kaydı silinmeden ÖNCE yakala (tam tükenmede seviyeler silinir).
@@ -299,7 +317,7 @@ export class ProcessingService {
           plate.templateId
         ) {
           const lvl = await manager.findOne(StockLevel, {
-            where: { plateId: job.plateId },
+            where: { plateId: job.plateId! },
             order: { quantity: "DESC" },
           });
           offcutRef.value = {
@@ -332,7 +350,7 @@ export class ProcessingService {
           // hatası oluşmaz. AREA dışı malzemede mevcut kadar adet düşülür.
           if (plate?.measurementType === MeasurementType.AREA) {
             const cut = await this.platesService.consume({
-              plateId: job.plateId,
+              plateId: job.plateId!,
               warehouseId: job.warehouseId,
               quantity: Number(job.quantity),
               consumedWidthMm: job.widthMm != null ? Number(job.widthMm) : null,
@@ -362,7 +380,7 @@ export class ProcessingService {
             const consume = Math.min(Number(job.quantity), available);
             if (consume > 0) {
               await this.platesService.adjustStock(
-                job.plateId,
+                job.plateId!,
                 job.warehouseId,
                 -consume,
                 null,
@@ -389,6 +407,7 @@ export class ProcessingService {
               Number(job.quantityValue),
               job.billingUnit,
               job.note,
+              job.title,
             ),
             occurredAt: completionDate,
           });
@@ -403,7 +422,7 @@ export class ProcessingService {
           if (cw > 0 || ch > 0) {
             // Tabaka işi: düşülen ekseni (en/boy) geri ekle (best-effort).
             await this.platesService.restoreSheet(
-              job.plateId,
+              job.plateId!,
               cw,
               ch,
               manager,
@@ -417,7 +436,7 @@ export class ProcessingService {
             const refund = Number(job.consumedQuantity) || Number(job.quantity);
             if (refund > 0) {
               await this.platesService.adjustStock(
-                job.plateId,
+                job.plateId!,
                 job.warehouseId,
                 refund,
                 null,
@@ -779,7 +798,7 @@ export class ProcessingService {
       const ch = Number(job.consumedHeightMm) || 0;
       if (cw > 0 || ch > 0) {
         // Tabaka işi: düşülen ekseni (en/boy) tabakaya geri ekle.
-        await this.platesService.restoreSheet(job.plateId, cw, ch, manager, {
+        await this.platesService.restoreSheet(job.plateId!, cw, ch, manager, {
           warehouseId: job.warehouseId,
         });
       } else {
@@ -787,7 +806,7 @@ export class ProcessingService {
         const refund = Number(job.consumedQuantity) || Number(job.quantity);
         if (refund > 0) {
           await this.platesService.adjustStock(
-            job.plateId,
+            job.plateId!,
             job.warehouseId,
             refund,
             null,
@@ -914,10 +933,11 @@ export class ProcessingService {
     quantityValue: number,
     billingUnit: MeasurementType,
     note?: string | null,
+    title?: string | null,
   ): string {
     const type = plate?.template?.category?.name;
-    const head = type ? `İşleme (${type}): ` : "İşleme: ";
-    const name = plate?.name ?? "Malzeme";
+    const head = title && !plate ? "Hizmet: " : type ? `İşleme (${type}): ` : "İşleme: ";
+    const name = title && !plate ? title : plate?.name ?? "Malzeme";
     const fmt = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 });
     const noteStr = note?.trim() ? ` — ${note.trim()}` : "";
     // Süreyle işte saat yerine dakika okunur: "30 dk".

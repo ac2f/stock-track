@@ -12,6 +12,7 @@ describe('QuotesService geriye dönük giriş', () => {
       Promise.resolve({ plateIds: ['plate-new'] }),
     );
     const update = jest.fn(() => Promise.resolve());
+    const itemUpdate = jest.fn(() => Promise.resolve());
     const convert = jest.fn(() =>
       Promise.resolve({
         quote: { id: 'q1' },
@@ -22,60 +23,61 @@ describe('QuotesService geriye dönük giriş', () => {
     const fake = {
       plateIntake: { createBatch },
       quotesRepo: { update },
+      itemsRepo: { update: itemUpdate },
       convert,
     };
     const svc = fake as unknown as QuotesService;
     const priv = QuotesService.prototype as unknown as {
-      materializeNewMaterials: (dto: unknown) => Promise<{ items: Record<string, unknown>[] }>;
+      materializePending: (quote: unknown) => Promise<void>;
       finalizeIfAsked: (q: unknown, dto: unknown, userId?: string) => Promise<Record<string, unknown>>;
     };
     return {
       createBatch,
       update,
+      itemUpdate,
       convert,
-      materialize: (dto: unknown) => priv.materializeNewMaterials.call(svc, dto),
+      materialize: (quote: unknown) => priv.materializePending.call(svc, quote),
       finalize: (q: unknown, dto: unknown, userId?: string) =>
         priv.finalizeIfAsked.call(svc, q, dto, userId),
     };
   }
 
-  describe('newMaterial', () => {
-    it('malzeme yoksa stoğa dokunulmaz', async () => {
+  /** Teklif kaydedilirken stoğa dokunulmaz; kabulde (materializePending) eklenir. */
+  describe('newMaterial (kabulde stoğa)', () => {
+    it('bekleyen malzeme yoksa stoğa dokunulmaz', async () => {
       const t = build();
-      const dto = { items: [{ plateId: 'p1', quantity: 1 }] };
-      expect(await t.materialize(dto)).toBe(dto);
+      await t.materialize({ items: [{ id: 'i1', plateId: 'p1', quantity: 1 }] });
       expect(t.createBatch).not.toHaveBeenCalled();
     });
 
-    it('yeni malzeme tek parça olarak stoğa eklenir ve kalemin plakası olur', async () => {
+    it('bekleyen malzeme tek parça olarak stoğa eklenir ve kalemin plakası olur', async () => {
       const t = build();
-      const out = await t.materialize({
-        quoteDate: '2026-03-02',
-        items: [
-          { plateId: 'p1', quantity: 1 },
-          {
-            itemName: 'Pleksi',
-            quantity: 1,
-            newMaterial: { templateId: 'tpl', widthMm: 100, heightMm: 200, quantityInStock: 1, copies: 5 },
-          },
-        ],
-      });
+      const pending = {
+        id: 'i2',
+        plateId: null,
+        itemName: 'Pleksi',
+        quantity: 1,
+        newMaterial: { templateId: 'tpl', widthMm: 100, heightMm: 200, quantityInStock: 1, copies: 5 },
+      };
+      const quote = { quoteDate: new Date('2026-03-02T00:00:00Z'), items: [{ id: 'i1', plateId: 'p1', quantity: 1 }, pending] };
+      await t.materialize(quote);
       expect(t.createBatch).toHaveBeenCalledTimes(1);
       const sent = t.createBatch.mock.calls[0][0].items[0];
       expect(sent).toMatchObject({ templateId: 'tpl', widthMm: 100, heightMm: 200, copies: 1 });
       // Geliş tarihi verilmediyse teklif tarihi.
       expect(sent.addedAt).toBe('2026-03-02');
-      expect(out.items[0]).toEqual({ plateId: 'p1', quantity: 1 });
-      expect(out.items[1]).toMatchObject({ plateId: 'plate-new', quantity: 1 });
-      expect(out.items[1].newMaterial).toBeUndefined();
-      expect(out.items[1].itemName).toBeUndefined();
+      expect(t.itemUpdate).toHaveBeenCalledWith('i2', { plateId: 'plate-new', newMaterial: null, itemName: null });
+      expect(pending).toMatchObject({ plateId: 'plate-new', newMaterial: null });
+      // İdempotent: ikinci kabulde yeniden eklenmez.
+      await t.materialize(quote);
+      expect(t.createBatch).toHaveBeenCalledTimes(1);
     });
 
     it('açıkça verilen geliş tarihi teklif tarihini ezer', async () => {
       const t = build();
       await t.materialize({
-        quoteDate: '2026-03-02',
-        items: [{ quantity: 1, newMaterial: { templateId: 'tpl', addedAt: '2026-02-10' } }],
+        quoteDate: new Date('2026-03-02T00:00:00Z'),
+        items: [{ id: 'i1', quantity: 1, newMaterial: { templateId: 'tpl', addedAt: '2026-02-10' } }],
       });
       expect(t.createBatch.mock.calls[0][0].items[0].addedAt).toBe('2026-02-10');
     });

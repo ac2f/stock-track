@@ -30,6 +30,17 @@ const UNIT_LABELS: Record<MeasurementType, string> = {
  * tablo çıktısı verir. HTML, UTF-8 olduğundan Türkçe karakter sorunu yaşanmaz;
  * tarayıcıda görüntülenip Ctrl+P ile PDF olarak kaydedilebilir.
  */
+const KIND_LABELS: Record<string, string> = {
+  [QuoteLineKind.SALE]: 'Satış',
+  [QuoteLineKind.PROCESSING]: 'İşleme',
+  [QuoteLineKind.SERVICE]: 'Hizmet',
+};
+const KIND_CSV: Record<string, string> = {
+  [QuoteLineKind.SALE]: 'Satis',
+  [QuoteLineKind.PROCESSING]: 'Isleme',
+  [QuoteLineKind.SERVICE]: 'Hizmet',
+};
+
 @Injectable()
 export class QuoteDocumentService {
   private readonly money: Intl.NumberFormat;
@@ -51,9 +62,17 @@ export class QuoteDocumentService {
     const tpl = this.loadTemplate();
     const c = q.buyerCustomer;
 
-    const rows = (q.items ?? [])
-      .map((it, i) => this.row(it, i + 1))
-      .join('\n');
+    const discount = Number(q.discountAmount) || 0;
+    const rows = [
+      ...(q.items ?? []).map((it, i) => this.row(it, i + 1)),
+      // Hizmet kombinasyonu indirimi: kalemlerin altında ayrı satır.
+      ...(discount > 0
+        ? [
+            `<tr><td></td><td><strong>${esc(q.discountLabel ?? 'Kombinasyon indirimi')}</strong></td><td></td><td></td><td></td>` +
+              `<td class="num">−${this.money.format(discount)}</td></tr>`,
+          ]
+        : []),
+    ].join('\n');
 
     const map: Record<string, string> = {
       businessName: esc(business.name || 'StockTrack'),
@@ -92,7 +111,7 @@ export class QuoteDocumentService {
       const m = this.measure(it);
       return [
         i + 1,
-        it.lineKind === QuoteLineKind.SALE ? 'Satis' : 'Isleme',
+        KIND_CSV[it.lineKind] ?? it.lineKind,
         it.plate?.name ?? it.itemName ?? '',
         UNIT_LABELS[m.unit],
         m.value,
@@ -101,6 +120,9 @@ export class QuoteDocumentService {
         q.currency,
       ];
     });
+    if (Number(q.discountAmount) > 0) {
+      lines.push(['', 'Indirim', q.discountLabel ?? 'Kombinasyon indirimi', '', '', '', -Number(q.discountAmount), q.currency]);
+    }
     lines.push(['', '', '', '', '', '', Number(q.total), q.currency]);
     // UTF-8 BOM → Excel Türkçe karakterleri doğru gösterir.
     return (
@@ -110,7 +132,7 @@ export class QuoteDocumentService {
   }
 
   private row(it: QuoteItem, index: number): string {
-    const kind = it.lineKind === QuoteLineKind.SALE ? 'Satış' : 'İşleme';
+    const kind = KIND_LABELS[it.lineKind] ?? it.lineKind;
     const m = this.measure(it);
     const desc = it.description ? ` — ${esc(it.description)}` : '';
     return [
@@ -128,6 +150,8 @@ export class QuoteDocumentService {
   /** Kalemin ölçü birimi + miktarı (m²/metre/adet). */
   private measure(it: QuoteItem): { unit: MeasurementType; value: number } {
     const unit = it.billingUnit ?? MeasurementType.PIECE;
+    // Hizmet kaleminde miktar doğrudan hizmetin birimindedir (metre, adet, m², saat).
+    if (it.lineKind === QuoteLineKind.SERVICE) return { unit, value: Number(it.quantity) };
     try {
       const value = computeQuantityValue({
         billingUnit: unit,

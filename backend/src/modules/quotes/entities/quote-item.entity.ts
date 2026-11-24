@@ -174,4 +174,27 @@ export class QuoteItem extends ShopScopedEntity {
     nullable: true,
   })
   ownerAmount?: number | null;
+
+  /**
+   * Stoğa HENÜZ girmemiş malzeme (işe özel / yeni gelecek levha): tarifi burada durur, teklif kabul
+   * edilince stoğa eklenir ve kalemin plakası olur (plateId dolar, bu alan boşalır). Taslak, gönderilmiş
+   * ya da reddedilmiş teklif stoğa hiç dokunmaz.
+   */
+  @Column({ name: 'new_material', type: 'jsonb', nullable: true })
+  newMaterial?: Record<string, unknown> | null;
+
+  /** Stoksuz kalemin ürün türü (tarif; stok hareketi yok): düzenlemede ve fiyat önerisinde kullanılır. */
+  @Column({ name: 'template_id', type: 'uuid', nullable: true })
+  templateId?: string | null;
+
+  // ── SERVICE kalemi (hizmet kataloğu) ──
+  @Column({ name: 'service_type_id', type: 'uuid', nullable: true })
+  serviceTypeId?: string | null;
+
+  @Column({ name: 'service_tier_id', type: 'uuid', nullable: true })
+  serviceTierId?: string | null;
+
+  /** Kademeyi seçtiren ölçü (ör. harf boyu, cm). */
+  @Column({ name: 'measure_value', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  measureValue?: number | null;
 }

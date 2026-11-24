@@ -9,6 +9,7 @@ import {
   Length,
   MaxLength,
   Min,
+  IsArray,
 } from 'class-validator';
 import { PriceUnit } from '../../../common/enums/price-unit.enum';
 
@@ -41,6 +42,27 @@ export class PriceRuleScopeDto {
   @IsString()
   @MaxLength(60)
   variant?: string | null;
+
+  // ── hariç tutulanlar (bu türün katalog kayıtları) ──
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  excludedBrandIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  excludedColorIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  excludedThicknessIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  excludedSizeIds?: string[];
 }
 
 export class CreatePriceRuleDto extends PriceRuleScopeDto {

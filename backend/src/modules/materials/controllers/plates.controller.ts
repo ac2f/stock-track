@@ -96,6 +96,15 @@ export class PlatesController {
    * sayılır) → `{ [plateId]: PlatePricing }`. Seçici listesi satır başına ayrı
    * istek atmak yerine görünen kalemlerin fiyatını tek seferde alır.
    */
+  /** Stoksuz teklif kalemi: ürün türünden fiyat önerisi (uyan en özel çatı ya da ruleId ile seçilen). */
+  @Get('pricing/template/:templateId')
+  pricingForTemplate(
+    @Param('templateId', ParseUUIDPipe) templateId: string,
+    @Query('ruleId') ruleId?: string,
+  ) {
+    return this.pricingService.forTemplate(templateId, ruleId && /^[0-9a-f-]{36}$/i.test(ruleId) ? ruleId : null);
+  }
+
   @Get('pricing')
   pricingBatch(@Query('ids') ids?: string) {
     return this.pricingService.forPlates(parseIds(ids, 100));

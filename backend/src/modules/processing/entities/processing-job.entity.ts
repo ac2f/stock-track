@@ -28,12 +28,21 @@ import { ProcessingRate } from './processing-rate.entity';
 @Index(['plateId'])
 @Index(['shopId', 'processedAt'])
 export class ProcessingJob extends ShopScopedEntity {
-  @ManyToOne(() => MaterialPlate, { eager: true, onDelete: 'RESTRICT' })
+  /** İşlenen malzeme. Hizmet işinde (harf büküm, montaj …) malzeme yoktur: boş. */
+  @ManyToOne(() => MaterialPlate, { eager: true, nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'plate_id' })
-  plate: MaterialPlate;
+  plate?: MaterialPlate | null;
 
-  @Column({ name: 'plate_id' })
-  plateId: string;
+  @Column({ name: 'plate_id', type: 'uuid', nullable: true })
+  plateId?: string | null;
+
+  /** Malzemesiz hizmet işinin adı ("Harf yapıştırma — 10 cm altı"); kuyrukta ve ekstrede görünür. */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  title?: string | null;
+
+  /** Hizmet kataloğundaki hizmet türü (hizmet işi ise). */
+  @Column({ name: 'service_type_id', type: 'uuid', nullable: true })
+  serviceTypeId?: string | null;
 
   @ManyToOne(() => Customer, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'customer_id' })
@@ -110,6 +119,17 @@ export class ProcessingJob extends ShopScopedEntity {
   /** Faturalanan ölçü miktarı (m² / metre / adet — billingUnit'e göre). */
   @Column({ name: 'quantity_value', type: 'numeric', precision: 14, scale: 4 })
   quantityValue: number;
+
+  /** Kombinasyon indiriminin bu işe düşen payı (teklif hizmet paketinden): toplamdan düşülmüştür. */
+  @Column({
+    name: 'discount_amount',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: { to: (v?: number | null) => v ?? 0, from: (v: string | null) => (v == null ? 0 : Number(v)) },
+  })
+  discountAmount: number;
 
   /** Etkin birim fiyatı (şablon veya dinamik override). */
   @Column({ name: 'rate_per_unit', type: 'numeric', precision: 14, scale: 2 })

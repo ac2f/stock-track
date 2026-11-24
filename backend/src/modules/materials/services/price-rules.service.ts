@@ -11,7 +11,7 @@ import { MeasurementType } from '../../../common/enums/measurement-type.enum';
 import { roundMoney } from '../../../common/utils/area.util';
 import { CurrencyService } from '../../currency/currency.service';
 import { SuppliersService } from '../../suppliers/suppliers.service';
-import { cleanName } from '../catalog-key.util';
+import { cleanName, normalizeName, normalizeNumber, sizeKey } from '../catalog-key.util';
 import {
   CreatePriceRuleDto,
   PreviewPriceRuleDto,
@@ -23,11 +23,15 @@ import { MaterialPlate } from '../entities/material-plate.entity';
 import { PriceRule } from '../entities/price-rule.entity';
 import { PriceRuleEntry } from '../entities/price-rule-entry.entity';
 import {
+  colorText,
+  ExcludedRef,
+  exclusionCount,
   pickRule,
   plateFacts,
   PlateFacts,
   ruleLabel,
   ruleMatches,
+  RuleExclusions,
   sameScope,
 } from '../price-rule-match.util';
 import { MaterialBrandsService } from './material-brands.service';
@@ -74,6 +78,8 @@ export interface PriceRuleView {
   sizeId: string | null;
   size: { id: string; widthMm: number; heightMm: number } | null;
   variant: string | null;
+  /** Hariç tutulanlar (kimlik + ad), boşsa null. */
+  exclusions: RuleExclusions | null;
   unit: PriceUnit;
   markupPercent: number | null;
   referenceEntryId: string | null;
@@ -244,6 +250,7 @@ export class PriceRulesService {
         colorId: draft.colorId,
         sizeId: draft.sizeId,
         variant: draft.variant,
+        exclusions: draft.exclusions ?? null,
         unit: dto.unit ?? this.defaultUnit(category?.defaultMeasurementType, !!draft.sizeId),
         markupPercent: dto.markupPercent ?? null,
         note: dto.note?.trim() || null,
@@ -256,8 +263,13 @@ export class PriceRulesService {
   async update(id: string, dto: UpdatePriceRuleDto): Promise<PriceRuleView> {
     const rule = await this.findOne(id);
     const scopeChanged = (
-      ['categoryId', 'brandId', 'thicknessId', 'colorId', 'sizeId', 'variant'] as const
+      [
+        'categoryId', 'brandId', 'thicknessId', 'colorId', 'sizeId', 'variant',
+        'excludedBrandIds', 'excludedColorIds', 'excludedThicknessIds', 'excludedSizeIds',
+      ] as const
     ).some((k) => dto[k] !== undefined);
+    const ex = rule.exclusions ?? {};
+    const ids = (l?: { id: string }[]) => (l ?? []).map((r) => r.id);
     const patch: Partial<PriceRule> = {};
     if (scopeChanged) {
       const draft = await this.draftRule({
@@ -267,6 +279,10 @@ export class PriceRulesService {
         colorId: dto.colorId !== undefined ? dto.colorId : rule.colorId,
         sizeId: dto.sizeId !== undefined ? dto.sizeId : rule.sizeId,
         variant: dto.variant !== undefined ? dto.variant : rule.variant,
+        excludedBrandIds: dto.excludedBrandIds ?? ids(ex.brands),
+        excludedColorIds: dto.excludedColorIds ?? ids(ex.colors),
+        excludedThicknessIds: dto.excludedThicknessIds ?? ids(ex.thicknesses),
+        excludedSizeIds: dto.excludedSizeIds ?? ids(ex.sizes),
       });
       await this.assertUnique(draft, id);
       Object.assign(patch, {
@@ -276,6 +292,7 @@ export class PriceRulesService {
         colorId: draft.colorId,
         sizeId: draft.sizeId,
         variant: draft.variant,
+        exclusions: draft.exclusions ?? null,
       });
     }
     if (dto.unit !== undefined) patch.unit = dto.unit;
@@ -377,7 +394,40 @@ export class PriceRulesService {
       check(dto.sizeId, (id) => this.sizes.findOne(id), 'ebat'),
     ]);
     const variant = dto.variant?.trim() ? cleanName(dto.variant) : null;
+    // Hariç tutulanlar: bu türün kayıtları; kapsamda zaten seçili olan değer hariç tutulamaz.
+    const many = async <T extends { id: string; categoryId: string }>(
+      list: string[] | undefined,
+      fetch: (id: string) => Promise<T>,
+      label: string,
+      chosen: string | null | undefined,
+      ref: (row: T) => ExcludedRef,
+    ): Promise<ExcludedRef[]> => {
+      const out: ExcludedRef[] = [];
+      for (const id of [...new Set(list ?? [])]) {
+        if (id === chosen) {
+          throw new BadRequestException(`Kapsamdaki ${label} aynı zamanda hariç tutulamaz.`);
+        }
+        const row = await check(id, fetch, label);
+        if (row) out.push(ref(row));
+      }
+      return out;
+    };
+    const exclusions: RuleExclusions = {
+      brands: await many(dto.excludedBrandIds, (id) => this.brands.findOne(id), 'marka', dto.brandId, (b) => ({
+        id: b.id, key: normalizeName(b.name), label: b.name,
+      })),
+      colors: await many(dto.excludedColorIds, (id) => this.colors.findOne(id), 'renk', dto.colorId, (c) => ({
+        id: c.id, key: colorText(c.name, c.code), label: c.code ? `${c.name} ${c.code}` : c.name,
+      })),
+      thicknesses: await many(dto.excludedThicknessIds, (id) => this.thicknesses.findOne(id), 'kalınlık', dto.thicknessId, (t) => ({
+        id: t.id, key: normalizeNumber(t.valueMm), label: `${Number(t.valueMm)} mm`,
+      })),
+      sizes: await many(dto.excludedSizeIds, (id) => this.sizes.findOne(id), 'ebat', dto.sizeId, (z) => ({
+        id: z.id, key: sizeKey(z.widthMm, z.heightMm), label: `${Number(z.widthMm)}×${Number(z.heightMm)}`,
+      })),
+    };
     return this.rulesRepo.create({
+      exclusions: exclusionCount(exclusions) ? exclusions : null,
       categoryId: category.id,
       category,
       brandId: brand?.id ?? null,
@@ -489,6 +539,7 @@ export class PriceRulesService {
           }
         : null,
       variant: rule.variant ?? null,
+      exclusions: rule.exclusions ?? null,
       unit: rule.unit,
       markupPercent: rule.markupPercent != null ? Number(rule.markupPercent) : null,
       referenceEntryId: rule.referenceEntryId ?? null,

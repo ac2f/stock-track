@@ -100,4 +100,34 @@ describe('price-rule-match', () => {
       }),
     ).toBe('Pleksi · Akpolimer · 2.8 mm · Beyaz');
   });
+
+  describe('hariç tutulanlar', () => {
+    const white = { id: 'c1', key: 'beyaz|', label: 'Beyaz' };
+    const akp = { id: 'b1', key: 'akpolimer', label: 'Akpolimer' };
+
+    it('hariç tutulan renk / marka kapsamın dışında kalır (kimlik ya da adla)', () => {
+      expect(ruleMatches({ categoryId: 'pleksi', exclusions: { colors: [white] } }, facts)).toBe(false);
+      expect(ruleMatches({ categoryId: 'pleksi', exclusions: { colors: [{ id: 'c9', key: 'kirmizi|', label: 'Kırmızı' }] } }, facts)).toBe(true);
+      // kopya katalog kaydı: kimlik farklı, ad aynı
+      expect(ruleMatches({ categoryId: 'pleksi', exclusions: { brands: [{ ...akp, id: 'b-kopya' }] } }, facts)).toBe(false);
+    });
+
+    it('hariç süzgeçli çatı süzgeçsizden özel, bir alan daha tutandan değil', () => {
+      const all = { categoryId: 'pleksi' };
+      const notRed = { categoryId: 'pleksi', exclusions: { colors: [{ id: 'c9', key: 'kirmizi|', label: 'Kırmızı' }] } };
+      const thick = { categoryId: 'pleksi', thicknessId: 't1', thickness: { valueMm: 2.8 } };
+      expect(ruleSpecificity(notRed)).toBeGreaterThan(ruleSpecificity(all));
+      expect(ruleSpecificity(thick)).toBeGreaterThan(ruleSpecificity(notRed));
+      expect(pickRule([all, notRed], facts)).toBe(notRed);
+      expect(pickRule([all, { ...notRed, exclusions: { colors: [white] } }], facts)).toBe(all);
+    });
+
+    it('kopya engeli hariç süzgecini de sayar; etikette hariç tutulanlar yazar', () => {
+      expect(sameScope({ categoryId: 'pleksi' }, { categoryId: 'pleksi', exclusions: { colors: [white] } })).toBe(false);
+      expect(sameScope({ categoryId: 'pleksi', exclusions: { colors: [white] } }, { categoryId: 'pleksi', exclusions: { colors: [white] } })).toBe(true);
+      expect(ruleLabel({ categoryId: 'pleksi', category: { name: 'Pleksi' }, exclusions: { colors: [white], brands: [akp] } })).toBe(
+        'Tüm Pleksi (Akpolimer, Beyaz hariç)',
+      );
+    });
+  });
 });

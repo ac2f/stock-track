@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { MeasurementType } from '../../../common/enums/measurement-type.enum';
@@ -7,6 +7,7 @@ import { roundMoney } from '../../../common/utils/area.util';
 import { CurrencyService } from '../../currency/currency.service';
 import { SettingsService } from '../../settings/settings.service';
 import { MaterialPlate } from '../entities/material-plate.entity';
+import { MaterialTemplate } from '../entities/material-template.entity';
 import { SupplierMaterialPrice } from '../entities/supplier-material-price.entity';
 import { PriceRule } from '../entities/price-rule.entity';
 import { PriceRulesService } from './price-rules.service';
@@ -122,6 +123,8 @@ export class PricingService {
     private readonly platesRepo: Repository<MaterialPlate>,
     @InjectRepository(SupplierMaterialPrice)
     private readonly pricesRepo: Repository<SupplierMaterialPrice>,
+    @InjectRepository(MaterialTemplate)
+    private readonly templatesRepo: Repository<MaterialTemplate>,
     private readonly settings: SettingsService,
     private readonly currency: CurrencyService,
     private readonly rules: PriceRulesService,
@@ -143,6 +146,30 @@ export class PricingService {
       this.costs.forPlates([plateId]),
     ]);
     return this.compute(plate, prices, settings, rules, costs[plateId] ?? null);
+  }
+
+  /**
+   * Stoksuz (serbest) teklif kalemi için fiyat: stokta kalem yok, ürün türünün özellikleriyle (marka, renk,
+   * kalınlık, standart ebat) uyan en özel fiyat çatısı — ya da `ruleId` ile elle seçilen çatı. Sonuç
+   * plaka fiyatıyla aynı biçimdedir (`plateId` = "template:<id>").
+   */
+  async forTemplate(templateId: string, ruleId?: string | null): Promise<PlatePricing> {
+    const template = await this.templatesRepo.findOne({ where: { id: templateId } });
+    if (!template) throw new NotFoundException('Ürün türü bulunamadı.');
+    const plate = this.platesRepo.create({
+      template,
+      templateId: template.id,
+      measurementType: template.measurementType,
+      retailPrice: null,
+      markupPercent: null,
+    });
+    plate.id = `template:${template.id}`;
+    const [settings, rules] = await Promise.all([this.settings.getPricing(), this.rules.activeRules()]);
+    const forced = ruleId ? rules.find((r) => r.id === ruleId) ?? (await this.rules.findOne(ruleId)) : null;
+    if (forced && forced.categoryId !== template.categoryId) {
+      throw new BadRequestException('Seçilen fiyat çatısı bu ürün türünün malzeme türüne ait değil.');
+    }
+    return this.compute(plate, [], settings, rules, null, forced);
   }
 
   /** Birden çok plaka için tek turda fiyatlandırma (teklif ekranı listesi). */
@@ -281,6 +308,7 @@ export class PricingService {
     settings: { saleMarkupPercent: number; consignmentCommissionPercent: number },
     rules: PriceRule[],
     cost: PlateCost | null = null,
+    forcedRule: PriceRule | null = null,
   ): Promise<PlatePricing> {
     const unit = (plate.measurementType ?? MeasurementType.AREA) as MeasurementType;
     const retailPrice =
@@ -293,7 +321,7 @@ export class PricingService {
 
     // Fiyat çatısı: kaleme uyan en özel çatının referans fiyatı (son kurla
     // baz para birimine, sonra kalemin ölçü birimine çevrilir).
-    const matched = this.rules.ruleFor(rules, plate);
+    const matched = forcedRule ?? this.rules.ruleFor(rules, plate);
     let rule: PricingRuleRef | null = null;
     if (matched) {
       const ref = await this.rules.referenceOf(matched);

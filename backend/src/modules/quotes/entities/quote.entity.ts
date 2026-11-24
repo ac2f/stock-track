@@ -86,6 +86,31 @@ export class Quote extends ShopScopedEntity {
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
   total: number;
 
+  /**
+   * Hizmet kombinasyonu indirimi (bkz. ServiceBundle): teklif paketteki hizmetlerin hepsini
+   * içerdiğinde kendiliğinden uygulanır; teklifte ve belgede ayrı satır olarak görünür.
+   * total = subtotal − discountAmount.
+   */
+  @Column({
+    name: 'discount_amount',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: { to: (v?: number | null) => v ?? 0, from: (v: string | null) => (v == null ? 0 : Number(v)) },
+  })
+  discountAmount: number;
+
+  @Column({ name: 'discount_label', type: 'varchar', length: 200, nullable: true })
+  discountLabel?: string | null;
+
+  @Column({ name: 'discount_bundle_id', type: 'uuid', nullable: true })
+  discountBundleId?: string | null;
+
+  /** Kullanıcı bu teklifte kombinasyon indirimini kaldırdı (yeniden hesaplanırken uygulanmaz). */
+  @Column({ name: 'discount_off', default: false })
+  discountOff: boolean;
+
   @Column({
     name: 'base_total',
     type: 'numeric',

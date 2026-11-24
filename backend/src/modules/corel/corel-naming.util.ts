@@ -442,6 +442,7 @@ export function sheetItemsWithPurpose<T extends OwnerItemLike>(
   );
   const out: { item: T; purpose: 'cut' | 'sale' }[] = [];
   for (const item of items) {
+    if (item.lineKind === 'service') continue; // (hizmet: tabaka yok, klasör açılmaz)
     if (item.lineKind === 'sale') {
       out.push({ item, purpose: item.plateId && procPlates.has(item.plateId) ? 'cut' : 'sale' });
     } else if (!item.plateId || !salePlates.has(item.plateId)) {

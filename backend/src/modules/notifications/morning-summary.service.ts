@@ -94,7 +94,7 @@ export class MorningSummaryService {
     // Henüz stoğu düşülmemiş işlerin plakaları: gereken ve mevcut adet.
     const neededBy = new Map<string, number>();
     for (const j of jobs) {
-      if (j.stockConsumed) continue;
+      if (j.stockConsumed || !j.plateId) continue; // (hizmet işinde malzeme yok)
       neededBy.set(
         j.plateId,
         (neededBy.get(j.plateId) ?? 0) + Number(j.quantity),

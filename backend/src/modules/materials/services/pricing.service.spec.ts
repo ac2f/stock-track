@@ -72,6 +72,7 @@ describe('PricingService', () => {
     return new PricingService(
       platesRepo as never,
       pricesRepo as never,
+      {} as never, // (ürün türü deposu: forTemplate)
       settings as never,
       currency as never,
       rules,
@@ -431,6 +432,7 @@ describe('PricingService.forPlates (toplu)', () => {
     const service = new PricingService(
       platesRepo as never,
       pricesRepo as never,
+      {} as never, // (ürün türü deposu: forTemplate)
       settings as never,
       currency as never,
       rules as never,

@@ -23,6 +23,7 @@ import { SalesModule } from './modules/sales/sales.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
+import { ServiceCatalogModule } from './modules/service-catalog/service-catalog.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { PortalModule } from './modules/portal/portal.module';
@@ -79,6 +80,7 @@ import { HealthController } from './health.controller';
     ShopTransfersModule,
     QuotesModule,
     ReportsModule,
+    ServiceCatalogModule,
     ExpensesModule,
     DocumentsModule,
     SettingsModule,

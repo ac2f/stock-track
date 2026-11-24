@@ -17,6 +17,27 @@ export interface RuleScope {
   sizeId?: string | null;
   size?: { widthMm: number | string; heightMm: number | string } | null;
   variant?: string | null;
+  /** Hariç tutulanlar ("X rengi hariç", "Y markası hariç"): kapsama girse de bu kalemler dışarıda. */
+  exclusions?: RuleExclusions | null;
+}
+
+/** Hariç tutulan bir katalog kaydı: kimliği, eşleşme anahtarı (kopya kayıtlara karşı) ve okunur adı. */
+export interface ExcludedRef {
+  id: string;
+  key: string;
+  label: string;
+}
+
+export interface RuleExclusions {
+  brands?: ExcludedRef[];
+  colors?: ExcludedRef[];
+  thicknesses?: ExcludedRef[];
+  sizes?: ExcludedRef[];
+}
+
+/** Hariç tutulan kayıt sayısı (özgüllük ve etiket için). */
+export function exclusionCount(ex: RuleExclusions | null | undefined): number {
+  return ex ? (ex.brands?.length ?? 0) + (ex.colors?.length ?? 0) + (ex.thicknesses?.length ?? 0) + (ex.sizes?.length ?? 0) : 0;
 }
 
 /** Stok kaleminin çatı eşleşmesinde kullanılan özellikleri. */
@@ -92,7 +113,7 @@ export function plateFacts(plate: PlateLike): PlateFacts | null {
 }
 
 /** Renk eşleşme metni: ad + kod (Beyaz 1001 ≠ Beyaz 2002). */
-function colorText(name: string | null | undefined, code: string | null | undefined): string {
+export function colorText(name: string | null | undefined, code: string | null | undefined): string {
   const n = normalizeName(name);
   return n ? `${n}|${normalizeName(code)}` : '';
 }
@@ -143,6 +164,19 @@ export function ruleMatches(rule: RuleScope, f: PlateFacts): boolean {
   }
   const variant = normalizeName(rule.variant);
   if (variant && variant !== f.variant) return false;
+  const ex = rule.exclusions;
+  if (ex) {
+    const hit = (list: ExcludedRef[] | undefined, id: string | null, key: string) =>
+      !!list?.some((r) => same(r.id, r.key, id, key));
+    if (
+      hit(ex.brands, f.brandId, f.brandName) ||
+      hit(ex.colors, f.colorId, f.colorName) ||
+      hit(ex.thicknesses, f.thicknessId, f.thicknessKey) ||
+      hit(ex.sizes, f.sizeId, f.sizeKey)
+    ) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -168,7 +202,8 @@ export function ruleSpecificity(rule: RuleScope): number {
       weight += w;
     }
   }
-  return count * 100 + weight;
+  // Hariç süzgeci olan çatı, aynı alanları tutan süzgeçsizden özel; bir alan daha tutandan değil.
+  return count * 100 + weight + (exclusionCount(rule.exclusions) ? 50 : 0);
 }
 
 /** Kaleme uyan çatılardan geçerli olanı (en özel); uyan yoksa null. */
@@ -194,8 +229,14 @@ export function sameScope(a: RuleScope, b: RuleScope): boolean {
     (a.thicknessId ?? null) === (b.thicknessId ?? null) &&
     (a.colorId ?? null) === (b.colorId ?? null) &&
     (a.sizeId ?? null) === (b.sizeId ?? null) &&
-    normalizeName(a.variant) === normalizeName(b.variant)
+    normalizeName(a.variant) === normalizeName(b.variant) &&
+    exclusionSig(a.exclusions) === exclusionSig(b.exclusions)
   );
+}
+
+function exclusionSig(ex: RuleExclusions | null | undefined): string {
+  const ids = (l?: ExcludedRef[]) => (l ?? []).map((r) => r.id).sort().join(',');
+  return ex ? [ids(ex.brands), ids(ex.colors), ids(ex.thicknesses), ids(ex.sizes)].join('|') : '|||';
 }
 
 /**
@@ -211,5 +252,10 @@ export function ruleLabel(rule: RuleScope & { category?: { name: string } | null
     rule.color ? (rule.color.code ? `${rule.color.name} ${rule.color.code}` : rule.color.name) : null,
     rule.size ? `${Number(rule.size.widthMm)}×${Number(rule.size.heightMm)}` : null,
   ].filter((p): p is string => !!p);
-  return parts.length ? [cat, ...parts].join(' · ') : `Tüm ${cat}`;
+  const base = parts.length ? [cat, ...parts].join(' · ') : `Tüm ${cat}`;
+  const ex = rule.exclusions;
+  const out = ex
+    ? [...(ex.brands ?? []), ...(ex.thicknesses ?? []), ...(ex.colors ?? []), ...(ex.sizes ?? [])].map((r) => r.label)
+    : [];
+  return out.length ? `${base} (${out.join(', ')} hariç)` : base;
 }

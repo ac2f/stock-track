@@ -70,6 +70,26 @@ export class QuoteItemDto {
   @Type(() => BatchPlateItemDto)
   newMaterial?: BatchPlateItemDto;
 
+  /** Stoksuz kalemin ürün türü (yalnız tarif: fiyat önerisi ve düzenleme için; stok hareketi yok). */
+  @IsOptional()
+  @IsUUID()
+  templateId?: string;
+
+  // ── SERVICE kalemi ──
+  @IsOptional()
+  @IsUUID()
+  serviceTypeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  serviceTierId?: string;
+
+  /** Kademeyi seçtiren ölçü (ör. harf boyu, cm). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  measureValue?: number;
+
   // ── PROCESSING kalemi ──
   @IsOptional()
   @IsEnum(MeasurementType)
@@ -164,6 +184,11 @@ export class CreateQuoteDto {
   @IsOptional()
   @IsIn(['convert', 'complete'])
   finalize?: 'convert' | 'complete';
+
+  /** Bu teklifte hizmet kombinasyonu indirimi uygulanmasın (kendiliğinden eklenen satır kaldırıldı). */
+  @IsOptional()
+  @IsBoolean()
+  discountOff?: boolean;
 
   @IsArray()
   @ArrayMinSize(1)
