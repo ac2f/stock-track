@@ -12,6 +12,7 @@ import { lazyPage } from './lib/lazyPage';
 const PlatesListPage = lazyPage(() => import('./features/materials/PlatesListPage'), 'PlatesListPage');
 const CatalogPage = lazyPage(() => import('./features/materials/CatalogPage'), 'CatalogPage');
 const PriceRulesPage = lazyPage(() => import('./features/materials/PriceRulesPage'), 'PriceRulesPage');
+const ServicesPage = lazyPage(() => import('./features/services/ServicesPage'), 'ServicesPage');
 const CustomersListPage = lazyPage(() => import('./features/customers/CustomersListPage'), 'CustomersListPage');
 const DashboardPage = lazyPage(() => import('./features/reports/DashboardPage'), 'DashboardPage');
 const QuotesPage = lazyPage(() => import('./features/quotes/QuotesPage'), 'QuotesPage');
@@ -162,6 +163,14 @@ export default function App() {
           element={
             <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
               <PriceRulesPage />
+            </Can>
+          }
+        />
+        <Route
+          path="/services"
+          element={
+            <Can module="catalog" fallback={<NoAccess what="Katalog" />}>
+              <ServicesPage />
             </Can>
           }
         />

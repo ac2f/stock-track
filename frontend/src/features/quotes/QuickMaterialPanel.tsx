@@ -7,7 +7,7 @@ import { formatDate } from '../../lib/format';
 import type { MeasurementType, NewMaterialInput } from '../../types';
 
 /** Formda gösterilen özetli taslak: kayıt sırasında `NewMaterialInput` olarak gider. */
-export interface NewMaterialDraft extends NewMaterialInput {
+export interface NewMaterialDraft extends Omit<NewMaterialInput, 'measurementType'> {
   /** Kalemde ve özette görünen ad (ürün türünün adı). */
   label: string;
   measurementType: MeasurementType;
@@ -19,6 +19,7 @@ export interface NewMaterialDraft extends NewMaterialInput {
 export function draftToInput(d: NewMaterialDraft): NewMaterialInput {
   return {
     templateId: d.templateId,
+    measurementType: d.measurementType === 'time' ? undefined : d.measurementType,
     widthMm: d.widthMm,
     heightMm: d.heightMm,
     quantityInStock: d.quantityInStock,
@@ -42,7 +43,7 @@ export function draftSummary(d: NewMaterialDraft): string {
     dims,
     d.addedAt ? `geliş ${formatDate(d.addedAt)}` : '',
     d.ownerLabel,
-    'teklif kaydedilince stoğa eklenir',
+    'teklif onaylanınca stoğa eklenir',
   ]
     .filter(Boolean)
     .join(' · ');

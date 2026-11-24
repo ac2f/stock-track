@@ -55,6 +55,8 @@ export interface PriceRule {
   sizeId: string | null;
   size: { id: string; widthMm: number; heightMm: number } | null;
   variant: string | null;
+  /** Hariç tutulanlar ("Kırmızı hariç", "Plexiglas hariç"). */
+  exclusions: PriceRuleExclusions | null;
   unit: SupplierPriceUnit;
   markupPercent: number | null;
   referenceEntryId: string | null;
@@ -66,6 +68,19 @@ export interface PriceRule {
   coverage: PriceRuleCoverage;
 }
 
+export interface ExcludedRef {
+  id: string;
+  key: string;
+  label: string;
+}
+
+export interface PriceRuleExclusions {
+  brands?: ExcludedRef[];
+  colors?: ExcludedRef[];
+  thicknesses?: ExcludedRef[];
+  sizes?: ExcludedRef[];
+}
+
 export interface PriceRuleScope {
   categoryId: string;
   brandId?: string | null;
@@ -73,6 +88,10 @@ export interface PriceRuleScope {
   colorId?: string | null;
   sizeId?: string | null;
   variant?: string | null;
+  excludedBrandIds?: string[];
+  excludedColorIds?: string[];
+  excludedThicknessIds?: string[];
+  excludedSizeIds?: string[];
 }
 
 export interface PriceRuleInput extends PriceRuleScope {
@@ -100,8 +119,11 @@ export async function fetchPriceRules(categoryId?: string): Promise<PriceRule[]>
 export async function previewPriceRule(
   scope: PriceRuleScope & { excludeId?: string },
 ): Promise<PriceRulePreview> {
+  // (listeler sorgu parametresinde virgülle: "a,b")
   const params = Object.fromEntries(
-    Object.entries(scope).filter(([, v]) => v != null && v !== ''),
+    Object.entries(scope)
+      .map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : v] as const)
+      .filter(([, v]) => v != null && v !== ''),
   );
   const { data } = await api.get<PriceRulePreview>('/price-rules/preview', { params });
   return data;

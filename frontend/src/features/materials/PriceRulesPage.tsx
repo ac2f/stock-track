@@ -115,6 +115,58 @@ function ChipRow<T extends { id: string }>({
   );
 }
 
+/** Çok seçimli "hariç" çip satırı: işaretlenen değerler çatının dışında kalır. */
+function ExcludeRow<T extends { id: string }>({
+  label,
+  items,
+  value,
+  disabledId,
+  onChange,
+  render,
+}: {
+  label: string;
+  items: T[] | undefined;
+  value: string[] | undefined;
+  /** Kapsamda seçili değer hariç tutulamaz. */
+  disabledId?: string | null;
+  onChange: (ids: string[]) => void;
+  render: (item: T) => string;
+}) {
+  const on = new Set(value ?? []);
+  if (!items?.length) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+        {on.size > 0 && <span className="ml-1 normal-case text-red-700 dark:text-red-400">· {on.size} hariç</span>}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((it) => {
+          const active = on.has(it.id);
+          const disabled = it.id === disabledId;
+          return (
+            <button
+              key={it.id}
+              type="button"
+              disabled={disabled}
+              aria-pressed={active}
+              title={disabled ? 'Kapsamda seçili; hariç tutulamaz' : active ? 'Hariç tutuluyor — geri almak için tıklayın' : 'Hariç tut'}
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                active
+                  ? 'border-red-600 bg-red-50 text-red-800 line-through decoration-red-500 dark:border-red-500 dark:bg-red-950/50 dark:text-red-200'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800'
+              }`}
+              onClick={() => onChange(active ? [...on].filter((x) => x !== it.id) : [...on, it.id])}
+            >
+              {render(it)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const EMPTY: PriceRuleInput = { categoryId: '' };
 
 /**
@@ -328,6 +380,10 @@ export function PriceRulesPage() {
                       colorId: r.colorId,
                       sizeId: r.sizeId,
                       variant: r.variant,
+                      excludedBrandIds: r.exclusions?.brands?.map((x) => x.id) ?? [],
+                      excludedColorIds: r.exclusions?.colors?.map((x) => x.id) ?? [],
+                      excludedThicknessIds: r.exclusions?.thicknesses?.map((x) => x.id) ?? [],
+                      excludedSizeIds: r.exclusions?.sizes?.map((x) => x.id) ?? [],
                       unit: r.unit,
                       markupPercent: r.markupPercent,
                       note: r.note,
@@ -395,6 +451,10 @@ function RuleForm({
     colorId: form.colorId,
     sizeId: form.sizeId,
     variant: form.variant?.trim() || null,
+    excludedBrandIds: form.excludedBrandIds ?? [],
+    excludedColorIds: form.excludedColorIds ?? [],
+    excludedThicknessIds: form.excludedThicknessIds ?? [],
+    excludedSizeIds: form.excludedSizeIds ?? [],
     excludeId: editingId ?? undefined,
   };
   // Ek ad (variant) yazılırken her harfte istek gitmesin: kapsam yazma
@@ -429,9 +489,27 @@ function RuleForm({
     onSuccess: onSaved,
   });
 
-  const set = (patch: Partial<PriceRuleInput>) => setForm((f) => ({ ...f, ...patch }));
+  // Kapsamda seçilen değer aynı anda hariç listesinde kalmasın.
+  const set = (patch: Partial<PriceRuleInput>) =>
+    setForm((f) => {
+      const n = { ...f, ...patch };
+      const drop = (ids: string[] | undefined, picked: string | null | undefined) =>
+        picked ? ids?.filter((x) => x !== picked) : ids;
+      return {
+        ...n,
+        excludedBrandIds: drop(n.excludedBrandIds, n.brandId),
+        excludedColorIds: drop(n.excludedColorIds, n.colorId),
+        excludedThicknessIds: drop(n.excludedThicknessIds, n.thicknessId),
+        excludedSizeIds: drop(n.excludedSizeIds, n.sizeId),
+      };
+    });
   const markupValid = markup.trim() === '' || Number.isFinite(Number(markup.replace(',', '.')));
   const dup = preview?.duplicate;
+  const exclusionTotal =
+    (form.excludedBrandIds?.length ?? 0) +
+    (form.excludedColorIds?.length ?? 0) +
+    (form.excludedThicknessIds?.length ?? 0) +
+    (form.excludedSizeIds?.length ?? 0);
 
   return (
     <div className="card space-y-4">
@@ -513,6 +591,54 @@ function RuleForm({
               />
             )}
           </div>
+
+          <details
+            className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"
+            open={exclusionTotal > 0}
+          >
+            <summary className="cursor-pointer select-none text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Hariç tut {exclusionTotal > 0 ? `(${exclusionTotal})` : '(isteğe bağlı)'}
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                ör. “Kırmızı hariç bütün renkler”, “X markası hariç”
+              </span>
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <ExcludeRow
+                label="Hariç markalar"
+                items={brands}
+                value={form.excludedBrandIds}
+                disabledId={form.brandId}
+                onChange={(ids) => set({ excludedBrandIds: ids })}
+                render={(b) => b.name}
+              />
+              <ExcludeRow
+                label="Hariç renkler"
+                items={colors?.filter((c) => !form.brandId || !c.brandId || c.brandId === form.brandId)}
+                value={form.excludedColorIds}
+                disabledId={form.colorId}
+                onChange={(ids) => set({ excludedColorIds: ids })}
+                render={(c) => (c.code ? `${c.name} ${c.code}` : c.name)}
+              />
+              <ExcludeRow
+                label="Hariç kalınlıklar"
+                items={thicknesses}
+                value={form.excludedThicknessIds}
+                disabledId={form.thicknessId}
+                onChange={(ids) => set({ excludedThicknessIds: ids })}
+                render={(t) => `${formatNumber(t.valueMm)} mm`}
+              />
+              {category?.defaultMeasurementType === 'area' && (
+                <ExcludeRow
+                  label="Hariç ebatlar"
+                  items={sizes}
+                  value={form.excludedSizeIds}
+                  disabledId={form.sizeId}
+                  onChange={(ids) => set({ excludedSizeIds: ids })}
+                  render={(z) => `${Number(z.widthMm)}×${Number(z.heightMm)}`}
+                />
+              )}
+            </div>
+          </details>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="block min-w-0">

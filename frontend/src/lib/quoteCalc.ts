@@ -58,6 +58,11 @@ export function quoteLinePreview(
   const unit: MeasurementType =
     item.billingUnit ?? plate?.measurementType ?? 'piece';
   const price = Number(item.unitPrice) || 0;
+  // Hizmet kalemi: miktar doğrudan hizmetin birimindedir (metre, adet, m², saat).
+  if (item.lineKind === 'service') {
+    const q = Number(item.quantity) || 0;
+    return { unit, measure: q, lineTotal: Math.round(q * price * 100) / 100 };
+  }
   // Süre: birim fiyat saatlik; sunucu da aynı asgari süreyi uygular.
   if (unit === 'time') {
     const billed = billedMinutes(item.durationMinutes, minMinutes);

@@ -358,7 +358,7 @@ export type QuoteStatus =
   | 'rejected'
   | 'expired'
   | 'converted';
-export type QuoteLineKind = 'sale' | 'processing';
+export type QuoteLineKind = 'sale' | 'processing' | 'service';
 export type MeasurementType = 'area' | 'length' | 'piece' | 'weight' | 'time';
 /** Bir malzemenin ölçülebileceği tipler — süre yalnız işleme faturalamasında. */
 export type MaterialMeasurementType = Exclude<MeasurementType, 'time'>;
@@ -369,6 +369,8 @@ export type MaterialMeasurementType = Exclude<MeasurementType, 'time'>;
  */
 export interface NewMaterialInput {
   templateId: string;
+  /** Ürün türünün ölçü tipi (satır tutarı onaydan önce de doğru hesaplansın). */
+  measurementType?: MaterialMeasurementType;
   /** Kalan ebat (tabaka) — verilmezse türün standart tabakası. */
   widthMm?: number;
   heightMm?: number;
@@ -401,17 +403,27 @@ export interface QuoteItemInput {
   // fiyat saatliktir; sunucu asgari süreyi uygular.
   durationMinutes?: number;
   stockSource?: 'business' | 'consignment_tracked' | 'third_party_untracked';
-  /** Kaydederken stoğa eklenecek yeni malzeme; plateId yerine geçer. */
+  /** Stoğa teklif KABUL EDİLİNCE eklenecek yeni malzeme (tarif); plateId yerine geçer. */
   newMaterial?: NewMaterialInput;
+  /** Stoksuz kalemin ürün türü (yalnız tarif: fiyat önerisi ve düzenleme). */
+  templateId?: string;
+  // ── Hizmet kalemi ──
+  serviceTypeId?: string;
+  serviceTierId?: string;
+  /** Kademeyi seçtiren ölçü (ör. harf boyu, cm). */
+  measureValue?: number;
   // Konsinye (sahibin malı) satışında sahip payı yöntemi.
   ownerSettlement?: 'manual_amount' | 'commission_percent';
   ownerAmount?: number;
   commissionPercent?: number;
 }
 
-export interface QuoteItem extends QuoteItemInput {
+export interface QuoteItem extends Omit<QuoteItemInput, 'newMaterial'> {
   id: string;
   lineTotal: number;
+  /** Stoğa henüz girmemiş (onayda girecek) malzemenin tarifi. */
+  newMaterial?: (NewMaterialInput & { measurementType?: MaterialMeasurementType }) | null;
+  plate?: PlateBrief | null;
 }
 
 export interface Quote {
@@ -424,6 +436,10 @@ export interface Quote {
   currency: string;
   subtotal: number;
   total: number;
+  /** Hizmet kombinasyonu indirimi (ayrı satır): total = subtotal − discountAmount. */
+  discountAmount?: number | string;
+  discountLabel?: string | null;
+  discountOff?: boolean;
   note?: string | null;
   validUntil?: string | null;
   createdAt: string;
@@ -471,8 +487,13 @@ export interface PlateBrief {
 
 export interface ProcessingJob {
   id: string;
-  plateId: string;
-  plate?: PlateBrief;
+  /** Hizmet işinde (harf büküm, montaj …) malzeme yok: boş; adı `title`'da. */
+  plateId?: string | null;
+  plate?: PlateBrief | null;
+  title?: string | null;
+  serviceTypeId?: string | null;
+  /** Kombinasyon indiriminin bu işe düşen payı (toplamdan düşülmüş). */
+  discountAmount?: number | string;
   customerId?: string;
   customer?: { name: string };
   status: ProcessingStatus;

@@ -1,4 +1,8 @@
 import { Can } from '../../components/Can';
+import { ServiceLineCard } from './ServiceLineCard';
+import { AdhocPricePanel } from './AdhocPricePanel';
+import { fetchServiceCatalog } from '../../api/services.api';
+import { bestBundle, bundleLabel } from '../../lib/services';
 import { MoreMenu } from '../../components/ui/MoreMenu';
 import { useLeaveGuard } from '../../hooks/useLeaveGuard';
 import { useUrlState } from '../../hooks/useUrlState';
@@ -95,7 +99,7 @@ type FormItem = QuoteItemInput & {
   adhocTemplateId?: string;
   /** Stoksuz kalemden "işleme olarak da belirt" ile işleme kalemi eklendi. */
   linkedProcessing?: boolean;
-  /** Yeni malzeme: teklif kaydedilince stoğa eklenir, kalemin plakası olur. */
+  /** Yeni malzeme: teklif onaylanınca stoğa eklenir, kalemin plakası olur. */
   material?: NewMaterialDraft;
 };
 
@@ -473,7 +477,7 @@ function SalePlatePicker({
 }
 
 /** İşletmenin kendi stoğundan satış (konsinye / üçüncü kişi malı değil). */
-function isOwnStock(it: QuoteItemInput): boolean {
+function isOwnStock(it: Pick<QuoteItemInput, 'stockSource'>): boolean {
   return !it.stockSource || it.stockSource === 'business';
 }
 
@@ -1052,16 +1056,22 @@ export function QuotesPage() {
           </p>
           {data.items.map((q) => {
             const st = STATUS[q.status];
-            const saleCount = q.items.filter((it) => it.lineKind === 'sale').length;
-            const procCount = q.items.length - saleCount;
+            const kindCounts = (
+              [
+                ['sale', 'satış'],
+                ['processing', 'işleme'],
+                ['service', 'hizmet'],
+              ] as const
+            )
+              .map(([k, label]) => [q.items.filter((it) => it.lineKind === k).length, label] as const)
+              .filter(([n]) => n > 0);
             const kinds =
-              saleCount && procCount
-                ? `${saleCount} satış + ${procCount} işleme`
-                : saleCount
-                  ? 'satış'
-                  : procCount
-                    ? 'işleme'
-                    : '';
+              kindCounts.length === 1 ? kindCounts[0][1] : kindCounts.map(([n, label]) => `${n} ${label}`).join(' + ');
+            // Onayda stoğa girecek (henüz stokta olmayan) malzeme sayısı.
+            const pendingMaterial = q.items.filter((it) => it.newMaterial && !it.plateId).length;
+            const quoteDiscount = Number(q.discountAmount) || 0;
+            // Kuyruğa düşen kalemler (işleme + hizmet).
+            const procCount = q.items.filter((it) => it.lineKind !== 'sale').length;
             const undecided = q.status === 'draft' || q.status === 'sent';
             const editable = undecided || q.status === 'rejected';
             const editing = editingQuote?.id === q.id;
@@ -1094,11 +1104,21 @@ export function QuotesPage() {
                       {q.items.length} kalem{kinds && ` (${kinds})`} · {formatDate(q.quoteDate ?? q.createdAt)}
                       {!mini && q.validUntil && ` · geçerlilik ${formatDate(q.validUntil)}`}
                     </p>
+                    {pendingMaterial > 0 && undecided && (
+                      <p className="text-xs text-indigo-700 dark:text-indigo-300" title="Teklif kabul edilince stoğa eklenir; reddedilirse stoğa hiç girmez">
+                        📦 {pendingMaterial} yeni malzeme onayda stoğa girecek
+                      </p>
+                    )}
                   </div>
                   <div className="shrink-0 text-right">
                     <p className={`font-bold text-slate-900 ${mini ? 'text-base' : 'text-lg'}`}>
                       {money.format(q.total)}
                     </p>
+                    {quoteDiscount > 0 && (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400" title={q.discountLabel ?? 'Kombinasyon indirimi'}>
+                        indirim −{money.format(quoteDiscount)}
+                      </p>
+                    )}
                     {(() => {
                       const pr = quoteProfit(q, costs);
                       if (!pr) return null;
@@ -1628,12 +1648,33 @@ function Field({
 function quoteItemToForm(it: Quote['items'][number], quote: Quote): FormItem {
   const consignment =
     it.lineKind === 'sale' && it.stockSource && it.stockSource !== 'business';
+  // Stoğa onayda girecek malzemenin tarifi (taslak teklif): yeniden "yeni malzeme" taslağı olur.
+  const nm = it.newMaterial ?? null;
   return {
     lineKind: it.lineKind,
-    plateId: it.plateId,
-    // Serbest (stoksuz) kalem: plakasız kaydedilmiş satış kalemi.
-    adhoc: it.lineKind === 'sale' && !it.plateId,
-    itemName: it.itemName,
+    plateId: it.plateId ?? undefined,
+    material: nm
+      ? {
+          templateId: nm.templateId,
+          label: it.itemName ?? 'Malzeme',
+          measurementType: (nm.measurementType ?? it.billingUnit ?? 'area') as NewMaterialDraft['measurementType'],
+          widthMm: nm.widthMm,
+          heightMm: nm.heightMm,
+          quantityInStock: nm.quantityInStock,
+          ownerCustomerId: nm.ownerCustomerId,
+          ownerLabel: nm.ownerCustomerId ? 'müşterinin malı' : 'işletme stoğu',
+          addedAt: nm.addedAt,
+          warehouseId: nm.warehouseId,
+        }
+      : undefined,
+    // Serbest (stoksuz) kalem: plakasız, tarifsiz kaydedilmiş satış kalemi; ürün türü saklıysa geri gelir.
+    adhoc: it.lineKind === 'sale' && !it.plateId && !nm,
+    adhocTemplateId: it.templateId ?? undefined,
+    // Hizmet kalemi
+    serviceTypeId: it.serviceTypeId ?? undefined,
+    serviceTierId: it.serviceTierId ?? undefined,
+    measureValue: it.measureValue != null ? Number(it.measureValue) : undefined,
+    itemName: it.itemName ?? undefined,
     description: it.description,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
@@ -1837,12 +1878,14 @@ function NewQuoteForm({
   });
 
 
-  const addItem = (lineKind: 'sale' | 'processing') =>
+  const addItem = (lineKind: 'sale' | 'processing' | 'service') =>
     setItems((it) => [
       ...it,
       lineKind === 'sale'
         ? { lineKind, plateId: '', quantity: 1, unitPrice: 0, stockSource: 'business' }
-        : { lineKind, plateId: '', quantity: 1, unitPrice: 0, billingUnit: 'area' },
+        : lineKind === 'service'
+          ? { lineKind, quantity: 1, unitPrice: 0 }
+          : { lineKind, plateId: '', quantity: 1, unitPrice: 0, billingUnit: 'area' },
     ]);
 
   // Aynı malzemeyi işleme kalemi olarak ekler (satış kalemindeki soruya "Evet" yanıtı).
@@ -1903,7 +1946,7 @@ function NewQuoteForm({
   };
 
   // Stoksuz kalemi "işleme olarak da belirt": aynı malzemeyle (ürün türü +
-  // özel ebat) bir işleme kalemi ekler; malzeme teklif kaydedilince stoğa
+  // özel ebat) bir işleme kalemi ekler; malzeme teklif onaylanınca stoğa
   // girer ve işleme onu kullanır.
   const addProcessingFromAdhoc = (i: number) => {
     const it = items[i];
@@ -2027,15 +2070,39 @@ function NewQuoteForm({
     items.length > 0 &&
     // Her kalem ya bir plaka seçmeli, yeni malzeme tanımlamalı ya da serbest
     // (stoksuz) kalemde ad girmeli.
-    items.every((i) => i.plateId || i.material || (i.adhoc && i.itemName?.trim())) &&
+    items.every(
+      (i) =>
+        (i.lineKind === 'service' ? !!i.serviceTypeId : i.plateId) ||
+        i.material ||
+        (i.adhoc && i.itemName?.trim()),
+    ) &&
     !ownerConflict;
 
+  // Hizmet kataloğu (hizmet kalemleri ve kombinasyon indirimi).
+  const { data: serviceCatalog } = useQuery({
+    queryKey: ['service-catalog', 'active'],
+    queryFn: () => fetchServiceCatalog(true),
+    staleTime: 60_000,
+  });
+  // Bu teklifte kombinasyon indirimi kaldırıldı mı (kendiliğinden eklenen satır).
+  const [discountOff, setDiscountOff] = useState(editQuote?.discountOff ?? false);
+
   // Teklif henüz oluşturulmadan satır tutarları + genel toplam (canlı tahmin).
-  const grandTotal = items.reduce(
+  const subTotal = items.reduce(
     (sum, it) => sum + quoteLinePreview(it, getPlate(it.plateId), minMinutes)
         .lineTotal,
     0,
   );
+  // Kombinasyon indirimi (sunucuyla aynı kural): paketteki hizmetlerin hepsi teklifteyse.
+  const bundleHit =
+    serviceCatalog && items.some((it) => it.serviceTypeId)
+      ? bestBundle(
+          serviceCatalog.bundles,
+          items.map((it) => ({ serviceTypeId: it.serviceTypeId, lineTotal: quoteLinePreview(it, getPlate(it.plateId), minMinutes).lineTotal })),
+        )
+      : null;
+  const discount = bundleHit && !discountOff ? bundleHit.amount : 0;
+  const grandTotal = subTotal - discount;
 
   // #D Tahmini kâr (yalnızca MALZEME SATIŞLARINDAN): konsinye ise komisyon geliri,
   // işletmenin kendi malıysa satış tutarının tamamı (maliyet ayrı/giderde tutulur).
@@ -2096,8 +2163,12 @@ function NewQuoteForm({
       const base: QuoteItemInput = {
         ...rest,
         plateId: it.plateId || undefined,
-        // Yeni malzeme: kayıt sırasında stoğa eklenir (geliş tarihiyle).
+        // Yeni malzeme: tarifi teklifte durur, teklif ONAYLANINCA stoğa eklenir (geliş tarihiyle);
+        // o zamana kadar kalemde ürün türünün adı görünür.
         newMaterial: material ? draftToInput(material) : undefined,
+        itemName: material && !it.plateId ? material.label : rest.itemName,
+        // Stoksuz kalemin ürün türü (fiyat önerisi ve düzenleme için saklanır).
+        templateId: adhoc ? _tpl : undefined,
       };
       // #5 Serbest (stoksuz) kalem: plaka yok; ad + billingUnit gönderilir,
       // stok kaynağı/sahip uygulanmaz. Ürün türü seçildiyse ad ürün türünü ve
@@ -2132,6 +2203,7 @@ function NewQuoteForm({
       quoteDate: quoteDate || undefined,
       skipFolders,
       finalize: !editQuote || backdated ? (finalizeMode === 'none' ? undefined : finalizeMode) : undefined,
+      discountOff: discountOff || undefined,
       items: mapped,
     });
   };
@@ -2507,17 +2579,31 @@ function NewQuoteForm({
             satış
             <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-indigo-500" aria-hidden />
             işleme
+            <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+            hizmet
           </span>
         )}
       </div>
       {items.length === 0 && (
         <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
-          Henüz kalem yok. Aşağıdan satış ya da işleme kalemi ekleyin
+          Henüz kalem yok. Aşağıdan satış, işleme ya da hizmet kalemi ekleyin
           {buyerCustomerId ? ' veya yukarıdaki stok listesinden toplu seçin.' : '.'}
         </p>
       )}
 
       {items.map((item, i) => {
+        if (item.lineKind === 'service') {
+          return (
+            <ServiceLineCard
+              key={i}
+              index={i}
+              item={item}
+              catalog={serviceCatalog}
+              onChange={(p) => patch(i, p)}
+              onRemove={() => remove(i)}
+            />
+          );
+        }
         const plate = getPlate(item.plateId);
         const preview = quoteLinePreview(item, plate, minMinutes);
         // Satış kaleminin ölçü birimi: serbest kalemde kalemin billingUnit'i,
@@ -2745,12 +2831,20 @@ function NewQuoteForm({
                 (() => {
                   const t = allTemplates!.find((x) => x.id === item.adhocTemplateId)!;
                   return (
-                    <SelectedCard
-                      title={stripNamePlaceholders(t.name) || t.name}
-                      subtitle={`${t.category?.name ?? ''} · stoksuz: stoktan düşülmez`}
-                      titleHint="Başka ürün türü seçmek için karta tıklayın"
-                      onChange={() => setAdhocPick(i)}
-                    />
+                    <div className="space-y-2">
+                      <SelectedCard
+                        title={stripNamePlaceholders(t.name) || t.name}
+                        subtitle={`${t.category?.name ?? ''} · stoksuz: stoktan düşülmez`}
+                        titleHint="Başka ürün türü seçmek için karta tıklayın"
+                        onChange={() => setAdhocPick(i)}
+                      />
+                      <AdhocPricePanel
+                        templateId={t.id}
+                        categoryId={t.categoryId}
+                        billingUnit={item.billingUnit ?? 'area'}
+                        onApply={(price) => patch(i, { unitPrice: price })}
+                      />
+                    </div>
                   );
                 })()
               ) : (
@@ -2835,7 +2929,7 @@ function NewQuoteForm({
                 title={
                   (item.billingUnit ?? 'area') === 'area' && !(item.widthMm && item.heightMm)
                     ? 'Önce ebadı (en × boy) yazın'
-                    : 'Aynı malzemeyle bir işleme kalemi ekler; malzeme teklif kaydedilince stoğa girer ve işlenir'
+                    : 'Aynı malzemeyle bir işleme kalemi ekler; malzeme teklif onaylanınca stoğa girer ve işlenir'
                 }
                 onClick={() => addProcessingFromAdhoc(i)}
               >
@@ -3215,6 +3309,25 @@ function NewQuoteForm({
         );
       })}
 
+      {/* Hizmet kombinasyonu indirimi: kalemlerin altında ayrı satır (kaldırılabilir). */}
+      {bundleHit && (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed px-3 py-2 text-sm ${
+            discountOff
+              ? 'border-slate-300 text-slate-400 dark:border-slate-600'
+              : 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200'
+          }`}
+        >
+          <span className={discountOff ? 'line-through' : ''}>{bundleLabel(bundleHit.bundle)}</span>
+          <span className="flex items-center gap-2">
+            <span className="font-semibold">−{money.format(bundleHit.amount)}</span>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setDiscountOff((v) => !v)}>
+              {discountOff ? 'Geri al' : 'Kaldır'}
+            </button>
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         <button type="button" className="btn-secondary" onClick={() => addItem('sale')}>
           <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
@@ -3228,10 +3341,19 @@ function NewQuoteForm({
           type="button"
           className="btn-secondary"
           onClick={addNewMaterialLine}
-          title="Stokta olmayan malzemeyi tanımla; teklif kaydedilince stoğa girer"
+          title="Stokta olmayan malzemeyi tanımla; teklif onaylanınca stoğa girer"
         >
           <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
           + Yeni malzemeli işleme
+        </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => addItem('service')}
+          title="Harf büküm, harf yapıştırma, montaj … (Hizmetler'den); onaylanınca kuyruğa düşer"
+        >
+          <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+          + Hizmet kalemi
         </button>
       </div>
 

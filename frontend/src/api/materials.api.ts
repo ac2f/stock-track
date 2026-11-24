@@ -539,6 +539,14 @@ export interface PricingRuleRef {
   markupPercent: number | null;
 }
 
+/** Stoksuz teklif kalemi: ürün türünden fiyat önerisi (uyan en özel çatı ya da seçilen `ruleId`). */
+export async function fetchTemplatePricing(templateId: string, ruleId?: string): Promise<PlatePricing> {
+  const { data } = await api.get<PlatePricing>(`/plates/pricing/template/${templateId}`, {
+    params: ruleId ? { ruleId } : undefined,
+  });
+  return data;
+}
+
 export async function fetchPlatePricing(plateId: string): Promise<PlatePricing> {
   const { data } = await api.get<PlatePricing>(`/plates/${plateId}/pricing`);
   return data;

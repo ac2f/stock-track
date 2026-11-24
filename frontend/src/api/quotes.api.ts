@@ -42,6 +42,8 @@ export interface CreateQuoteInput {
   quoteDate?: string;
   /** Runner bu teklif için kendiliğinden klasör açmasın. */
   skipFolders?: boolean;
+  /** Bu teklifte hizmet kombinasyonu indirimi uygulanmasın. */
+  discountOff?: boolean;
   /**
    * Kaydederken tek adımda ilerlet: 'convert' kabul + satış/işlemeye dönüştür,
    * 'complete' bunlara ek olarak işlemeleri kalem tarihleriyle tamamla.

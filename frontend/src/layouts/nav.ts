@@ -61,6 +61,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/business', label: 'İşletme Profili', title: 'İşletme profili ve makineler', icon: '🪪', anyOf: ['settings', 'catalog'], keywords: 'profil adres il ilçe iletişim etiket makine envanter ebat rehber paylaşım borç uyarı' },
       { to: '/platform', label: 'Platform', title: 'Platform yönetimi', icon: '🛰️', owner: true, keywords: 'kiralama işletme onay kayıt etiket makine türü abonelik süre askıya redis önbellek' },
       { to: '/price-rules', label: 'Fiyat Çatıları', title: 'Fiyat Çatıları', icon: '💰', module: 'catalog', keywords: 'fiyat çatı malzemeci tedarikçi referans döviz dolar satış önerisi' },
+      { to: '/services', label: 'Hizmetler', title: 'Hizmet listesi', icon: '🛠️', module: 'catalog', keywords: 'hizmet grup tür harf büküm yapıştırma montaj kademe kombinasyon indirim paket' },
       { to: '/catalog', label: 'Katalog', title: 'Katalog', icon: '🗂️', module: 'catalog', keywords: 'ürün türü malzeme türü şablon kategori marka renk kalınlık ebat pleksi dekota' },
       { to: '/team', label: 'Ekip', title: 'Ekip ve yetkiler', icon: '👥', team: true, keywords: 'çalışan kullanıcı yetki dükkân' },
       { to: '/settings', label: 'Ayarlar', title: 'Dükkân ayarları', icon: '⚙️', module: 'settings', keywords: 'ayar telegram fiyat yedek' },

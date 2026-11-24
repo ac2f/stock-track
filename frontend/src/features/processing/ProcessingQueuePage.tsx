@@ -53,9 +53,15 @@ import { apiErrorMessage, toast } from '../../lib/toast';
 import type { ProcessingJob, ProcessingStatus } from '../../types';
 
 /** Geçmiş işini "Müşteri · Kategori" ile gruplar (kuyruk kendi gruplamasını kullanır). */
+/** İşin adı: malzemesi (işleme) ya da hizmetin adı (malzemesiz hizmet işi). */
+function jobName(job: ProcessingJob, fallback = '—'): string {
+  return job.plate?.name ?? job.title ?? fallback;
+}
+
 function jobGroupKey(job: ProcessingJob): string {
   const customer = job.customer?.name ?? 'Müşterisiz';
-  const category = job.plate?.template?.category?.name ?? 'Diğer';
+  // (malzemesiz hizmet işleri kendi grubunda)
+  const category = job.plate?.template?.category?.name ?? (job.plateId ? 'Diğer' : 'Hizmet');
   return `${customer} · ${category}`;
 }
 
@@ -739,7 +745,7 @@ function HistoryJobCard({
     const ok = await confirmDialog({
       title: 'İş silinsin mi?',
       message:
-        `${job.plate?.name ?? 'Bu iş'} silinecek. Tüketilen stok iade edilir ve borç cari ekstreden düşülür.`,
+        `${jobName(job, 'Bu iş')} silinecek. Tüketilen stok iade edilir ve borç cari ekstreden düşülür.`,
       confirmText: 'Sil',
       danger: true,
     });
@@ -760,13 +766,13 @@ function HistoryJobCard({
                 className="h-5 w-5"
                 checked={selected}
                 onChange={onToggle}
-                aria-label={`${job.plate?.name ?? 'İş'} seç`}
+                aria-label={`${jobName(job, 'İş')} seç`}
               />
             </label>
           </Can>
         )}
         <div className="min-w-0 flex-1">
-          <p className="break-words font-semibold">{job.plate?.name ?? '—'}</p>
+          <p className="break-words font-semibold">{jobName(job)}</p>
           <p className="truncate text-sm text-slate-600">
             {job.customer?.name ?? 'Müşterisiz'} · {jobMeasure(job)}
           </p>
@@ -941,12 +947,14 @@ export function ProcessingQueuePage() {
   // düşümü çakışmasın). Biri başarısız olsa da diğerleri tamamlanır ve sonuç
   // ne olursa olsun listeler tazelenir.
   const bulkComplete = useMutation({
-    mutationFn: async (jobs: { id: string; plateId: string }[]) => {
+    mutationFn: async (jobs: { id: string; plateId?: string | null }[]) => {
+      // (aynı plakanın işleri sırayla; malzemesiz hizmet işleri her biri kendi başına)
       const byPlate = new Map<string, string[]>();
       for (const j of jobs) {
-        const ids = byPlate.get(j.plateId);
+        const key = j.plateId ?? `job:${j.id}`;
+        const ids = byPlate.get(key);
         if (ids) ids.push(j.id);
-        else byPlate.set(j.plateId, [j.id]);
+        else byPlate.set(key, [j.id]);
       }
       const results = await mapLimit([...byPlate.values()], 4, async (ids) => {
         for (const id of ids) await setProcessingStatus(id, 'completed');
@@ -1253,8 +1261,8 @@ function QueueBulkBar({ jobs, onClear }: { jobs: ProcessingJob[]; onClear: () =>
     setBusy(true);
     try {
       const res = await runBulk(targets, (j) => setProcessingStatus(j.id, status, { ...opts, silent: true }), {
-        serialKey: (j) => j.plateId,
-        label: (j) => j.plate?.name ?? 'İş',
+        serialKey: (j) => j.plateId ?? `job:${j.id}`,
+        label: (j) => j.plate?.name ?? j.title ?? 'İş',
       });
       const rep = bulkReport('iş', verbs, res);
       toast[rep.tone](rep.title, rep.detail);
@@ -1405,7 +1413,7 @@ function QueueJobCard({
     <SelectBox
       state={selected}
       onChange={onToggle}
-      label={`${job.plate?.name ?? 'İş'} (${job.customer?.name ?? 'Müşterisiz'}) seç`}
+      label={`${jobName(job, 'İş')} (${job.customer?.name ?? 'Müşterisiz'}) seç`}
     />
   );
   const [finalPrice, setFinalPrice] = useState('');
@@ -1422,7 +1430,8 @@ function QueueJobCard({
   const [completedAt, setCompletedAt] = useState('');
   // Telefonda isteğe bağlı tamamlama alanları katlı durur (masaüstünde hep açık).
   const [optsOpen, setOptsOpen] = useState(false);
-  const isAreaPlate = !job.plate?.measurementType || job.plate.measurementType === 'area';
+  // (fire/kalan parça yalnız tabaka malzemede; hizmet işinde malzeme yok)
+  const isAreaPlate = !!job.plateId && (!job.plate?.measurementType || job.plate.measurementType === 'area');
   // Doldurulmuş isteğe bağlı alan sayısı: katlıyken de unutulmasın diye gösterilir.
   const filledOpts = [finalPrice, offW || offH, processedAt, completedAt].filter(Boolean).length;
 
@@ -1442,7 +1451,7 @@ function QueueJobCard({
   const cancel = async () => {
     const ok = await confirmDialog({
       title: 'İş iptal edilsin mi?',
-      message: `${job.plate?.name ?? 'Bu iş'} (${job.customer?.name ?? 'Müşterisiz'}) kuyruktan iptal edilecek.`,
+      message: `${jobName(job, 'Bu iş')} (${job.customer?.name ?? 'Müşterisiz'}) kuyruktan iptal edilecek.`,
       confirmText: 'İptal et',
       cancelText: 'Vazgeç',
       danger: true,
@@ -1468,7 +1477,7 @@ function QueueJobCard({
               title={STATUS_LABELS[job.status]}
               aria-hidden
             />
-            <span className="truncate">{job.plate?.name ?? '—'}</span>
+            <span className="truncate">{jobName(job)}</span>
             <span className="sr-only">({STATUS_LABELS[job.status]})</span>
           </p>
           <p className="truncate text-xs text-slate-500">
@@ -1512,7 +1521,7 @@ function QueueJobCard({
       <div className="flex items-start justify-between gap-3">
         {pick}
         <div className="min-w-0 flex-1">
-          <p className="break-words font-semibold">{job.plate?.name ?? '—'}</p>
+          <p className="break-words font-semibold">{jobName(job)}</p>
           <p className="truncate text-sm text-slate-600">
             {job.customer?.name ?? 'Müşterisiz'} · {jobMeasure(job)}
           </p>

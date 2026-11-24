@@ -1,3 +1,4 @@
+import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import {
   BadRequestException,
   Injectable,
@@ -194,6 +195,9 @@ export class QuotesService {
       });
       await this.itemsRepo.update(it.id, { plateId: plateIds[0], newMaterial: null, itemName: null });
       it.plateId = plateIds[0];
+      // Eager yüklenen `plate: null` ilişkisi kalırsa teklif kaydedilirken (cascade) plate_id'yi
+      // yeniden boşaltır: ilişki de yeni plakaya bağlanır.
+      it.plate = { id: plateIds[0] } as MaterialPlate;
       it.newMaterial = null;
       it.itemName = null;
     }

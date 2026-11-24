@@ -1,4 +1,9 @@
 import { PartialType } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+
+/** Sorgu parametresinde (önizleme) liste virgülle gelir: "a,b" → [a, b]. */
+const idList = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.split(',').map((x) => x.trim()).filter(Boolean) : value;
 import {
   IsBoolean,
   IsEnum,
@@ -45,21 +50,25 @@ export class PriceRuleScopeDto {
 
   // ── hariç tutulanlar (bu türün katalog kayıtları) ──
   @IsOptional()
+  @Transform(idList)
   @IsArray()
   @IsUUID('all', { each: true })
   excludedBrandIds?: string[];
 
   @IsOptional()
+  @Transform(idList)
   @IsArray()
   @IsUUID('all', { each: true })
   excludedColorIds?: string[];
 
   @IsOptional()
+  @Transform(idList)
   @IsArray()
   @IsUUID('all', { each: true })
   excludedThicknessIds?: string[];
 
   @IsOptional()
+  @Transform(idList)
   @IsArray()
   @IsUUID('all', { each: true })
   excludedSizeIds?: string[];

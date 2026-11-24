@@ -55,6 +55,7 @@ describe('QuotesService geriye dönük giriş', () => {
       const pending = {
         id: 'i2',
         plateId: null,
+        plate: null,
         itemName: 'Pleksi',
         quantity: 1,
         newMaterial: { templateId: 'tpl', widthMm: 100, heightMm: 200, quantityInStock: 1, copies: 5 },
@@ -67,7 +68,8 @@ describe('QuotesService geriye dönük giriş', () => {
       // Geliş tarihi verilmediyse teklif tarihi.
       expect(sent.addedAt).toBe('2026-03-02');
       expect(t.itemUpdate).toHaveBeenCalledWith('i2', { plateId: 'plate-new', newMaterial: null, itemName: null });
-      expect(pending).toMatchObject({ plateId: 'plate-new', newMaterial: null });
+      // İlişki de bağlanır: eager `plate: null` cascade kayıtta plate_id'yi boşaltmasın.
+      expect(pending).toMatchObject({ plateId: 'plate-new', newMaterial: null, plate: { id: 'plate-new' } });
       // İdempotent: ikinci kabulde yeniden eklenmez.
       await t.materialize(quote);
       expect(t.createBatch).toHaveBeenCalledTimes(1);
