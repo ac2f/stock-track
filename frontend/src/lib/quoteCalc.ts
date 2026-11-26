@@ -1,8 +1,15 @@
 import type { MeasurementType, Plate, QuoteItemInput } from '../types';
 
+/** Sunucunun `round(x, 4)`'ü: ölçü (m², metre, saat, adet) 4 haneye yuvarlanır, tutar o ölçüden hesaplanır. */
+function round4(n: number): number {
+  return Math.round((n + Number.EPSILON) * 10000) / 10000;
+}
+
 /**
  * Backend `computeQuantityValue` ile aynı: m² = en×boy×adet, metre =
- * uzunluk×adet, saat = süre(dk)/60 (adetle çarpılmaz), diğer = adet.
+ * uzunluk×adet, saat = süre(dk)/60 (adetle çarpılmaz), diğer = adet — hepsi
+ * 4 haneye yuvarlanmış. (Yuvarlanmadan çarpılınca ekrandaki tutar kayda geçenden
+ * birkaç kuruş farklı çıkıyordu: 5 dk × 933/saat ekranda 77,75, kayıtta 77,72.)
  */
 function quantityValue(
   unit: MeasurementType,
@@ -14,17 +21,17 @@ function quantityValue(
 ): number | null {
   if (unit === 'time') {
     if (minutes == null) return null;
-    return minutes / 60;
+    return round4(minutes / 60);
   }
   if (unit === 'area') {
     if (!widthMm || !heightMm) return null;
-    return (Number(widthMm) / 1000) * (Number(heightMm) / 1000) * quantity;
+    return round4((Number(widthMm) / 1000) * (Number(heightMm) / 1000) * quantity);
   }
   if (unit === 'length') {
     if (!lengthMeters) return null;
-    return Number(lengthMeters) * quantity;
+    return round4(Number(lengthMeters) * quantity);
   }
-  return quantity;
+  return round4(quantity);
 }
 
 export interface LinePreview {
