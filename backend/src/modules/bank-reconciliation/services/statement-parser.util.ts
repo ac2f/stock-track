@@ -49,13 +49,12 @@ export function parseAmount(value: unknown): number | null {
   let text = String(value).trim();
   if (!text) return null;
 
-  // Muhasebe biçimi: parantez içi = negatif.
+  // Muhasebe biçimi: parantez içi = negatif. Eksi işareti de nerede olursa olsun (başta, para biriminden sonra
+  // "TL -50,00", sonda "50,00-") ve Excel/PDF dışa aktarımının eksisi (U+2212 "−") negatiftir; yalnız baştaki
+  // ASCII "-" aranınca bunlar ARTI okunuyor, gider gelir olarak eşleşiyordu.
   let negative = /^\(.*\)$/.test(text);
   if (negative) text = text.slice(1, -1);
-  if (text.startsWith('-')) {
-    negative = true;
-    text = text.slice(1);
-  }
+  if (/[-\u2212]/.test(text)) negative = true;
 
   // Para birimi simgeleri ve boşlukları at.
   text = text.replace(/[^\d.,]/g, '');

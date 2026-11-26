@@ -35,6 +35,15 @@ describe('parseAmount', () => {
     expect(parseAmount('(500,00)')).toBe(-500);
   });
 
+  it('eksi işareti başta olmasa da (para biriminden sonra, sonda, Unicode eksi) negatiftir', () => {
+    expect(parseAmount('TL -50,00')).toBe(-50);
+    expect(parseAmount('₺-1.250,75')).toBe(-1250.75);
+    expect(parseAmount('1.250,75-')).toBe(-1250.75);
+    expect(parseAmount('−320,10')).toBe(-320.1);
+    expect(parseAmount('(-500,00)')).toBe(-500);
+    expect(parseAmount('+75,00')).toBe(75);
+  });
+
   it('boş ve anlamsız değerde null döner', () => {
     expect(parseAmount('')).toBeNull();
     expect(parseAmount(null)).toBeNull();
