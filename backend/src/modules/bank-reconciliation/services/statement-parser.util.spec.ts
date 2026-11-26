@@ -172,3 +172,25 @@ describe('parseCsv', () => {
     expect(parseCsv('')).toEqual([]);
   });
 });
+
+describe('ekstre ayrıştırma: tarih ve CSV kenar durumları', () => {
+  it('olmayan tarih (31 Şubat, 13. ay) null döner, geçersiz ISO üretmez', () => {
+    expect(parseDate('31.02.2026')).toBeNull();
+    expect(parseDate('45.13.2026')).toBeNull();
+    expect(parseDate('2026-13-01')).toBeNull();
+    expect(parseDate('29.02.2028')).toBe('2028-02-29');
+  });
+
+  it('ay > 12 ise gün/ay yer değiştirir (03/25/2026 → 25 Mart)', () => {
+    expect(parseDate('03/25/2026')).toBe('2026-03-25');
+    expect(parseDate('7.3.26')).toBe('2026-03-07');
+  });
+
+  it('tırnak içindeki satır sonu hücrede kalır, satırı bölmez; "" tırnaktır', () => {
+    const rows = parseCsv('Tarih;Açıklama;Tutar\n10.03.2026;"EFT ""Ahmet""\nkira";1.250,00\n11.03.2026;x;5,00\n');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]['Açıklama']).toBe('EFT "Ahmet"\nkira');
+    expect(rows[0]['Tutar']).toBe('1.250,00');
+    expect(rows[1]['Tarih']).toBe('11.03.2026');
+  });
+});

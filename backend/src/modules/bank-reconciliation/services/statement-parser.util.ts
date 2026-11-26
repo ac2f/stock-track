@@ -97,7 +97,7 @@ export function parseDate(value: unknown): string | null {
 
   const text = String(value).trim();
   const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) return validDate(iso[1], iso[2], iso[3]);
 
   const dmy = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
   if (dmy) {
@@ -106,12 +106,23 @@ export function parseDate(value: unknown): string | null {
     let m = m0;
     if (Number(m) > 12 && Number(d) <= 12) [d, m] = [m, d];
     const year = y.length === 2 ? `20${y}` : y;
-    return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    return validDate(year, m, d);
   }
 
+  // Yazıyla tarih ("March 10, 2026"): yerel gün alınır. toISOString() UTC'ye çevirdiği için Türkiye saatinde
+  // (UTC+3) bir gün geri kayıyordu.
   const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  return null;
+  if (Number.isNaN(parsed.getTime())) return null;
+  return validDate(String(parsed.getFullYear()), String(parsed.getMonth() + 1), String(parsed.getDate()));
+}
+
+/** Gerçek bir takvim günüyse `YYYY-MM-DD`, değilse null (31 Şubat, 13. ay ... veritabanına geçersiz tarih gitmez). */
+function validDate(y: string, m: string, d: string): string | null {
+  const Y = Number(y), M = Number(m), D = Number(d);
+  if (!Number.isInteger(Y) || Y < 1900 || Y > 2999 || M < 1 || M > 12 || D < 1) return null;
+  const t = new Date(Date.UTC(Y, M - 1, D));
+  if (t.getUTCMonth() !== M - 1 || t.getUTCDate() !== D) return null;
+  return `${String(Y).padStart(4, '0')}-${String(M).padStart(2, '0')}-${String(D).padStart(2, '0')}`;
 }
 
 /**
@@ -187,7 +198,20 @@ export function parseRow(
  */
 export function parseCsv(text: string): Record<string, string>[] {
   const clean = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-  const lines = clean.split('\n').filter((l) => l.trim().length > 0);
+  // Satırlar tırnak DIŞINDAKİ satır sonlarından bölünür: tırnaklı hücredeki satır sonu (çok satırlı açıklama)
+  // satırı ikiye bölüyor, hücreler kayıyordu.
+  const records: string[] = [];
+  let start = 0;
+  let inQuotes = false;
+  for (let i = 0; i < clean.length; i++) {
+    if (clean[i] === '"') inQuotes = !inQuotes;
+    else if (clean[i] === '\n' && !inQuotes) {
+      records.push(clean.slice(start, i));
+      start = i + 1;
+    }
+  }
+  records.push(clean.slice(start));
+  const lines = records.filter((l) => l.trim().length > 0);
   if (!lines.length) return [];
 
   const delimiter = (lines[0].match(/;/g)?.length ?? 0) >=
