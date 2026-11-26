@@ -37,3 +37,16 @@ describe('area.util', () => {
     });
   });
 });
+
+describe('alan: kare olmayan ebat ve sınırlar', () => {
+  it('en × boy (kare olmayan) ve adet', () => {
+    expect(mmToSquareMeters(500, 2000)).toBe(1);
+    expect(mmToSquareMeters(1220, 2440)).toBeCloseTo(2.9768, 10);
+    expect(totalAreaM2(250, 4000, 3)).toBe(3);
+  });
+  it('sıfır ya da eksi ölçü ve adet reddedilir', () => {
+    expect(() => mmToSquareMeters(0, 100)).toThrow();
+    expect(() => mmToSquareMeters(100, -1)).toThrow();
+    expect(() => totalAreaM2(100, 100, 0)).toThrow();
+  });
+});

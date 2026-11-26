@@ -97,3 +97,25 @@ describe('yardımcılar', () => {
     expect(DATE_WINDOW_DAYS).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('eşleşme puanı: tarih farkı ve boş girdiler', () => {
+  const base = { txAmount: 1000, txDate: '2026-03-10', txText: 'EFT', candidateAmount: 1000 };
+  it('her gün fark 5 puan düşürür, aynı gün 25 ekler', () => {
+    const same = scoreCandidate({ ...base, candidateDate: '2026-03-10' })!.score;
+    const two = scoreCandidate({ ...base, candidateDate: '2026-03-12' })!.score;
+    const twoBack = scoreCandidate({ ...base, candidateDate: '2026-03-08' })!.score;
+    expect(same).toBe(75);
+    expect(two).toBe(65);
+    expect(twoBack).toBe(two);
+  });
+  it('tutarı sıfır olan ya da adı boş olan aday', () => {
+    expect(scoreCandidate({ ...base, txAmount: 0, candidateDate: '2026-03-10' })).toBeNull();
+    expect(scoreCandidate({ ...base, candidateAmount: 0, candidateDate: '2026-03-10' })).toBeNull();
+    expect(nameOverlap('', 'AHMET')).toBe(0);
+    expect(nameOverlap('Al', 'AL')).toBe(0);
+  });
+  it('puan 100\'ü geçmez', () => {
+    const r = scoreCandidate({ ...base, candidateDate: '2026-03-10', txText: 'AHMET YILMAZ REF123456', candidateName: 'Ahmet Yılmaz', candidateReference: 'REF123456' })!;
+    expect(r.score).toBe(100);
+  });
+});

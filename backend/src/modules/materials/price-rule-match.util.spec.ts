@@ -55,6 +55,15 @@ describe('price-rule-match', () => {
     ).toBe('Pleksi · Beyaz 1001');
   });
 
+  it('başka marka ya da kalınlıktaki çatı eşleşmez; kimliği aynı olan eşleşir; türü olmayan kalemin özelliği yok', () => {
+    expect(ruleMatches({ categoryId: 'pleksi', brandId: 'b2', brand: { name: 'Plexiglas' } }, facts)).toBe(false);
+    expect(ruleMatches({ categoryId: 'pleksi', brandId: 'b1' }, facts)).toBe(true);
+    expect(ruleMatches({ categoryId: 'pleksi', thicknessId: 't2', thickness: { valueMm: '3.00' } }, facts)).toBe(false);
+    expect(ruleMatches({ categoryId: 'pleksi', thicknessId: 't9', thickness: { valueMm: '2.8' } }, facts)).toBe(true);
+    expect(ruleMatches({ categoryId: 'pleksi', thicknessId: 't1' }, facts)).toBe(true);
+    expect(plateFacts({ variant: 'x', template: null })).toBeNull();
+  });
+
   it('kopya katalog kaydında (farklı kimlik, aynı değer) de eşleşir', () => {
     expect(
       ruleMatches({ categoryId: 'pleksi', brandId: 'b9', brand: { name: ' akpolimer' } }, facts),
