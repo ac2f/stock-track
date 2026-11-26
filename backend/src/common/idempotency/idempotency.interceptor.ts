@@ -50,7 +50,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
             res.setHeader('Idempotent-Replay', 'true');
             return of(begun.body);
           case 'busy':
-            throw new ConflictException('Bu işlem şu anda işleniyor; birazdan yeniden deneyin.');
+            // (IN_PROGRESS: çevrimdışı kuyruk bunu "sonra yeniden dene" sayar; ilk istek işlenmeye devam ediyor)
+            throw new ConflictException({ message: 'Bu işlem şu anda işleniyor; birazdan yeniden deneyin.', code: 'IN_PROGRESS' });
           case 'foreign':
             throw new ConflictException('Bu işlem anahtarı başka bir oturuma ait.');
           default:

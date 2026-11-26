@@ -51,9 +51,12 @@ async function send(op: OutboxOp): Promise<SendResult> {
     return { ok: true, data: res.data };
   } catch (err) {
     if (isOfflineError(err)) return { ok: false, offline: true };
-    const e = err as { response?: { status?: number; data?: { message?: string | string[] } } };
+    const e = err as { response?: { status?: number; data?: { message?: string | string[]; code?: string } } };
     // Oturum kapandıysa (401) işlem silinmez; yeniden girişten sonra gönderilir.
     if (e.response?.status === 401) return { ok: false, offline: true };
+    // Aynı işlem sunucuda hâlâ işleniyor (önceki gönderim istemcide zaman aşımına uğradı ama sunucuya ulaştı):
+    // reddedilmiş sayılmaz, sonra yeniden gönderilir — sunucu o zaman saklanan yanıtı döner.
+    if (e.response?.status === 409 && e.response.data?.code === 'IN_PROGRESS') return { ok: false, offline: true };
     const m = e.response?.data?.message;
     return {
       ok: false,
