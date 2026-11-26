@@ -89,3 +89,12 @@ describe('süreyle faturalama', () => {
     expect(billedMinutes(null, 30)).toBeNull();
   });
 });
+
+describe('asgari süre', () => {
+  it('girilen süre ile asgari sürenin büyüğü, 2 haneye yuvarlanmış; süre yoksa null', () => {
+    expect(billedMinutes(5, 15)).toBe(15);
+    expect(billedMinutes(20.125, 15)).toBe(20.13);
+    expect(billedMinutes(7, null)).toBe(7);
+    expect(billedMinutes(null, 15)).toBeNull();
+  });
+});
