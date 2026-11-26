@@ -145,6 +145,35 @@ export class ShopScopeSubscriber implements EntitySubscriberInterface {
   }
 }
 
+/**
+ * İlişkisi (``@ManyToOne``) tanımlanmamış, yalnız kimlik tutan sütunlar: tablo → sütun → gösterdiği dükkân tablosu.
+ * Bunlar ilişki üst verisinde görünmediği için ayrıca sayılır; aksi halde (ör.) B dükkânının markası A dükkânının
+ * malzeme türüne, B'nin teklif kalemi A'nın müşterisine bağlanabiliyordu.
+ */
+export const PLAIN_REFERENCES: Record<string, Record<string, string>> = {
+  material_brands: { category_id: 'material_categories' },
+  material_colors: { category_id: 'material_categories', brand_id: 'material_brands' },
+  material_sizes: { category_id: 'material_categories' },
+  material_thicknesses: { category_id: 'material_categories' },
+  material_plates: {
+    brand_id: 'material_brands',
+    color_id: 'material_colors',
+    size_id: 'material_sizes',
+    thickness_id: 'material_thicknesses',
+  },
+  stock_levels: { owner_customer_id: 'customers' },
+  quotes: { warehouse_id: 'warehouses', converted_sale_id: 'sales', discount_bundle_id: 'service_bundles' },
+  quote_items: {
+    material_owner_id: 'customers',
+    template_id: 'material_templates',
+    service_type_id: 'service_types',
+    service_tier_id: 'service_tiers',
+  },
+  processing_jobs: { quote_id: 'quotes', service_type_id: 'service_types' },
+  corel_cut_reports: { quote_id: 'quotes' },
+  price_rules: { reference_entry_id: 'price_rule_entries' },
+};
+
 /** Kayıttaki dış anahtarlar (müşteri, plaka, depo ...) aynı dükkândan mı? */
 async function assertSameShopReferences(
   manager: EntityManager,
@@ -152,6 +181,9 @@ async function assertSameShopReferences(
   entity: ObjectLiteral,
   shopId: string,
 ): Promise<void> {
+  // (tablo, kimlik) çiftleri: ilişkinin nesnesi de, aynı sütunun düz alanı da (biri değişip öbürü eski kalabilir:
+  // yüklenmiş ilişki dururken `xId` değiştirilirse kaydedilen sütundur)
+  const refs: [string, unknown][] = [];
   const relations = [
     ...metadata.manyToOneRelations,
     ...metadata.oneToOneRelations.filter((r) => r.isOwning),
@@ -164,19 +196,31 @@ async function assertSameShopReferences(
     if (value && typeof value === 'object') {
       value = (value as ObjectLiteral).id;
     }
-    if (!ShopContext.isUuid(value)) continue;
+    refs.push([target.tableName, value]);
+    // (sütunun düz alanı doğrudan okunur: getEntityValue ilişki nesnesi varken onu döndürür)
+    const plain = joinColumn.propertyName !== relation.propertyName ? entity[joinColumn.propertyName] : undefined;
+    if (plain !== undefined) refs.push([target.tableName, plain]);
+  }
+  for (const [dbName, table] of Object.entries(PLAIN_REFERENCES[metadata.tableName] ?? {})) {
+    const column = metadata.findColumnWithDatabaseName(dbName);
+    if (column) refs.push([table, column.getEntityValue(entity)]);
+  }
 
+  const seen = new Set<string>();
+  for (const [table, value] of refs) {
+    if (!ShopContext.isUuid(value)) continue;
+    const key = `${table}:${value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const rows: { shop_id: string | null }[] = await manager.query(
-      `SELECT "shop_id" FROM ${manager.connection.driver.escape(target.tableName)} WHERE "id" = $1`,
+      `SELECT "shop_id" FROM ${manager.connection.driver.escape(table)} WHERE "id" = $1`,
       [value],
     );
     // Bulunamadıysa veritabanının kendi dış anahtar kısıtı karar verir
     // (aynı kayıtta birlikte eklenen ilişkiler henüz yazılmamış olabilir).
     const refShop = rows[0]?.shop_id;
     if (refShop && refShop !== shopId) {
-      throw new ForbiddenException(
-        `Başka bir dükkânın kaydına bağlanılamaz (${target.tableName}).`,
-      );
+      throw new ForbiddenException(`Başka bir dükkânın kaydına bağlanılamaz (${table}).`);
     }
   }
 }
