@@ -19,6 +19,9 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   '23503': 'Kayıt, bağlı olduğu ya da ona bağlı başka bir kayıt yüzünden işlenemedi.',
 };
 
+/** Veritabanının yazamadığı metin (NUL, geçersiz karakter): istemcinin düzeltebileceği girdi, 400. */
+const BAD_TEXT_CODES = new Set(['22P05', '22021', '22P02']);
+
 /**
  * Veritabanına ulaşılamıyor (kapalı, yeniden başlıyor, bağlantı koptu). 503
  * döner: arayüz bunu "sunucu geçici olarak yok" sayar ve işlemleri cihazda
@@ -69,18 +72,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const constraint = constraintMessage(exception);
+    const badText =
+      exception instanceof QueryFailedError &&
+      BAD_TEXT_CODES.has((exception as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ?? '');
     const dbDown = !(exception instanceof HttpException) && isDatabaseDown(exception);
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
         : constraint
           ? HttpStatus.CONFLICT
+          : badText
+            ? HttpStatus.BAD_REQUEST
           : dbDown
             ? HttpStatus.SERVICE_UNAVAILABLE
             : HttpStatus.INTERNAL_SERVER_ERROR;
 
     let message: string | string[] =
-      constraint ?? (dbDown ? 'Veritabanına şu an ulaşılamıyor.' : 'Beklenmeyen bir hata oluştu.');
+      constraint ??
+      (badText
+        ? 'Girilen metin kaydedilemiyor (geçersiz karakter ya da biçim).'
+        : dbDown
+          ? 'Veritabanına şu an ulaşılamıyor.'
+          : 'Beklenmeyen bir hata oluştu.');
     // Makinelerin okuduğu kısa hata kodu (ör. eşitlemede RESNAPSHOT).
     let code: string | undefined;
     if (exception instanceof HttpException) {

@@ -1,4 +1,5 @@
 import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { StripNulPipe } from './common/pipes/strip-nul.pipe';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -130,6 +131,8 @@ async function bootstrap(): Promise<void> {
 
   // Gelen tüm payload'ları DTO'lara göre doğrula & dönüştür.
   app.useGlobalPipes(
+    // (NUL karakteri doğrulamadan önce atılır: PostgreSQL metne yazmaz, istek 500 ile düşüyordu)
+    new StripNulPipe(),
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
