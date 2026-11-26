@@ -1,6 +1,7 @@
 import { MaterialPlate } from '../../materials/entities/material-plate.entity';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -101,6 +102,33 @@ export class QuotesService {
   }
 
   /**
+   * Bir teklifin durumunu değiştiren işlemler (kabul, dönüştürme, düzenleme, silme) sırayla çalışır: aynı teklif iki
+   * kez birden dönüştürülürse (çift tıklama, çevrimdışı kuyruğun yeniden göndermesi, iki kişi) iki satış açılıyor,
+   * stok ve cari iki kez düşüyordu. Kilit veritabanının danışma kilididir (PM2 kümesindeki süreçler arasında da
+   * geçerli); beklemez: teklif başka bir işlemdeyse 409 döner.
+   */
+  private async withQuoteLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    const key = `quote:${id}`;
+    try {
+      const [{ locked }] = await runner.query(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, [key]);
+      if (!locked) {
+        throw new ConflictException(
+          'Bu teklif şu an başka bir işlemde (ör. ikinci kez dönüştürülüyor). Birkaç saniye sonra yenileyin.',
+        );
+      }
+      try {
+        return await fn();
+      } finally {
+        await runner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [key]);
+      }
+    } finally {
+      await runner.release();
+    }
+  }
+
+  /**
    * Teklif oluşturur (yalnızca hesap; cari/stok hareketi yok). `finalize`
    * verilmişse (geriye dönük giriş) aynı çağrıda kabul edilip satış/işlemeye
    * dönüştürülür ve istenirse tamamlanmış yapılır.
@@ -124,20 +152,22 @@ export class QuotesService {
     dto: CreateQuoteDto,
     userId?: string,
   ): Promise<QuoteWithConversion> {
-    const quote = await this.findOne(id);
-    if (
-      quote.status === QuoteStatus.CONVERTED ||
-      quote.status === QuoteStatus.ACCEPTED
-    ) {
-      throw new BadRequestException(
-        'Kabul edilmiş veya dönüştürülmüş teklif düzenlenemez.',
-      );
-    }
-    const built = await this.buildQuoteData(dto);
-    const saved = await this.dataSource.transaction(async (manager) => {
-      await manager.delete(QuoteItem, { quoteId: quote.id });
-      Object.assign(quote, built.fields, { items: built.items });
-      return manager.save(quote);
+    const saved = await this.withQuoteLock(id, async () => {
+      const quote = await this.findOne(id);
+      if (
+        quote.status === QuoteStatus.CONVERTED ||
+        quote.status === QuoteStatus.ACCEPTED
+      ) {
+        throw new BadRequestException(
+          'Kabul edilmiş veya dönüştürülmüş teklif düzenlenemez.',
+        );
+      }
+      const built = await this.buildQuoteData(dto);
+      return this.dataSource.transaction(async (manager) => {
+        await manager.delete(QuoteItem, { quoteId: quote.id });
+        Object.assign(quote, built.fields, { items: built.items });
+        return manager.save(quote);
+      });
     });
     return this.finalizeIfAsked(saved, dto, userId);
   }
@@ -331,7 +361,11 @@ export class QuotesService {
   }
 
   /** Durum değiştirir (CONVERTED hariç; o yalnızca convert ile ayarlanır). */
-  async setStatus(id: string, status: QuoteStatus): Promise<Quote> {
+  setStatus(id: string, status: QuoteStatus): Promise<Quote> {
+    return this.withQuoteLock(id, () => this.setStatusLocked(id, status));
+  }
+
+  private async setStatusLocked(id: string, status: QuoteStatus): Promise<Quote> {
     const quote = await this.findOne(id);
     if (quote.status === QuoteStatus.CONVERTED) {
       throw new BadRequestException('Dönüştürülmüş teklif değiştirilemez.');
@@ -356,7 +390,16 @@ export class QuotesService {
    *    billOnCompletion=true) → tamamlanınca faturalanır.
    * Olaylar (sale.created) commit sonrası yayınlanır.
    */
-  async convert(
+  convert(
+    id: string,
+    soldById: string,
+    opts: { completeProcessing?: boolean } = {},
+  ): Promise<QuoteConversionResult> {
+    // (durum kilit alındıktan sonra okunur: ikinci istek "zaten dönüştürülmüş" görür)
+    return this.withQuoteLock(id, () => this.convertLocked(id, soldById, opts));
+  }
+
+  private async convertLocked(
     id: string,
     soldById: string,
     opts: { completeProcessing?: boolean } = {},
@@ -607,7 +650,11 @@ export class QuotesService {
    *  - teklif kalemlerini ve teklifi fiziksel olarak siler.
    * Böylece teklife ait borçlar ekstreden tamamen düşer.
    */
-  async remove(id: string): Promise<void> {
+  remove(id: string): Promise<void> {
+    return this.withQuoteLock(id, () => this.removeLocked(id));
+  }
+
+  private async removeLocked(id: string): Promise<void> {
     const quote = await this.findOne(id);
     await this.dataSource.transaction(async (manager) => {
       // Teklife ait kuyruk işleri (stok + cari geri alınır, bakiye yeniden hesaplanır).

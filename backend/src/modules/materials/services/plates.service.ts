@@ -679,7 +679,7 @@ export class PlatesService {
           ownerCustomerId: ownerCustomerId ?? IsNull(),
         },
         // FOR UPDATE, eager ilişkilerin dış birleşimine uygulanamaz.
-        lock: { mode: "pessimistic_write" as const },
+        lock: { mode: "for_no_key_update" as const },
         loadEagerRelations: false,
       });
     let level = await findLevel();
@@ -777,7 +777,7 @@ export class PlatesService {
     // ikincisi birincinin sonucunu (tükendi) görür. Kilit transaction sonuna kadar.
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
-      lock: { mode: "pessimistic_write" },
+      lock: { mode: "for_no_key_update" },
       loadEagerRelations: false,
       // Tükenip soft-delete olmuş tabaka da AREA yolundan (ebat) düşülmeli;
       // aksi halde null gelip adet yoluna düşüyor ve "Yetersiz stok" hatası
@@ -919,7 +919,7 @@ export class PlatesService {
     if (!widthMm && !heightMm) return;
     const plate = await manager.findOne(MaterialPlate, {
       where: { id: plateId },
-      lock: { mode: "pessimistic_write" },
+      lock: { mode: "for_no_key_update" },
       loadEagerRelations: false,
       withDeleted: true,
     });

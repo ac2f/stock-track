@@ -54,7 +54,7 @@ export class CustomerAccountService {
     // Satırı kilitleyerek oku → eşzamanlı hareketlerde tutarlılık.
     const customer = await manager.findOne(Customer, {
       where: { id: m.customerId },
-      lock: { mode: 'pessimistic_write' },
+      lock: { mode: 'for_no_key_update' },
     });
     if (!customer) {
       throw new NotFoundException('Müşteri bulunamadı.');
@@ -170,7 +170,7 @@ export class CustomerAccountService {
   ): Promise<number> {
     const customer = await manager.findOne(Customer, {
       where: { id: customerId },
-      lock: { mode: 'pessimistic_write' },
+      lock: { mode: 'for_no_key_update' },
     });
     if (!customer) {
       throw new NotFoundException('Müşteri bulunamadı.');

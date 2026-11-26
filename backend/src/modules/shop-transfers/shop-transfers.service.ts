@@ -501,7 +501,7 @@ export class ShopTransfersService {
       let existing: ShopTransfer | null = null;
       if (a.existingId) {
         // Aynı belgenin iki kez onaylanmasına karşı satır kilidi.
-        existing = await manager.findOne(ShopTransfer, { where: { id: a.existingId }, lock: { mode: 'pessimistic_write' } });
+        existing = await manager.findOne(ShopTransfer, { where: { id: a.existingId }, lock: { mode: 'for_no_key_update' } });
         if (!existing || existing.status !== ShopTransferStatus.PENDING) {
           throw new BadRequestException('Bu teklif artık onay beklemiyor (başkası karara bağlamış ya da geri çekilmiş).');
         }
@@ -888,7 +888,7 @@ export class ShopTransfersService {
     await this.dataSource.transaction(async (manager) => {
       const locked = await manager.findOne(ShopTransfer, {
         where: { id },
-        lock: { mode: 'pessimistic_write' },
+        lock: { mode: 'for_no_key_update' },
       });
       if (!locked || locked.status !== ShopTransferStatus.COMPLETED) {
         throw new BadRequestException('Bu belge zaten iptal edilmiş.');

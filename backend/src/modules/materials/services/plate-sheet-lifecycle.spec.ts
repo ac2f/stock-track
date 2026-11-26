@@ -48,7 +48,7 @@ describe('PlatesService sheet lifecycle', () => {
         .consume({ plateId: 'p1', warehouseId: 'w', quantity: 1, manager: manager as never })
         .catch(() => undefined);
       const opts = (manager.findOne.mock.calls as unknown as unknown[][])[0][1] as Record<string, unknown>;
-      expect(opts.lock).toEqual({ mode: 'pessimistic_write' });
+      expect(opts.lock).toEqual({ mode: 'for_no_key_update' });
       expect(opts.withDeleted).toBe(true);
     });
 

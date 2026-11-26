@@ -281,7 +281,7 @@ export class ProcessingService {
     const saved = await this.dataSource.transaction(async (manager) => {
       const job = await manager.findOne(ProcessingJob, {
         where: { id },
-        lock: { mode: "pessimistic_write" },
+        lock: { mode: "for_no_key_update" },
         loadEagerRelations: false,
       });
       if (!job) {
@@ -766,7 +766,7 @@ export class ProcessingService {
         where: { id },
         withDeleted: true,
         loadEagerRelations: false,
-        lock: { mode: "pessimistic_write" },
+        lock: { mode: "for_no_key_update" },
       });
       if (!job) {
         throw new NotFoundException("İşleme kaydı bulunamadı.");

@@ -115,6 +115,12 @@ export class SalesService {
       dto.items.map((it) => it.plateId).filter((id): id is string => !!id),
     );
 
+    // Malzemeci fiyatlarına göre müşteriye sağlanan indirim — cari ekstrede
+    // "piyasadan %X uygun" olarak görünsün diye satış anında hesaplanır. Kilitlerden (stok, cari) ÖNCE okunur:
+    // bu okuma işlemin dışındaki bir bağlantıyla yapılır; kilidi tutarken havuzdan bağlantı beklemek, aynı
+    // tabakayı bekleyen eşzamanlı satışlar havuzu doldurduğunda hepsini zaman aşımına düşürüyordu.
+    const discountByPlate = await this.discountPercents([...plateById.keys()]);
+
     // Kalemlerin sahipliğini stok gerçeğine göre düzelt: müşteriye ait her
     // malzeme konsinye sayılır (bkz. resolveOwnership). Bundan sonraki tüm
     // hesaplar/stok hareketleri `saleItems` üzerinden yürür.
@@ -274,9 +280,6 @@ export class SalesService {
     });
     const savedSale = await manager.save(sale);
 
-    // Malzemeci fiyatlarına göre müşteriye sağlanan indirim — cari ekstrede
-    // "piyasadan %X uygun" olarak görünsün diye satış anında hesaplanır.
-    const discountByPlate = await this.discountPercents([...plateById.keys()]);
 
     // Alıcı borçlanır (DEBIT, baz tutarda). Açıklamaya kalem özetini (ürün,
     // miktar/m², birim fiyat) ekle ki cari ekstrede satış detayı görünsün (#4).
